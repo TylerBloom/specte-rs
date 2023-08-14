@@ -51,20 +51,20 @@ impl CartridgeHeader {
     pub const LENGTH: usize = Self::END_ADDR - Self::START_ADDR + 1;
 
     pub fn extract_from_rom(rom: &[u8]) -> Self {
-        let entrypoint: [u8; 4] = rom[0x100..=0x103].try_into().unwrap();
-        let logo: [u8; 48] = rom[0x104..=0x133].try_into().unwrap();
-        let title: [u8; 15] = rom[0x134..=0x142].try_into().unwrap();
-        let cgb: char = rom[0x143] as char;
-        let new_licensee: u16 = u16::from_be_bytes([rom[0x144], rom[0x145]]);
-        let sgb: char = rom[0x146] as char;
-        let cartridge_type: char = rom[0x147] as char;
-        let rom_size: u8 = rom[0x148];
-        let ram_size: u8 = rom[0x149];
-        let destination: bool = rom[0x14A] != 0x0;
-        let old_licensee: char = rom[0x14B] as char;
-        let mask_rom_version: char = rom[0x14C] as char;
-        let header_checksum: u8 = rom[0x14D];
-        let global_checksum: u16 = u16::from_be_bytes([rom[0x14E], rom[0x14F]]);
+        let entrypoint = rom[0x100..=0x103].try_into().unwrap();
+        let logo = rom[0x104..=0x133].try_into().unwrap();
+        let title = rom[0x134..=0x142].try_into().unwrap();
+        let cgb = rom[0x143] as char;
+        let new_licensee = u16::from_be_bytes([rom[0x144], rom[0x145]]);
+        let sgb = rom[0x146] as char;
+        let cartridge_type = rom[0x147] as char;
+        let rom_size = rom[0x148];
+        let ram_size = rom[0x149];
+        let destination = rom[0x14A] != 0x0;
+        let old_licensee = rom[0x14B] as char;
+        let mask_rom_version = rom[0x14C] as char;
+        let header_checksum = rom[0x14D];
+        let global_checksum = u16::from_be_bytes([rom[0x14E], rom[0x14F]]);
         Self {
             entrypoint,
             logo,
