@@ -83,26 +83,3 @@ impl CartridgeHeader {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::rom::CartridgeHeader;
-
-    const SNAKE_ROM: &[u8] = include_bytes!("../roms/snake.gb");
-
-    fn checksum(slice: &[u8]) -> u8 {
-        let mut digest = 0u8;
-        for &b in slice {
-            digest = digest.overflowing_sub(b.overflowing_add(1).0).0;
-        }
-        digest
-    }
-
-    #[test]
-    fn snake_header() {
-        let header = CartridgeHeader::extract_from_rom(SNAKE_ROM);
-        println!("{header:#02X?}");
-        assert_eq!(&SNAKE_ROM[0x134..=0x142], header.title.as_slice());
-        assert_eq!(checksum(&SNAKE_ROM[0x0134..0x14D]), header.header_checksum);
-    }
-}

@@ -9,9 +9,28 @@
 
 #![allow(dead_code)]
 
+use std::borrow::Cow;
+
+use mbc::MemoryBankController;
+
 mod cpu;
 mod decoder;
 mod emulator;
 mod gameboy;
 mod instruction;
+mod mbc;
 mod rom;
+
+/// Represents a Gameboy color with a cartridge inserted.
+pub struct Gameboy {
+    mbc: MemoryBankController,
+}
+
+impl Gameboy {
+    /// Takes data that represents the data stored on a game cartridge and uses it to construct the
+    pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
+        Self {
+            mbc: MemoryBankController::new(cart)
+        }
+    }
+}
