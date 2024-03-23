@@ -58,8 +58,7 @@ impl MemoryBankController {
     pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
         let cart = cart.into();
         assert_eq!(&cart[0x0104..=0x133], NINTENDO_LOGO);
-        let title = String::from_utf8(cart[0x0134..=0x0143].to_owned())
-            .expect("Title was an invalid utf8 string");
+        let title: String = cart[0x0134..=0x0143].iter().map(|&b| b as char).collect();
         println!("Cartridge title: {title}");
         let is_cgb = match cart[0x143] {
             0x80 => true,
@@ -71,22 +70,22 @@ impl MemoryBankController {
             }
         };
         let rom_size = match cart[0x0148] {
-            0x00 => 32 * 1024,
-            0x01 => 64 * 1024,
-            0x02 => 128 * 1024,
-            0x03 => 256 * 1024,
-            0x04 => 512 * 1024,
-            0x05 => 1024 * 1024,
-            0x06 => 2 * 1024 * 1024,
-            0x07 => 4 * 1024 * 1024,
-            0x08 => 8 * 1024 * 1024,
+            0x00 => 32 ,
+            0x01 => 64 ,
+            0x02 => 128 ,
+            0x03 => 256 ,
+            0x04 => 512 ,
+            0x05 => 1024 ,
+            0x06 => 2 * 1024,
+            0x07 => 4 * 1024,
+            0x08 => 8 * 1024,
             0x52 => todo!(), // 1.1 * 1024 * 1024,
             0x53 => todo!(), // 1.2 * 1024 * 1024,
             0x54 => todo!(), // 1.5 * 1024 * 1024,
             n => panic!("Unknown ROM size: {n}"),
-        };
+        } * 1024;
         println!("Cartridge ROM size: {rom_size}");
-        let ram_size =
+        let ram_size: usize =
         match cart[0x0149] {
             0x00 => 0,
             0x02 => 8 * 1024,
@@ -110,10 +109,10 @@ impl MemoryBankController {
                 println!("ROM size: {rom_size:x}");
                 let rom = Vec::from(&cart[0x0000..=0x7FFF]);
                 assert_eq!(rom_size, rom.len());
-                let ram = Vec::with_capacity(ram_size as usize);
+                let ram = vec![0; ram_size];
                 Self::Direct { rom, ram }
             }
-            0x01 => todo!(),
+            0x01 => Self::MBC1(MBC1::new(rom_size, ram_size as usize, &cart)),
             0x02 => todo!(),
             0x03 => todo!(),
             0x05 => todo!(),

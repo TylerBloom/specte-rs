@@ -25,6 +25,31 @@ pub struct MBC1 {
 }
 
 impl MBC1 {
+    pub fn new(rom_size: usize, ram_size: usize, cart: &[u8]) -> Self {
+        println!("MBC1 ROM size: {rom_size} RAM size: {ram_size}");
+        // All MBC1 cartridges with 1 MiB of ROM or more use this alternate wiring
+        let kind = if rom_size > 1024 * 1024 {
+            MBC1Kind::Rewired
+        } else {
+            MBC1Kind::Standard
+        };
+        let rom_bank_count = rom_size / (16 * 1024);
+        let rom = cart[..rom_size].to_owned();
+        let ram_bank_count = ram_size / (16 * 1024);
+        let ram = vec![0; ram_size];
+        Self {
+            kind,
+            rom,
+            rom_bank: 0,
+            rom_bank_count,
+            ram,
+            ram_bank: 0,
+            ram_bank_count,
+            ram_enabled: false,
+            banking_mode: BankingMode::Simple,
+        }
+    }
+
     pub fn read(&self, index: u16) -> u8 {
         match index {
             0x0000..=0x3FFF => self.rom[index as usize],

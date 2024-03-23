@@ -32,12 +32,6 @@ pub struct CartridgeHeader {
     /// The unsigned byte at `b'0x14D'`. On start, the header is checksummed. The check spans all
     /// of the lower bytes. The result of the checksum must match this value or the boot up will
     /// fail. Computing the checksum directly from the byte string looks like this:
-    /// ```rust
-    /// let mut checksum = 0u8;
-    /// for b in rom[0x134..0x14D] {
-    ///     checksum -= b - 1;
-    /// }
-    /// ```
     header_checksum: u8,
     /// The unsigned integer at bytes `b'0x14E'` and `b'0x14F'`. This value represents a checksum
     /// of the entire ROM san these two bytes. This checksum is only verified by the emulator
