@@ -1,6 +1,8 @@
 use std::ops::{Index, IndexMut};
 
-use crate::instruction::Instruction;
+use crate::{instruction::{Instruction, LoadOp, ControlOp}, mbc::MemoryBankController};
+
+static START_UP_HEADER: &[u8; 0x900] = include_bytes!("cgb.bin");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FullRegister {
@@ -32,17 +34,103 @@ pub enum RegisterFlags {
 }
 
 #[derive(Debug, Default)]
-pub struct Cpu {
+pub(crate) struct Cpu {
+    /// The AF register
     af: u16,
+    /// The BC register
     bc: u16,
+    /// The DE register
     de: u16,
+    /// The HL register
     hl: u16,
+    /// The SP register
     sp: u16,
+    /// The PC register
     pc: u16,
 }
 
 impl Cpu {
-    pub fn execute(&mut self, instr: Instruction) {
+    /// Constructs a new CPU with each register set to 0.
+    pub fn new() -> Self {
+        Self {
+            ..Default::default()
+        }
+    }
+
+    pub fn read_op(&self, mbc: &MemoryBankController) -> Instruction {
+        mbc.read_op(self.sp)
+    }
+
+    /// A method similar to `Self::read_op`, but is ran during start up, when the ROM that is
+    /// burned-into the CPU is mapped over normal memory.
+    pub(crate) fn start_up_read_op(&self, mbc: &MemoryBankController) -> Instruction {
+        match self.sp {
+            sp @ 0x0000..=0x00FF | sp @ 0x0200..=0x08FF => {
+                Instruction::parse(&START_UP_HEADER[sp as usize..]).1
+            }
+            sp => mbc.read_op(sp),
+        }
+    }
+
+    pub fn execute(&mut self, instr: Instruction, mbc: &mut MemoryBankController) {
+        match instr {
+            Instruction::Control(op) => self.execute_control_op(op, mbc),
+            Instruction::Load(op) => self.execute_load_op(op, mbc),
+            Instruction::ArithLog(_) => todo!(),
+            Instruction::Jump(_) => todo!(),
+            Instruction::Ret() => todo!(),
+            Instruction::Call() => todo!(),
+            Instruction::Daa => todo!(),
+            Instruction::Cpl => todo!(),
+            Instruction::Rlca => todo!(),
+            Instruction::Rrca => todo!(),
+            Instruction::Rla => todo!(),
+            Instruction::Rra => todo!(),
+        }
+    }
+
+    pub fn execute_control_op(&mut self, op: ControlOp, mbc: &mut MemoryBankController) {
+        match op {
+            ControlOp::NoOp => { },
+            ControlOp::Stop(_) => todo!(),
+            ControlOp::Halt => todo!(),
+            ControlOp::DI => todo!(),
+            ControlOp::EI => todo!(),
+            ControlOp::Scf => todo!(),
+            ControlOp::Ccf => todo!(),
+        }
+    }
+
+    pub fn execute_load_op(&mut self, op: LoadOp, mbc: &mut MemoryBankController) {
+        match op {
+            LoadOp::FullLoad(_, _) => todo!(),
+            LoadOp::HalfLoad { reg, data } => todo!(),
+            LoadOp::SwapHalfReg { src, dest } => todo!(),
+            LoadOp::HLStore(_) => todo!(),
+            LoadOp::HLLoad(_) => todo!(),
+            LoadOp::HLIncStore => todo!(),
+            LoadOp::HLDecStore => todo!(),
+            LoadOp::HLIncLoad => todo!(),
+            LoadOp::HLDecLoad => todo!(),
+            LoadOp::StoreSP(_) => todo!(),
+            LoadOp::SPLoad => todo!(),
+            LoadOp::SignedPointerLoad(_) => todo!(),
+            LoadOp::Pop(_) => todo!(),
+            LoadOp::Push(_) => todo!(),
+        }
+    }
+
+    /// A method similar to `Self::execute`, but is ran during start up, when the ROM that is
+    /// burned-into the CPU is mapped over normal memory.
+    ///
+    /// Returns a the next operation should the start up process not be completed.
+    pub fn start_up_execute(
+        &mut self,
+        instr: Instruction,
+        mbc: &mut MemoryBankController,
+    ) -> Option<Instruction> {
+        // TODO: Do we need to work about remapped memory??
+        // self.execute(instr, mbc)
         todo!()
     }
 }

@@ -1,5 +1,7 @@
 #![allow(dead_code, unused)]
 
+use std::ops::{Index, IndexMut};
+
 mod mbc1;
 use std::borrow::Cow;
 
@@ -10,6 +12,8 @@ mod mbc3;
 pub use mbc3::*;
 mod mbc5;
 pub use mbc5::*;
+
+use crate::instruction::Instruction;
 
 pub static NINTENDO_LOGO: &[u8] = &[
     0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
@@ -24,6 +28,9 @@ pub enum MemoryBankController {
     ///
     /// See the spec [here](https://gbdev.io/pandocs/nombc.html).
     Direct {
+        // TODO: It is certainly possible that operations that are 2-bytes wide might need to
+        // retrieve data over the ROM/RAM boundary. In that case, these vecs should be combined,
+        // though this is might be a cornercase.
         /// A vec that holds 32 KiB (4,096 bytes).
         rom: Vec<u8>,
         /// A vec that holds 8 KiB (1,024 bytes).
@@ -70,12 +77,12 @@ impl MemoryBankController {
             }
         };
         let rom_size = match cart[0x0148] {
-            0x00 => 32 ,
-            0x01 => 64 ,
-            0x02 => 128 ,
-            0x03 => 256 ,
-            0x04 => 512 ,
-            0x05 => 1024 ,
+            0x00 => 32,
+            0x01 => 64,
+            0x02 => 128,
+            0x03 => 256,
+            0x04 => 512,
+            0x05 => 1024,
             0x06 => 2 * 1024,
             0x07 => 4 * 1024,
             0x08 => 8 * 1024,
@@ -85,8 +92,7 @@ impl MemoryBankController {
             n => panic!("Unknown ROM size: {n}"),
         } * 1024;
         println!("Cartridge ROM size: {rom_size}");
-        let ram_size: usize =
-        match cart[0x0149] {
+        let ram_size: usize = match cart[0x0149] {
             0x00 => 0,
             0x02 => 8 * 1024,
             0x03 => 32 * 1024,
@@ -113,8 +119,10 @@ impl MemoryBankController {
                 Self::Direct { rom, ram }
             }
             0x01 => Self::MBC1(MBC1::new(rom_size, ram_size as usize, &cart)),
-            0x02 => todo!(),
-            0x03 => todo!(),
+            // TODO: Does the info of this bit need to be passed to the MBC1 constructor?
+            0x02 => Self::MBC1(MBC1::new(rom_size, ram_size as usize, &cart)),
+            // TODO: We need to communicate that the cart has RAM that is maintained by a battery.
+            0x03 => Self::MBC1(MBC1::new(rom_size, ram_size as usize, &cart)),
             0x05 => todo!(),
             0x06 => todo!(),
             0x08 => todo!(),
@@ -141,5 +149,53 @@ impl MemoryBankController {
             0xFF => todo!(),
             n => panic!("Unknown cartridge type: {n}"),
         }
+    }
+
+    pub fn read_op(&self, index: u16) -> Instruction {
+        Instruction::parse(self.read_from(index)).1
+    }
+
+    fn read_from(&self, index: u16) -> &[u8] {
+        let index = index as usize;
+        match self {
+            MemoryBankController::Direct { rom, ram } => {
+                if index < rom.len() {
+                    &rom[index..]
+                } else {
+                    &ram[index + 1 - rom.len()..]
+                }
+            }
+            MemoryBankController::MBC1(_) => todo!(),
+            MemoryBankController::MBC2 => todo!(),
+            MemoryBankController::MBC3 => todo!(),
+            MemoryBankController::MBC5 => todo!(),
+        }
+    }
+
+    pub fn read_mut_from(&mut self, index: u16) -> &mut [u8] {
+        let index = index as usize;
+        match self {
+            // TODO: This should probably panic (or something) if index < rom.len(), i.e. they are
+            // trying to write to ROM.
+            MemoryBankController::Direct { rom, ram } => &mut ram[index - rom.len()..],
+            MemoryBankController::MBC1(_) => todo!(),
+            MemoryBankController::MBC2 => todo!(),
+            MemoryBankController::MBC3 => todo!(),
+            MemoryBankController::MBC5 => todo!(),
+        }
+    }
+}
+
+impl Index<u16> for MemoryBankController {
+    type Output = u8;
+
+    fn index(&self, index: u16) -> &Self::Output {
+        &self.read_from(index)[0]
+    }
+}
+
+impl IndexMut<u16> for MemoryBankController {
+    fn index_mut(&mut self, index: u16) -> &mut Self::Output {
+        &mut self.read_mut_from(index)[0]
     }
 }

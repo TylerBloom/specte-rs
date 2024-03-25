@@ -5,6 +5,7 @@ fn map_tuple<A, B, F: FnOnce(A) -> B>((x, a): (usize, A), f: F) -> (usize, B) {
 }
 
 /// The main instruction type. Used to parse a byte slice into, well, instructions.
+#[derive(Debug, Clone, Copy)]
 pub enum Instruction {
     /// Various CPU control operations
     Control(ControlOp),
@@ -35,6 +36,7 @@ impl Instruction {
     /// instructions can consist of different numbers of bytes, the number of bytes used is also
     /// returned. This is used to inform the reader head how far to progress.
     pub fn parse(data: &[u8]) -> (usize, Self) {
+        println!("Reading op from {:?}", &data[..=0xF]);
         match data[0] {
             #[rustfmt::skip]
             0x00 | 0x10 | 0x37 | 0x76 | 0xF3 | 0xFB => map_tuple(ControlOp::parse(data), Self::Control),
@@ -49,11 +51,43 @@ impl Instruction {
             | 0xC6 | 0xD6 | 0xE6 | 0xF6
             | 0xCE | 0xDE | 0xEE | 0xFE
             | 0x80..=0xBF | 0xE8 => map_tuple(ArithLogOp::parse(data), Self::ArithLog),
+            n @ 0x20 | n @ 0x30 | n @ 0x28 | n @ 0x38 => {
+                let cond = match n {
+                    0x20 => Condition::NZ,
+                    0x30 => Condition::NC,
+                    0x28 => Condition::Z,
+                    0x38 => Condition::C,
+                    _ => unreachable!(),
+                };
+                (0, Self::Jump(JumpOp::CheckedJump(cond, data[1] as i8)))
+            }
             _ => unreachable!(),
         }
     }
+
+    pub const fn ticks(&self) -> u8 {
+        todo!()
+    }
+
+    pub const fn size(&self) -> u8 {
+        todo!()
+    }
 }
 
+/// Encapsulates which condition an operation checks for.
+///  - Z -- Execute if Z is set.
+///  - NZ -- Execute if Z is not set.
+///  - C -- Execute if C is set.
+///  - NC -- Execute if C is not set.
+#[derive(Debug, Clone, Copy)]
+pub enum Condition {
+    Z,
+    NZ,
+    C,
+    NC,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum ControlOp {
     /// Do nothing
     NoOp,
@@ -86,6 +120,7 @@ impl ControlOp {
 }
 
 /// Registers used for pushing onto and popping from the stack
+#[derive(Debug, Clone, Copy)]
 pub enum StackReg {
     AF,
     BC,
@@ -94,6 +129,7 @@ pub enum StackReg {
 }
 
 /// Communicates if an operand is a register, a value pointed at by the HL register, or a literal
+#[derive(Debug, Clone, Copy)]
 pub enum ArithLogValue {
     /// The operand is another register
     Reg(HalfRegister),
@@ -119,12 +155,13 @@ impl ArithLogValue {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum JumpOp {
     /// Jump the specified number of steps.
-    Shift(i8),
-    /// If the specified flag is 0, then move the given number of steps from the program counter.
-    /// Otherwise, continue to the next instruction
-    CheckedShift(RegisterFlags, i8),
+    Jump(i8),
+    /// If the specified condition is met, then move the given number of steps from the program
+    /// counter. Otherwise, continue to the next instruction
+    CheckedJump(Condition, i8),
     /// The given value is loaded into the SP register.
     Load(u16),
     /// The value in the HL register is loaded into the SP register.
@@ -138,6 +175,7 @@ pub enum JumpOp {
     Rst(u8),
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum ArithLogOp {
     /// Increments a full register by one
     IncFull(DirectFullReg),
@@ -219,6 +257,7 @@ impl ArithLogOp {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum LoadOp {
     /// Takes 16 bits and loads them into a register
     FullLoad(DirectFullReg, u16),
@@ -257,11 +296,13 @@ pub enum LoadOp {
     // TODO: IO ports
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum HLStore {
     HalfReg(HalfRegister),
     Data(u8),
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum DirectFullReg {
     BC,
     DE,
