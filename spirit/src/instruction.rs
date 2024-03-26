@@ -1,11 +1,10 @@
-use crate::cpu::{HalfRegister, RegisterFlags};
+use std::mem::discriminant;
 
-fn map_tuple<A, B, F: FnOnce(A) -> B>((x, a): (usize, A), f: F) -> (usize, B) {
-    (x, f(a))
-}
+use crate::cpu::{HalfRegister, RegisterFlags};
+use derive_more::From;
 
 /// The main instruction type. Used to parse a byte slice into, well, instructions.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, From)]
 pub enum Instruction {
     /// Various CPU control operations
     Control(ControlOp),
@@ -35,11 +34,11 @@ impl Instruction {
     /// Takes a ROM's binary instruction sequence and constructs an instruction from it. Since
     /// instructions can consist of different numbers of bytes, the number of bytes used is also
     /// returned. This is used to inform the reader head how far to progress.
-    pub fn parse(data: &[u8]) -> (usize, Self) {
+    pub fn parse(data: &[u8]) -> Self {
         println!("Reading op from {:?}", &data[..=0xF]);
         match data[0] {
             #[rustfmt::skip]
-            0x00 | 0x10 | 0x37 | 0x76 | 0xF3 | 0xFB => map_tuple(ControlOp::parse(data), Self::Control),
+            0x00 | 0x10 | 0x37 | 0x76 | 0xF3 | 0xFB => ControlOp::parse(data).into(),
             #[rustfmt::skip]
               0x03 | 0x13 | 0x23 | 0x33
             | 0x04 | 0x14 | 0x24 | 0x34
@@ -50,7 +49,7 @@ impl Instruction {
             | 0x0D | 0x1D | 0x2D | 0x3D
             | 0xC6 | 0xD6 | 0xE6 | 0xF6
             | 0xCE | 0xDE | 0xEE | 0xFE
-            | 0x80..=0xBF | 0xE8 => map_tuple(ArithLogOp::parse(data), Self::ArithLog),
+            | 0x80..=0xBF | 0xE8 => ArithLogOp::parse(data).into(),
             n @ 0x20 | n @ 0x30 | n @ 0x28 | n @ 0x38 => {
                 let cond = match n {
                     0x20 => Condition::NZ,
@@ -59,18 +58,48 @@ impl Instruction {
                     0x38 => Condition::C,
                     _ => unreachable!(),
                 };
-                (0, Self::Jump(JumpOp::CheckedJump(cond, data[1] as i8)))
+                Self::Jump(JumpOp::CheckedJump(cond, data[1] as i8))
             }
-            _ => unreachable!(),
+            0x40..=0x7F => LoadOp::parse(data).into(),
+            _ => todo!(),
         }
     }
 
+    /// Returns the number of clock cycles it takes to perform the operation (this is not reduced
+    /// by 4).
     pub const fn ticks(&self) -> u8 {
-        todo!()
+        match self {
+            Instruction::Control(op) => op.ticks(),
+            Instruction::Load(_) => todo!(),
+            Instruction::ArithLog(_) => todo!(),
+            Instruction::Jump(_) => todo!(),
+            Instruction::Ret() => todo!(),
+            Instruction::Call() => todo!(),
+            Instruction::Daa => todo!(),
+            Instruction::Cpl => todo!(),
+            Instruction::Rlca => todo!(),
+            Instruction::Rrca => todo!(),
+            Instruction::Rla => todo!(),
+            Instruction::Rra => todo!(),
+        }
     }
 
+    /// Returns the number of bytes the operation takes up in the Gameboy's memory.
     pub const fn size(&self) -> u8 {
-        todo!()
+        match self {
+            Instruction::Control(op) => op.size(),
+            Instruction::Load(op) => todo!(),
+            Instruction::ArithLog(op) => todo!(),
+            Instruction::Jump(op) => todo!(),
+            Instruction::Ret() => todo!(),
+            Instruction::Call() => todo!(),
+            Instruction::Daa => todo!(),
+            Instruction::Cpl => todo!(),
+            Instruction::Rlca => todo!(),
+            Instruction::Rrca => todo!(),
+            Instruction::Rla => todo!(),
+            Instruction::Rra => todo!(),
+        }
     }
 }
 
@@ -106,16 +135,30 @@ pub enum ControlOp {
 }
 
 impl ControlOp {
-    fn parse(data: &[u8]) -> (usize, Self) {
+    fn parse(data: &[u8]) -> Self {
         match data[0] {
-            0x00 => (1, Self::NoOp),
-            0x10 => (2, ControlOp::Stop(data[1])),
-            0x37 => (1, ControlOp::Scf),
-            0x76 => (1, ControlOp::Halt),
-            0xF3 => (1, ControlOp::DI),
-            0xFB => (1, ControlOp::EI),
+            0x00 => Self::NoOp,
+            0x10 => ControlOp::Stop(data[1]),
+            0x37 => ControlOp::Scf,
+            0x76 => ControlOp::Halt,
+            0xF3 => ControlOp::DI,
+            0xFB => ControlOp::EI,
             _ => unreachable!(),
         }
+    }
+
+    /// Returns the number of clock cycles it takes to perform the operation (this is not reduced
+    /// by 4).
+    const fn ticks(&self) -> u8 {
+        // All CPU control operations take 4 cycles.
+        4
+    }
+
+    /// Returns the number of bytes the operation takes up in the Gameboy's memory.
+    const fn size(&self) -> u8 {
+        // All operations except STOP, which has a size of 2, have a size of 1. STOP
+        // 1 + ((discriminant(self) as u8) == (discriminant(&Self::Stop(0) as u8))) as u8
+        todo!()
     }
 }
 
@@ -214,44 +257,48 @@ pub enum ArithLogOp {
 }
 
 impl ArithLogOp {
-    fn parse(data: &[u8]) -> (usize, Self) {
+    fn parse(data: &[u8]) -> Self {
         match data[0] {
-            x @ 0x03 | x @ 0x13 | x @ 0x23 | x @ 0x33 => (1, Self::IncFull(DirectFullReg::parse(x >> 4))),
-            x @ 0x0B | x @ 0x1B | x @ 0x2B | x @ 0x3B => (1, Self::DecFull(DirectFullReg::parse(x >> 4))),
-            0x04 => (1, Self::IncHalf(HalfRegister::B)),
-            0x14 => (1, Self::IncHalf(HalfRegister::D)),
-            0x24 => (1, Self::IncHalf(HalfRegister::H)),
-            0x34 => (1, Self::IncHL),
-            0x0C => (1, Self::IncHalf(HalfRegister::C)),
-            0x1C => (1, Self::IncHalf(HalfRegister::E)),
-            0x2C => (1, Self::IncHalf(HalfRegister::L)),
-            0x3C => (1, Self::IncHalf(HalfRegister::A)),
-            0x05 => (1, Self::DecHalf(HalfRegister::B)),
-            0x15 => (1, Self::DecHalf(HalfRegister::D)),
-            0x25 => (1, Self::DecHalf(HalfRegister::H)),
-            0x35 => (1, Self::DecHL),
-            0x0D => (1, Self::DecHalf(HalfRegister::C)),
-            0x1D => (1, Self::DecHalf(HalfRegister::E)),
-            0x2D => (1, Self::DecHalf(HalfRegister::L)),
-            0x3D => (1, Self::DecHalf(HalfRegister::A)),
-            x @ 0x09 | x @ 0x19 | x @ 0x29 | x @ 0x39 => (1, Self::HLAdd(DirectFullReg::parse(x >> 4))),
-            x @ 0x80..=0x87 => (1, Self::Add(ArithLogValue::parse(x & 0x07))),
-            0xC6 => (2, Self::Add(ArithLogValue::Literal(data[1]))),
-            x @ 0x88..=0x8F => (1, Self::AddCarry(ArithLogValue::parse(x & 0x07))),
-            0xCE => (2, Self::AddCarry(ArithLogValue::Literal(data[1]))),
-            x @ 0x90..=0x97 => (1, Self::Sub(ArithLogValue::parse(x & 0x07))),
-            0xD6 => (2, Self::Sub(ArithLogValue::Literal(data[1]))),
-            x @ 0x98..=0x9F => (1, Self::SubCarry(ArithLogValue::parse(x & 0x07))),
-            0xDE => (2, Self::SubCarry(ArithLogValue::Literal(data[1]))),
-            x @ 0xA0..=0xA7 => (1, Self::And(ArithLogValue::parse(x & 0x07))),
-            0xE6 => (2, Self::And(ArithLogValue::Literal(data[1]))),
-            x @ 0xA8..=0xAF => (1, Self::Xor(ArithLogValue::parse(x & 0x07))),
-            0xEE => (2, Self::Xor(ArithLogValue::Literal(data[1]))),
-            x @ 0xB0..=0xB7 => (1, Self::Or(ArithLogValue::parse(x & 0x07))),
-            0xF6 => (2, Self::Or(ArithLogValue::Literal(data[1]))),
-            x @ 0xB8..=0xBF => (1, Self::Cmp(ArithLogValue::parse(x & 0x07))),
-            0xFE => (2, Self::Cmp(ArithLogValue::Literal(data[1]))),
-            //0xE8 => (Self::parse),
+            x @ 0x03 | x @ 0x13 | x @ 0x23 | x @ 0x33 => {
+                Self::IncFull(DirectFullReg::parse(x >> 4))
+            }
+            x @ 0x0B | x @ 0x1B | x @ 0x2B | x @ 0x3B => {
+                Self::DecFull(DirectFullReg::parse(x >> 4))
+            }
+            0x04 => Self::IncHalf(HalfRegister::B),
+            0x14 => Self::IncHalf(HalfRegister::D),
+            0x24 => Self::IncHalf(HalfRegister::H),
+            0x34 => Self::IncHL,
+            0x0C => Self::IncHalf(HalfRegister::C),
+            0x1C => Self::IncHalf(HalfRegister::E),
+            0x2C => Self::IncHalf(HalfRegister::L),
+            0x3C => Self::IncHalf(HalfRegister::A),
+            0x05 => Self::DecHalf(HalfRegister::B),
+            0x15 => Self::DecHalf(HalfRegister::D),
+            0x25 => Self::DecHalf(HalfRegister::H),
+            0x35 => Self::DecHL,
+            0x0D => Self::DecHalf(HalfRegister::C),
+            0x1D => Self::DecHalf(HalfRegister::E),
+            0x2D => Self::DecHalf(HalfRegister::L),
+            0x3D => Self::DecHalf(HalfRegister::A),
+            x @ 0x09 | x @ 0x19 | x @ 0x29 | x @ 0x39 => Self::HLAdd(DirectFullReg::parse(x >> 4)),
+            x @ 0x80..=0x87 => Self::Add(ArithLogValue::parse(x & 0x07)),
+            0xC6 => Self::Add(ArithLogValue::Literal(data[1])),
+            x @ 0x88..=0x8F => Self::AddCarry(ArithLogValue::parse(x & 0x07)),
+            0xCE => Self::AddCarry(ArithLogValue::Literal(data[1])),
+            x @ 0x90..=0x97 => Self::Sub(ArithLogValue::parse(x & 0x07)),
+            0xD6 => Self::Sub(ArithLogValue::Literal(data[1])),
+            x @ 0x98..=0x9F => Self::SubCarry(ArithLogValue::parse(x & 0x07)),
+            0xDE => Self::SubCarry(ArithLogValue::Literal(data[1])),
+            x @ 0xA0..=0xA7 => Self::And(ArithLogValue::parse(x & 0x07)),
+            0xE6 => Self::And(ArithLogValue::Literal(data[1])),
+            x @ 0xA8..=0xAF => Self::Xor(ArithLogValue::parse(x & 0x07)),
+            0xEE => Self::Xor(ArithLogValue::Literal(data[1])),
+            x @ 0xB0..=0xB7 => Self::Or(ArithLogValue::parse(x & 0x07)),
+            0xF6 => Self::Or(ArithLogValue::Literal(data[1])),
+            x @ 0xB8..=0xBF => Self::Cmp(ArithLogValue::parse(x & 0x07)),
+            0xFE => Self::Cmp(ArithLogValue::Literal(data[1])),
+            0xE8 => todo!(), // TODO: This was `(Self::parse),`
             _ => unreachable!(),
         }
     }
@@ -296,6 +343,23 @@ pub enum LoadOp {
     // TODO: IO ports
 }
 
+impl LoadOp {
+    #[inline]
+    fn parse(data: &[u8]) -> Self {
+        todo!()
+    }
+
+    #[inline]
+    const fn ticks(&self) -> u8 {
+        todo!()
+    }
+
+    #[inline]
+    const fn size(&self) -> u8 {
+        todo!()
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum HLStore {
     HalfReg(HalfRegister),
@@ -333,6 +397,146 @@ mod tests {
             buff[0] = i;
             println!("Parsing instruction: {buff:X?}");
             let _ = ArithLogOp::parse(&buff);
+        }
+    }
+}
+
+/// A module that implements a lookup table of instructions from op codes.
+mod lookup {
+    use super::*;
+    use array_concat::concat_arrays;
+    type OpArray<const N: usize> = [fn(&[u8]) -> Instruction; N];
+
+    macro_rules! define_op {
+        () => {
+            |data| {
+                unreachable!(
+                    "Op code '{}' does not correspond to any valid operation",
+                    data[0]
+                )
+            }
+        };
+        (LD, $r1: ident, $r2: ident) => {
+            |_| {
+                Instruction::Load(LoadOp::SwapHalfReg {
+                    src: HalfRegister::$r1,
+                    dest: HalfRegister::$r2,
+                })
+            }
+        };
+        (LD, $r: ident, [HL]) => {
+            |_| Instruction::Load(LoadOp::HLStore(HLStore::HalfReg(HalfRegister::$r)))
+        };
+        (LD, [HL], $r: ident) => {
+            |_| Instruction::Load(LoadOp::HLLoad(HalfRegister::$r))
+        };
+        (LD, [HL], [HL]) => {
+            |_| Instruction::Control(ControlOp::Halt)
+        };
+    }
+
+    macro_rules! define_op_chunk {
+        (LD) => {{
+            let ops: OpArray<0x40> = concat_arrays!(
+                define_op_chunk!(LD, B),
+                define_op_chunk!(LD, C),
+                define_op_chunk!(LD, D),
+                define_op_chunk!(LD, E),
+                define_op_chunk!(LD, H),
+                define_op_chunk!(LD, L),
+                define_op_chunk!(LD, [HL]),
+                define_op_chunk!(LD, A)
+            );
+            ops
+        }};
+        (LD, [HL]) => {{
+            let ops: OpArray<8> = [
+                define_op!(LD, [HL], B),
+                define_op!(LD, [HL], C),
+                define_op!(LD, [HL], D),
+                define_op!(LD, [HL], E),
+                define_op!(LD, [HL], H),
+                define_op!(LD, [HL], L),
+                define_op!(LD, [HL], [HL]),
+                define_op!(LD, [HL], A),
+            ];
+            ops
+        }};
+        (LD, $r: ident) => {{
+            let ops: OpArray<8> = [
+                define_op!(LD, $r, B),
+                define_op!(LD, $r, C),
+                define_op!(LD, $r, D),
+                define_op!(LD, $r, E),
+                define_op!(LD, $r, H),
+                define_op!(LD, $r, L),
+                define_op!(LD, $r, [HL]),
+                define_op!(LD, $r, A),
+            ];
+            ops
+        }};
+    }
+
+    macro_rules! define_op_lookup_table {
+        () => {
+            concat_arrays!(
+                define_op_lookup_table!(CHUNK_ONE),
+                define_op_lookup_table!(CHUNK_TWO),
+                define_op_lookup_table!(CHUNK_THREE),
+                define_op_lookup_table!(CHUNK_FOUR)
+            )
+        };
+        // NOTE: It is planned to use a transposition method for the top and bottom rows-of-four of
+        // the op table. That way, they all can be defined in a similar way (in rows),
+        // transposed in columns, and concatinated.
+        (CHUNK_ONE) => ({
+            const CHUNK: OpArray<0> = [];
+            CHUNK
+        });
+        (CHUNK_TWO) => {
+            define_op_chunk!(LD)
+        };
+        (CHUNK_THREE) => ({
+            const CHUNK: OpArray<0> = [];
+            CHUNK
+        });
+        (CHUNK_FOUR) => ({
+            const CHUNK: OpArray<0> = [];
+            CHUNK
+        });
+        (PREFIXED) => {
+            []
+        };
+    }
+
+    static OP_LOOKUP: OpArray<0x40> = define_op_lookup_table!();
+    static PREFIXED_OP_LOOKUP: OpArray<0> = define_op_lookup_table!(PREFIXED);
+
+    pub fn parse_instruction(data: &[u8]) -> Instruction {
+        OP_LOOKUP[data[0] as usize](data)
+    }
+
+    #[cfg(test)]
+    mod test {
+        use crate::instruction::lookup::PREFIXED_OP_LOOKUP;
+
+        use super::OP_LOOKUP;
+
+        #[test]
+        fn dedupped_op_lookup_tables() {
+            let mut ops: Vec<_> = OP_LOOKUP.map(|f| f as usize).into();
+            let init_len = ops.len();
+            ops.dedup();
+            // I'm unsure if the duplicated panic closures will have the same address or not.
+            // If so, we can account for that by adding back the known number of invalid
+            // instructions
+            assert_eq!(ops.len(), init_len);
+            assert_eq!(ops.len(), OP_LOOKUP.len());
+            let mut ops: Vec<_> = PREFIXED_OP_LOOKUP.map(|f| f as usize).into();
+            let init_len = ops.len();
+            ops.dedup();
+            assert_eq!(ops.len(), init_len);
+            assert_eq!(ops.len(), PREFIXED_OP_LOOKUP.len());
         }
     }
 }

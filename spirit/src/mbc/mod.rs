@@ -152,7 +152,7 @@ impl MemoryBankController {
     }
 
     pub fn read_op(&self, index: u16) -> Instruction {
-        Instruction::parse(self.read_from(index)).1
+        Instruction::parse(self.read_from(index))
     }
 
     fn read_from(&self, index: u16) -> &[u8] {

@@ -66,7 +66,7 @@ impl Cpu {
     pub(crate) fn start_up_read_op(&self, mbc: &MemoryBankController) -> Instruction {
         match self.sp {
             sp @ 0x0000..=0x00FF | sp @ 0x0200..=0x08FF => {
-                Instruction::parse(&START_UP_HEADER[sp as usize..]).1
+                Instruction::parse(&START_UP_HEADER[sp as usize..])
             }
             sp => mbc.read_op(sp),
         }

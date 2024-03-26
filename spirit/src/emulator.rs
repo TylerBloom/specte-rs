@@ -25,9 +25,12 @@ impl Emulator {
     }
 
     fn read_instr(&mut self) -> Instruction {
+        /*
         let (inc, instr) = Instruction::parse(&self.rom[self.get_head()..]);
         self.inc_head(inc);
         instr
+        */
+        todo!()
     }
 
     fn execute(&mut self, instr: Instruction) {
