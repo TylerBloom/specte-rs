@@ -1,5 +1,3 @@
-use std::mem::discriminant;
-
 use crate::cpu::{HalfRegister, RegisterFlags};
 use derive_more::From;
 
@@ -24,10 +22,8 @@ pub enum Instruction {
     Cpl,
 
     // All 4 are rotate/shift ops
-    Rlca,
-    Rrca,
-    Rla,
-    Rra,
+    BitShift(BitShiftOp),
+    Bit(BitOp),
 }
 
 impl Instruction {
@@ -77,10 +73,7 @@ impl Instruction {
             Instruction::Call() => todo!(),
             Instruction::Daa => todo!(),
             Instruction::Cpl => todo!(),
-            Instruction::Rlca => todo!(),
-            Instruction::Rrca => todo!(),
-            Instruction::Rla => todo!(),
-            Instruction::Rra => todo!(),
+            _ => todo!(),
         }
     }
 
@@ -95,10 +88,7 @@ impl Instruction {
             Instruction::Call() => todo!(),
             Instruction::Daa => todo!(),
             Instruction::Cpl => todo!(),
-            Instruction::Rlca => todo!(),
-            Instruction::Rrca => todo!(),
-            Instruction::Rla => todo!(),
-            Instruction::Rra => todo!(),
+            _ => todo!(),
         }
     }
 }
@@ -317,10 +307,10 @@ pub enum LoadOp {
     },
     /// Uses the HL register as a pointer to access RAM. Stores a copy of the source at the byte that
     /// HL points to.
-    HLStore(HLStore),
+    Store(RegOrPointer),
     /// Uses the HL register as a pointer to access RAM. Copies the value that the HL register
     /// points into the given register
-    HLLoad(HalfRegister),
+    Load(RegOrPointer),
     /// Similar to `HLStore(A)` but also increments the HL register
     HLIncStore,
     /// Similar to `HLStore(A)` but also decrements the HL register
@@ -361,12 +351,6 @@ impl LoadOp {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum HLStore {
-    HalfReg(HalfRegister),
-    Data(u8),
-}
-
-#[derive(Debug, Clone, Copy)]
 pub enum DirectFullReg {
     BC,
     DE,
@@ -384,6 +368,37 @@ impl DirectFullReg {
             _ => unreachable!(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum BitShiftOp {
+    Rlc(RegOrPointer),
+    Rrc(RegOrPointer),
+    Rl(RegOrPointer),
+    Rr(RegOrPointer),
+    Sla(RegOrPointer),
+    Sra(RegOrPointer),
+    Swap(RegOrPointer),
+    Srl(RegOrPointer),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum RegOrPointer {
+    A,
+    B,
+    C,
+    D,
+    E,
+    H,
+    L,
+    Pointer,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum BitOp {
+    Bit(u8, RegOrPointer),
+    Res(u8, RegOrPointer),
+    Set(u8, RegOrPointer),
 }
 
 #[cfg(test)]
@@ -417,21 +432,49 @@ mod lookup {
             }
         };
         (LD, $r1: ident, $r2: ident) => {
-            |_| {
-                Instruction::Load(LoadOp::SwapHalfReg {
-                    src: HalfRegister::$r1,
-                    dest: HalfRegister::$r2,
-                })
-            }
+            |_| todo!()
         };
         (LD, $r: ident, [HL]) => {
-            |_| Instruction::Load(LoadOp::HLStore(HLStore::HalfReg(HalfRegister::$r)))
+            |_| Instruction::Load(LoadOp::Store(RegOrPointer::$r))
         };
         (LD, [HL], $r: ident) => {
-            |_| Instruction::Load(LoadOp::HLLoad(HalfRegister::$r))
+            |_| Instruction::Load(LoadOp::Load(RegOrPointer::$r))
         };
-        (LD, [HL], [HL]) => {
+        (LD, Pointer, Pointer) => {
             |_| Instruction::Control(ControlOp::Halt)
+        };
+        (RL, $r: ident) => {
+            |_| Instruction::BitShift(BitShiftOp::Rl(RegOrPointer::$r))
+        };
+        (RLC, $r: ident) => {
+            |_| Instruction::BitShift(BitShiftOp::Rlc(RegOrPointer::$r))
+        };
+        (RRC, $r: ident) => {
+            |_| todo!()
+        };
+        (RR, $r: ident) => {
+            |_| todo!()
+        };
+        (SLA, $r: ident) => {
+            |_| todo!()
+        };
+        (SRA, $r: ident) => {
+            |_| todo!()
+        };
+        (SWAP, $r: ident) => {
+            |_| todo!()
+        };
+        (SRL, $r: ident) => {
+            |_| todo!()
+        };
+        (BIT, $b: literal, $r: ident) => {
+            |_| todo!()
+        };
+        (RES, $b: literal, $r: ident) => {
+            |_| todo!()
+        };
+        (SET, $b: literal, $r: ident) => {
+            |_| todo!()
         };
     }
 
@@ -444,7 +487,7 @@ mod lookup {
                 define_op_chunk!(LD, E),
                 define_op_chunk!(LD, H),
                 define_op_chunk!(LD, L),
-                define_op_chunk!(LD, [HL]),
+                define_op_chunk!(LD, Pointer),
                 define_op_chunk!(LD, A)
             );
             ops
@@ -462,16 +505,55 @@ mod lookup {
             ];
             ops
         }};
-        (LD, $r: ident) => {{
+        ($x: ident, NUM) => {{
+            let ops: OpArray<0x40> = concat_arrays!(
+                define_op_chunk!($x, 0,),
+                define_op_chunk!($x, 1,),
+                define_op_chunk!($x, 2,),
+                define_op_chunk!($x, 3,),
+                define_op_chunk!($x, 4,),
+                define_op_chunk!($x, 5,),
+                define_op_chunk!($x, 6,),
+                define_op_chunk!($x, 7,)
+            );
+            ops
+        }};
+        ($x: ident, $i: literal,) => {{
+            let ops: OpArray<0x08> = [
+                define_op!($x, $i, B),
+                define_op!($x, $i, C),
+                define_op!($x, $i, D),
+                define_op!($x, $i, E),
+                define_op!($x, $i, H),
+                define_op!($x, $i, L),
+                define_op!($x, $i, Pointer),
+                define_op!($x, $i, A)
+            ];
+            ops
+        }};
+        ($x: ident) => {{
             let ops: OpArray<8> = [
-                define_op!(LD, $r, B),
-                define_op!(LD, $r, C),
-                define_op!(LD, $r, D),
-                define_op!(LD, $r, E),
-                define_op!(LD, $r, H),
-                define_op!(LD, $r, L),
-                define_op!(LD, $r, [HL]),
-                define_op!(LD, $r, A),
+                define_op!($x, B),
+                define_op!($x, C),
+                define_op!($x, D),
+                define_op!($x, E),
+                define_op!($x, H),
+                define_op!($x, L),
+                define_op!($x, Pointer),
+                define_op!($x, A),
+            ];
+            ops
+        }};
+        ($x: ident, $r: ident) => {{
+            let ops: OpArray<8> = [
+                define_op!($x, $r, B),
+                define_op!($x, $r, C),
+                define_op!($x, $r, D),
+                define_op!($x, $r, E),
+                define_op!($x, $r, H),
+                define_op!($x, $r, L),
+                define_op!($x, $r, Pointer),
+                define_op!($x, $r, A),
             ];
             ops
         }};
@@ -484,6 +566,21 @@ mod lookup {
                 define_op_lookup_table!(CHUNK_TWO),
                 define_op_lookup_table!(CHUNK_THREE),
                 define_op_lookup_table!(CHUNK_FOUR)
+            )
+        };
+        (PREFIXED) => {
+            concat_arrays!(
+                define_op_chunk!(RLC),
+                define_op_chunk!(RRC),
+                define_op_chunk!(RL),
+                define_op_chunk!(RR),
+                define_op_chunk!(SLA),
+                define_op_chunk!(SRA),
+                define_op_chunk!(SWAP),
+                define_op_chunk!(SRL),
+                define_op_chunk!(BIT, NUM),
+                define_op_chunk!(RES, NUM),
+                define_op_chunk!(SET, NUM)
             )
         };
         // NOTE: It is planned to use a transposition method for the top and bottom rows-of-four of
@@ -504,13 +601,10 @@ mod lookup {
             const CHUNK: OpArray<0> = [];
             CHUNK
         });
-        (PREFIXED) => {
-            []
-        };
     }
 
     static OP_LOOKUP: OpArray<0x40> = define_op_lookup_table!();
-    static PREFIXED_OP_LOOKUP: OpArray<0> = define_op_lookup_table!(PREFIXED);
+    static PREFIXED_OP_LOOKUP: OpArray<0x100> = define_op_lookup_table!(PREFIXED);
 
     pub fn parse_instruction(data: &[u8]) -> Instruction {
         OP_LOOKUP[data[0] as usize](data)

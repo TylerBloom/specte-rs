@@ -77,15 +77,7 @@ impl Cpu {
             Instruction::Control(op) => self.execute_control_op(op, mbc),
             Instruction::Load(op) => self.execute_load_op(op, mbc),
             Instruction::ArithLog(_) => todo!(),
-            Instruction::Jump(_) => todo!(),
-            Instruction::Ret() => todo!(),
-            Instruction::Call() => todo!(),
-            Instruction::Daa => todo!(),
-            Instruction::Cpl => todo!(),
-            Instruction::Rlca => todo!(),
-            Instruction::Rrca => todo!(),
-            Instruction::Rla => todo!(),
-            Instruction::Rra => todo!(),
+            _ => todo!()
         }
     }
 
@@ -106,8 +98,6 @@ impl Cpu {
             LoadOp::FullLoad(_, _) => todo!(),
             LoadOp::HalfLoad { reg, data } => todo!(),
             LoadOp::SwapHalfReg { src, dest } => todo!(),
-            LoadOp::HLStore(_) => todo!(),
-            LoadOp::HLLoad(_) => todo!(),
             LoadOp::HLIncStore => todo!(),
             LoadOp::HLDecStore => todo!(),
             LoadOp::HLIncLoad => todo!(),
@@ -117,6 +107,7 @@ impl Cpu {
             LoadOp::SignedPointerLoad(_) => todo!(),
             LoadOp::Pop(_) => todo!(),
             LoadOp::Push(_) => todo!(),
+            _ => todo!(),
         }
     }
 

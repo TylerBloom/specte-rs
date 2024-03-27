@@ -22,6 +22,7 @@ mod gameboy;
 mod instruction;
 mod mbc;
 mod rom;
+mod lookup;
 
 /// Represents a Gameboy color with a cartridge inserted.
 pub struct Gameboy {
