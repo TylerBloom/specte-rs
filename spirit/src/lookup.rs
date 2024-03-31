@@ -830,9 +830,13 @@ mod test {
 
     #[test]
     fn dedupped_op_lookup_tables() {
+        let mut data = [0; 10];
         // Test standard ops
         let mut ops: Vec<_> = (0..=u8::MAX)
-            .filter_map(|i| std::panic::catch_unwind(|| parse_instruction([i; 10].as_slice())).ok())
+            .filter_map(|i| {
+                data[0] = i;
+                std::panic::catch_unwind(|| parse_instruction(data.as_slice())).ok()
+            })
             .collect();
         // Ensure (almost) all of the operations are actually returning unique values
         assert_eq!((u8::MAX - 10) as usize, ops.len());
@@ -842,7 +846,8 @@ mod test {
         // Test prefixed ops
         let mut ops: Vec<_> = (0..=u8::MAX)
             .filter_map(|i| {
-                std::panic::catch_unwind(|| parse_prefixed_instruction([i; 10].as_slice())).ok()
+                data[0] = i;
+                std::panic::catch_unwind(|| parse_prefixed_instruction(data.as_slice())).ok()
             })
             .collect();
         // Ensure all of the operations are actually returning unique values
