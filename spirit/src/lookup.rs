@@ -1,25 +1,159 @@
 use array_concat::concat_arrays;
 
+pub fn parse_instruction(data: &[u8]) -> Instruction {
+    OP_LOOKUP[data[0] as usize](data)
+}
+
+fn parse_prefixed_instruction(data: &[u8]) -> Instruction {
+    PREFIXED_OP_LOOKUP[data[0] as usize](data)
+}
+
 type OpArray<const N: usize> = [fn(&[u8]) -> Instruction; N];
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Instruction {
     Load(LoadOp),
     BitShift(BitShiftOp),
+    ControlOp(ControlOp),
     Bit(BitOp),
+    Jump(JumpOp),
+    Arithmetic(ArithmeticOp),
+    Daa,
+    /// Set Carry.
+    Scf,
+    /// ComPLement accumulator.
+    Cpl,
+    /// CompLement carry flag.
+    Ccf,
+    /// Disable interupts
+    Di,
+    /// Enable interupts
+    Ei,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ArithmeticOp {
+    Add16(WideReg),
+    Add(RegOrPointer),
+    AddDirect(u8),
+    Adc(RegOrPointer),
+    AdcDirect(u8),
+    Sub(RegOrPointer),
+    SubDirect(u8),
+    Sbc(RegOrPointer),
+    SbcDirect(u8),
+    And(RegOrPointer),
+    AndDirect(u8),
+    Xor(RegOrPointer),
+    XorDirect(u8),
+    Or(RegOrPointer),
+    OrDirect(u8),
+    Cp(RegOrPointer),
+    CpDirect(u8),
+    Inc(RegOrPointer),
+    Dec(RegOrPointer),
+    Inc16(WideReg),
+    Dec16(WideReg),
+    AddSP(i8),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum JumpOp {
+    ConditionalRelative(Condition, i8),
+    Relative(i8),
+    ConditionalAbsolute(Condition, u16),
+    JumpToHL,
+    Absolute(u16),
+    Call(u16),
+    ConditionalCall(Condition, u16),
+    Return,
+    ConditionalReturn(Condition),
+    /// Return from the subroutine and enable intrupts
+    ReturnAndEnable,
+    RST00,
+    RST08,
+    RST10,
+    RST18,
+    RST20,
+    RST28,
+    RST30,
+    RST38,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ControlOp {
+    Noop,
+    Stop(u8),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WideReg {
+    BC,
+    DE,
+    HL,
+    SP,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WideRegWithoutSP {
+    BC,
+    DE,
+    HL,
+    AF,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LoadOp {
+    /// Used for opcodes in 0x40..0x80
     Basic {
         dest: RegOrPointer,
         src: RegOrPointer,
     },
+    /// Used for opcodes 0xX1
+    Direct16(WideReg, u16),
+    /// Used for opcodes 0x_6 and 0x_E
     Direct(RegOrPointer, u8),
+    /// Used for opcodes 0x_2
     LoadIntoA(LoadAPointer),
+    /// Used for opcodes 0x_A
     StoreFromA(LoadAPointer),
+    /// Opcode: 0x08
+    /// Store SP & $FF at address n16 and SP >> 8 at address n16 + 1.
+    StoreSP(u16),
+    /// Opcode: 0xF9
+    HLIntoSP,
+    /// Opcode: 0xF8
+    /// Add the signed value e8 to SP and store the result in HL.
+    SPIntoHL(i8),
+    /// Used for opcodes 0x_1
+    Pop(WideRegWithoutSP),
+    /// Used for opcodes 0x_5
+    Push(WideRegWithoutSP),
+    /// Used for opcode 0xE0
+    LoadHigh(u8),
+    /// Used for opcode 0xF0
+    StoreHigh(u8),
+    /// Used for opcode 0xE2
+    LoadHighCarry,
+    /// Used for opcode 0xF2
+    StoreHighCarry,
+    /// Used for opcode 0xEA
+    LoadA { ptr: u16 },
+    /// Used for opcode 0xFA
+    StoreA { ptr: u16 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Condition {
+    Zero,
+    NotZero,
+    Carry,
+    NotCarry,
 }
 
 /// There are special operations for loading into the A register, so it is easier to have a special
 /// enum for the unique types of pointers they use.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LoadAPointer {
     /// Use the BC register
     BC,
@@ -31,7 +165,7 @@ pub enum LoadAPointer {
     Hld,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BitShiftOp {
     Rlc(RegOrPointer),
     Rrc(RegOrPointer),
@@ -43,7 +177,7 @@ pub enum BitShiftOp {
     Srl(RegOrPointer),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RegOrPointer {
     A,
     B,
@@ -55,7 +189,7 @@ pub enum RegOrPointer {
     Pointer,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BitOp {
     Bit(u8, RegOrPointer),
     Res(u8, RegOrPointer),
@@ -66,19 +200,154 @@ macro_rules! define_op {
     () => {
         |data| {
             unreachable!(
-                "Op code '{}' does not correspond to any valid operation",
+                "Op code '0x{:X}' does not correspond to any valid operation",
                 data[0]
             )
         }
     };
+    (DAA) => {
+        |_| Instruction::Daa
+    };
+    (SCF) => {
+        |_| Instruction::Scf
+    };
+    (CPL) => {
+        |_| Instruction::Cpl
+    };
+    (CCF) => {
+        |_| Instruction::Ccf
+    };
+    (NOOP) => {
+        |_| Instruction::ControlOp(ControlOp::Noop)
+    };
+    (JR) => {
+        |data| Instruction::Jump(JumpOp::Relative(data[1] as i8))
+    };
+    (JR, $r: ident) => {
+        |data| Instruction::Jump(JumpOp::ConditionalRelative(Condition::$r, data[1] as i8))
+    };
+    (JP) => {
+        |data| Instruction::Jump(JumpOp::Absolute(u16::from_le_bytes([data[1], data[2]])))
+    };
+    (JP, HL) => {
+        |_| Instruction::Jump(JumpOp::JumpToHL)
+    };
+    (JP, $r: ident) => {
+        |data| {
+            Instruction::Jump(JumpOp::ConditionalAbsolute(
+                Condition::$r,
+                u16::from_le_bytes([data[1], data[2]]),
+            ))
+        }
+    };
+    (STOP) => {
+        |data| Instruction::ControlOp(ControlOp::Stop(data[1]))
+    };
+    (ADD) => {
+        |data| Instruction::Arithmetic(ArithmeticOp::AddDirect(data[0]))
+    };
+    (ADD, SP) => {
+        |data| Instruction::Arithmetic(ArithmeticOp::AddSP(data[0] as i8))
+    };
+    (ADD, $r: ident) => {
+        |_| Instruction::Arithmetic(ArithmeticOp::Add(RegOrPointer::$r))
+    };
+    (ADC) => {
+        |data| Instruction::Arithmetic(ArithmeticOp::AdcDirect(data[0]))
+    };
+    (ADC, $r: ident) => {
+        |_| Instruction::Arithmetic(ArithmeticOp::Adc(RegOrPointer::$r))
+    };
+    (SUB) => {
+        |data| Instruction::Arithmetic(ArithmeticOp::SubDirect(data[1]))
+    };
+    (SUB, $r: ident) => {
+        |_| Instruction::Arithmetic(ArithmeticOp::Sub(RegOrPointer::$r))
+    };
+    (SBC) => {
+        |data| Instruction::Arithmetic(ArithmeticOp::SbcDirect(data[1]))
+    };
+    (SBC, $r: ident) => {
+        |_| Instruction::Arithmetic(ArithmeticOp::Sbc(RegOrPointer::$r))
+    };
+    (AND) => {
+        |data| Instruction::Arithmetic(ArithmeticOp::AndDirect(data[1]))
+    };
+    (AND, $r: ident) => {
+        |_| Instruction::Arithmetic(ArithmeticOp::And(RegOrPointer::$r))
+    };
+    (XOR) => {
+        |data| Instruction::Arithmetic(ArithmeticOp::XorDirect(data[1]))
+    };
+    (XOR, $r: ident) => {
+        |_| Instruction::Arithmetic(ArithmeticOp::Xor(RegOrPointer::$r))
+    };
+    (OR) => {
+        |data| Instruction::Arithmetic(ArithmeticOp::OrDirect(data[1]))
+    };
+    (OR, $r: ident) => {
+        |_| Instruction::Arithmetic(ArithmeticOp::Or(RegOrPointer::$r))
+    };
+    (CP) => {
+        |data| Instruction::Arithmetic(ArithmeticOp::CpDirect(data[1]))
+    };
+    (CP, $r: ident) => {
+        |_| Instruction::Arithmetic(ArithmeticOp::Cp(RegOrPointer::$r))
+    };
+    (ADD16, $r: ident) => {
+        |_| Instruction::Arithmetic(ArithmeticOp::Add16(WideReg::$r))
+    };
+    (INC, $r: ident) => {
+        |_| Instruction::Arithmetic(ArithmeticOp::Inc(RegOrPointer::$r))
+    };
+    (INC16, $r: ident) => {
+        |_| Instruction::Arithmetic(ArithmeticOp::Inc16(WideReg::$r))
+    };
+    (DEC, $r: ident) => {
+        |_| Instruction::Arithmetic(ArithmeticOp::Dec(RegOrPointer::$r))
+    };
+    (DEC16, $r: ident) => {
+        |_| Instruction::Arithmetic(ArithmeticOp::Dec16(WideReg::$r))
+    };
     (LD, $r: ident, A) => {
         |_| Instruction::Load(LoadOp::StoreFromA(LoadAPointer::$r))
+    };
+    (LD SP) => {
+        |data| Instruction::Load(LoadOp::StoreSP(u16::from_le_bytes([data[0], data[1]])))
+    };
+    (LoadA) => {
+        |data| {
+            Instruction::Load(LoadOp::LoadA {
+                ptr: u16::from_le_bytes([data[0], data[1]]),
+            })
+        }
+    };
+    (StoreA) => {
+        |data| {
+            Instruction::Load(LoadOp::StoreA {
+                ptr: u16::from_le_bytes([data[0], data[1]]),
+            })
+        }
     };
     (LD, $r: ident) => {
         |data| Instruction::Load(LoadOp::Direct(RegOrPointer::$r, data[1]))
     };
+    (LD16, $r: ident) => {
+        |data| {
+            Instruction::Load(LoadOp::Direct16(
+                WideReg::$r,
+                u16::from_le_bytes([data[1], data[2]]),
+            ))
+        }
+    };
     (LD, A, $r: ident) => {
         |_| Instruction::Load(LoadOp::LoadIntoA(LoadAPointer::$r))
+    };
+    (LD, HL, SP) => {
+        |data| Instruction::Load(LoadOp::SPIntoHL(data[0] as i8))
+    };
+    (LD, SP, HL) => {
+        |_| Instruction::Load(LoadOp::HLIntoSP)
     };
     (LD, $r1: ident, $r2: ident,) => {
         |_| {
@@ -90,6 +359,77 @@ macro_rules! define_op {
     };
     (LD, Pointer, Pointer,) => {
         |_| Instruction::Control(ControlOp::Halt)
+    };
+    (POP, $r: ident) => {
+        |_| Instruction::Load(LoadOp::Pop(WideRegWithoutSP::$r))
+    };
+    (PUSH, $r: ident) => {
+        |_| Instruction::Load(LoadOp::Push(WideRegWithoutSP::$r))
+    };
+    (RET) => {
+        |_| Instruction::Jump(JumpOp::Return)
+    };
+    (RETI) => {
+        |_| Instruction::Jump(JumpOp::ReturnAndEnable)
+    };
+    (RET, $r: ident) => {
+        |_| Instruction::Jump(JumpOp::ConditionalReturn(Condition::$r))
+    };
+    (CALL) => {
+        |data| Instruction::Jump(JumpOp::Call(u16::from_le_bytes([data[1], data[2]])))
+    };
+    (CALL, $r: ident) => {
+        |data| {
+            Instruction::Jump(JumpOp::ConditionalCall(
+                Condition::$r,
+                u16::from_le_bytes([data[1], data[2]]),
+            ))
+        }
+    };
+    (PREFIX) => {
+        |data| parse_prefixed_instruction(data)
+    };
+    (DI) => {
+        |_| Instruction::Di
+    };
+    (EI) => {
+        |_| Instruction::Ei
+    };
+    (RST00) => {
+        |_| Instruction::Jump(JumpOp::RST00)
+    };
+    (RST08) => {
+        |_| Instruction::Jump(JumpOp::RST08)
+    };
+    (RST10) => {
+        |_| Instruction::Jump(JumpOp::RST10)
+    };
+    (RST18) => {
+        |_| Instruction::Jump(JumpOp::RST18)
+    };
+    (RST20) => {
+        |_| Instruction::Jump(JumpOp::RST20)
+    };
+    (RST28) => {
+        |_| Instruction::Jump(JumpOp::RST28)
+    };
+    (RST30) => {
+        |_| Instruction::Jump(JumpOp::RST30)
+    };
+    (RST38) => {
+        |_| Instruction::Jump(JumpOp::RST38)
+    };
+    (LoadHigh) => {
+        |data| Instruction::Load(LoadOp::LoadHigh(data[1]))
+    };
+    (StoreHigh) => {
+        |data| Instruction::Load(LoadOp::StoreHigh(data[1]))
+    };
+    (LoadHighCarry) => {
+        |_| Instruction::Load(LoadOp::LoadHighCarry)
+    };
+    (StoreHighCarry) => {
+        |_| Instruction::Load(LoadOp::StoreHighCarry)
     };
     /* --- Prefixed op definitions --- */
     (RL, $r: ident) => {
@@ -129,7 +469,7 @@ macro_rules! define_op {
 
 macro_rules! define_op_chunk {
     (LD) => {{
-        let ops: OpArray<0x40> = concat_arrays!(
+        const OPS: OpArray<0x40> = concat_arrays!(
             define_op_chunk!(LD, B),
             define_op_chunk!(LD, C),
             define_op_chunk!(LD, D),
@@ -139,10 +479,10 @@ macro_rules! define_op_chunk {
             define_op_chunk!(LD, Pointer),
             define_op_chunk!(LD, A)
         );
-        ops
+        OPS
     }};
     ($x: ident, NUM) => {{
-        let ops: OpArray<0x40> = concat_arrays!(
+        const OPS: OpArray<0x40> = concat_arrays!(
             define_op_chunk!($x, 0,),
             define_op_chunk!($x, 1,),
             define_op_chunk!($x, 2,),
@@ -152,10 +492,10 @@ macro_rules! define_op_chunk {
             define_op_chunk!($x, 6,),
             define_op_chunk!($x, 7,)
         );
-        ops
+        OPS
     }};
     ($x: ident, $i: literal,) => {{
-        let ops: OpArray<0x08> = [
+        const OPS: OpArray<0x08> = [
             define_op!($x, $i, B),
             define_op!($x, $i, C),
             define_op!($x, $i, D),
@@ -165,10 +505,10 @@ macro_rules! define_op_chunk {
             define_op!($x, $i, Pointer),
             define_op!($x, $i, A),
         ];
-        ops
+        OPS
     }};
     ($x: ident) => {{
-        let ops: OpArray<8> = [
+        const OPS: OpArray<8> = [
             define_op!($x, B),
             define_op!($x, C),
             define_op!($x, D),
@@ -178,10 +518,10 @@ macro_rules! define_op_chunk {
             define_op!($x, Pointer),
             define_op!($x, A),
         ];
-        ops
+        OPS
     }};
     ($x: ident, $r: ident) => {{
-        let ops: OpArray<8> = [
+        const OPS: OpArray<8> = [
             define_op!($x, $r, B,),
             define_op!($x, $r, C,),
             define_op!($x, $r, D,),
@@ -191,7 +531,7 @@ macro_rules! define_op_chunk {
             define_op!($x, $r, Pointer,),
             define_op!($x, $r, A,),
         ];
-        ops
+        OPS
     }};
 }
 
@@ -223,7 +563,19 @@ macro_rules! define_op_lookup_table {
     // the op table. That way, they all can be defined in a similar way (in rows),
     // transposed in columns, and concatinated.
     (CHUNK_ONE) => {{
-        const TO_TRANSPOSED: [OpArray<4>; 2] = [
+        const TO_TRANSPOSED: [OpArray<4>; 0x10] = [
+            [
+                define_op!(NOOP),
+                define_op!(STOP),
+                define_op!(JR, NotZero),
+                define_op!(JR, NotCarry),
+            ],
+            [
+                define_op!(LD16, BC),
+                define_op!(LD16, DE),
+                define_op!(LD16, HL),
+                define_op!(LD16, SP),
+            ],
             [
                 define_op!(LD, BC, A),
                 define_op!(LD, DE, A),
@@ -231,14 +583,86 @@ macro_rules! define_op_lookup_table {
                 define_op!(LD, Hld, A),
             ],
             [
+                define_op!(INC16, BC),
+                define_op!(INC16, DE),
+                define_op!(INC16, HL),
+                define_op!(INC16, SP),
+            ],
+            [
+                define_op!(INC, B),
+                define_op!(INC, D),
+                define_op!(INC, H),
+                define_op!(INC, Pointer),
+            ],
+            [
+                define_op!(DEC, B),
+                define_op!(DEC, D),
+                define_op!(DEC, H),
+                define_op!(DEC, Pointer),
+            ],
+            [
+                define_op!(LD, B),
+                define_op!(LD, D),
+                define_op!(LD, H),
+                define_op!(LD, Pointer),
+            ],
+            [
+                define_op!(RLC, A),
+                define_op!(RL, A),
+                define_op!(DAA),
+                define_op!(SCF),
+            ],
+            [
+            define_op!(LD SP),
+                define_op!(JR),
+                define_op!(JR, Zero),
+                define_op!(JR, Carry),
+            ],
+            [
+                define_op!(ADD16, BC),
+                define_op!(ADD16, DE),
+                define_op!(ADD16, HL),
+                define_op!(ADD16, SP),
+            ],
+            [
                 define_op!(LD, A, BC),
                 define_op!(LD, A, DE),
-                define_op!(LD, A, Hld),
+                define_op!(LD, A, Hli),
                 define_op!(LD, A, Hld),
             ],
+            [
+                define_op!(DEC16, BC),
+                define_op!(DEC16, DE),
+                define_op!(DEC16, HL),
+                define_op!(DEC16, SP),
+            ],
+            [
+                define_op!(INC, C),
+                define_op!(INC, E),
+                define_op!(INC, L),
+                define_op!(INC, A),
+            ],
+            [
+                define_op!(DEC, C),
+                define_op!(DEC, E),
+                define_op!(DEC, L),
+                define_op!(DEC, A),
+            ],
+            [
+                define_op!(LD, C),
+                define_op!(LD, E),
+                define_op!(LD, L),
+                define_op!(LD, A),
+            ],
+            [
+                define_op!(RRC, A),
+                define_op!(RR, A),
+                define_op!(CPL),
+                define_op!(CCF),
+            ],
         ];
-        const TRANSPOSED: [OpArray<2>; 4] = transpose!(TO_TRANSPOSED);
-        const CHUNK: OpArray<8> =
+        const TRANSPOSED: [OpArray<16>; 4] = transpose!(TO_TRANSPOSED);
+        const CHUNK: OpArray<0x40> =
             concat_arrays!(TRANSPOSED[0], TRANSPOSED[1], TRANSPOSED[2], TRANSPOSED[3]);
         CHUNK
     }};
@@ -246,18 +670,127 @@ macro_rules! define_op_lookup_table {
         define_op_chunk!(LD)
     };
     (CHUNK_THREE) => {{
-        const CHUNK: OpArray<0> = [];
+        const CHUNK: OpArray<0x40> = concat_arrays!(
+            define_op_chunk!(ADD),
+            define_op_chunk!(ADC),
+            define_op_chunk!(SUB),
+            define_op_chunk!(SBC),
+            define_op_chunk!(AND),
+            define_op_chunk!(XOR),
+            define_op_chunk!(OR),
+            define_op_chunk!(CP)
+        );
         CHUNK
     }};
     (CHUNK_FOUR) => {{
-        const CHUNK: OpArray<0> = [];
+        const TO_TRANSPOSED: [OpArray<4>; 0x10] = [
+            [
+                define_op!(RET, NotZero),
+                define_op!(RET, NotCarry),
+                define_op!(LoadHigh),
+                define_op!(StoreHigh),
+            ],
+            [
+                define_op!(POP, BC),
+                define_op!(POP, DE),
+                define_op!(POP, HL),
+                define_op!(POP, AF),
+            ],
+            [
+                define_op!(JP, NotZero),
+                define_op!(JP, NotCarry),
+                define_op!(LoadHighCarry),
+                define_op!(StoreHighCarry),
+            ],
+            [
+                define_op!(JP),
+                define_op!(), // DONE
+                define_op!(), // DONE
+                define_op!(DI),
+            ],
+            [
+                define_op!(CALL, NotCarry),
+                define_op!(CALL, NotCarry),
+                define_op!(), // DONE
+                define_op!(), // DONE
+            ],
+            [
+                define_op!(PUSH, BC),
+                define_op!(PUSH, DE),
+                define_op!(PUSH, HL),
+                define_op!(PUSH, AF),
+            ],
+            [
+                define_op!(ADD),
+                define_op!(SUB),
+                define_op!(AND),
+                define_op!(OR),
+            ],
+            [
+                define_op!(RST00),
+                define_op!(RST10),
+                define_op!(RST20),
+                define_op!(RST30),
+            ],
+            [
+                define_op!(RET, Zero),
+                define_op!(RET, Carry),
+                define_op!(ADD, SP),
+                define_op!(LD, HL, SP),
+            ],
+            [
+                define_op!(RET),
+                define_op!(RETI),
+                define_op!(JP, HL),
+                define_op!(LD, SP, HL),
+            ],
+            [
+                define_op!(JP, Zero),
+                define_op!(JP, Carry),
+                define_op!(LoadA),
+                define_op!(StoreA),
+            ],
+            [
+                define_op!(PREFIX),
+                define_op!(), // DONE
+                define_op!(), // DONE
+                define_op!(EI),
+            ],
+            [
+                define_op!(CALL, Zero),
+                define_op!(CALL, Carry),
+                define_op!(), // DONE
+                define_op!(), // DONE
+            ],
+            [
+                define_op!(CALL),
+                define_op!(), // DONE
+                define_op!(), // DONE
+                define_op!(), // DONE
+            ],
+            [
+                define_op!(ADC),
+                define_op!(SBC),
+                define_op!(XOR),
+                define_op!(CP),
+            ],
+            [
+                define_op!(RST08),
+                define_op!(RST18),
+                define_op!(RST28),
+                define_op!(RST38),
+            ],
+        ];
+        const TRANSPOSED: [OpArray<16>; 4] = transpose!(TO_TRANSPOSED);
+        const CHUNK: OpArray<0x40> =
+            concat_arrays!(TRANSPOSED[0], TRANSPOSED[1], TRANSPOSED[2], TRANSPOSED[3]);
         CHUNK
     }};
 }
 
 macro_rules! transpose {
     ($arr: ident) => {{
-        const TRANSPOSED: [OpArray<2>; 4] = [
+        const TRANSPOSED: [OpArray<16>; 4] = [
             transpose!($arr, 0),
             transpose!($arr, 1),
             transpose!($arr, 2),
@@ -266,54 +799,55 @@ macro_rules! transpose {
         TRANSPOSED
     }};
     ($arr: ident, $i: literal) => {{
-        const INNER: OpArray<2> = [
+        const INNER: OpArray<16> = [
             $arr[0][$i],
             $arr[1][$i],
-            // $arr[2][$i],
-            // $arr[3][$i],
-            // $arr[4][$i],
-            // $arr[5][$i],
-            // $arr[6][$i],
-            // $arr[7][$i],
-            // $arr[8][$i],
-            // $arr[9][$i],
-            // $arr[10][$i],
-            // $arr[11][$i],
-            // $arr[12][$i],
-            // $arr[13][$i],
-            // $arr[14][$i],
-            // $arr[15][$i],
+            $arr[2][$i],
+            $arr[3][$i],
+            $arr[4][$i],
+            $arr[5][$i],
+            $arr[6][$i],
+            $arr[7][$i],
+            $arr[8][$i],
+            $arr[9][$i],
+            $arr[10][$i],
+            $arr[11][$i],
+            $arr[12][$i],
+            $arr[13][$i],
+            $arr[14][$i],
+            $arr[15][$i],
         ];
         INNER
     }};
 }
 
-static OP_LOOKUP: OpArray<0x48> = define_op_lookup_table!();
-static PREFIXED_OP_LOOKUP: OpArray<0x100> = define_op_lookup_table!(PREFIXED);
-
-pub fn parse_instruction(data: &[u8]) -> Instruction {
-    OP_LOOKUP[data[0] as usize](data)
-}
+const OP_LOOKUP: OpArray<0x100> = define_op_lookup_table!();
+const PREFIXED_OP_LOOKUP: OpArray<0x100> = define_op_lookup_table!(PREFIXED);
 
 #[cfg(test)]
 mod test {
-    use super::OP_LOOKUP;
-    use crate::lookup::PREFIXED_OP_LOOKUP;
+    use super::{parse_instruction, parse_prefixed_instruction};
 
     #[test]
     fn dedupped_op_lookup_tables() {
-        let mut ops: Vec<_> = OP_LOOKUP.map(|f| f as usize).into();
-        let init_len = ops.len();
+        // Test standard ops
+        let mut ops: Vec<_> = (0..=u8::MAX)
+            .filter_map(|i| std::panic::catch_unwind(|| parse_instruction([i; 10].as_slice())).ok())
+            .collect();
+        // Ensure (almost) all of the operations are actually returning unique values
+        assert_eq!((u8::MAX - 10) as usize, ops.len());
         ops.dedup();
-        // I'm unsure if the duplicated panic closures will have the same address or not.
-        // If so, we can account for that by adding back the known number of invalid
-        // instructions
-        assert_eq!(ops.len(), init_len);
-        assert_eq!(ops.len(), OP_LOOKUP.len());
-        let mut ops: Vec<_> = PREFIXED_OP_LOOKUP.map(|f| f as usize).into();
-        let init_len = ops.len();
+        assert_eq!((u8::MAX - 10) as usize, ops.len());
+
+        // Test prefixed ops
+        let mut ops: Vec<_> = (0..=u8::MAX)
+            .filter_map(|i| {
+                std::panic::catch_unwind(|| parse_prefixed_instruction([i; 10].as_slice())).ok()
+            })
+            .collect();
+        // Ensure all of the operations are actually returning unique values
+        assert_eq!(0x100, ops.len());
         ops.dedup();
-        assert_eq!(ops.len(), init_len);
-        assert_eq!(ops.len(), PREFIXED_OP_LOOKUP.len());
+        assert_eq!(0x100, ops.len());
     }
 }
