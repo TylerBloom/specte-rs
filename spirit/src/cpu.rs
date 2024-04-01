@@ -49,12 +49,32 @@ pub(crate) struct Cpu {
     pc: u16,
 }
 
+fn check_bit(src: u8, bit: u8) -> bool {
+    (src & (0x1 << bit)) == bit
+}
+
 impl Cpu {
     /// Constructs a new CPU with each register set to 0.
     pub fn new() -> Self {
         Self {
             ..Default::default()
         }
+    }
+
+    /// Get the top four bits of the F register
+    #[inline]
+    pub fn flags(&self) -> u8 {
+        self.af as u8 & 0xF0
+    }
+
+    /// Returns the value of the Z flag
+    pub fn zero_flag(&self) -> bool {
+        check_bit(self.flags(), 7)
+    }
+
+    /// Returns the value of the Z flag
+    pub fn carry_flag(&self) -> bool {
+        check_bit(self.flags(), 7)
     }
 
     pub fn read_op(&self, mbc: &MemoryBankController) -> Instruction {

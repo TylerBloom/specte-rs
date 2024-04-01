@@ -1,5 +1,7 @@
 use array_concat::concat_arrays;
 
+use crate::cpu::Cpu;
+
 pub fn parse_instruction(data: &[u8]) -> Instruction {
     OP_LOOKUP[data[0] as usize](data)
 }
@@ -31,6 +33,46 @@ pub enum Instruction {
     Ei,
 }
 
+impl Instruction {
+    /// Returns the number of ticks to will take to complete this instruction.
+    /// Takes a reference to the CPU in order to determine if this instruction will pass any
+    /// conditions.
+    pub fn length(&self, cpu: &Cpu) -> u8 {
+        match self {
+            Instruction::Load(op) => op.length(),
+            Instruction::BitShift(op) => op.length(),
+            Instruction::ControlOp(op) => op.length(),
+            Instruction::Bit(op) => op.length(),
+            Instruction::Jump(op) => op.length(cpu),
+            Instruction::Arithmetic(op) => op.length(),
+            Instruction::Daa => 4,
+            Instruction::Scf => 4,
+            Instruction::Cpl => 4,
+            Instruction::Ccf => 4,
+            Instruction::Di => 4,
+            Instruction::Ei => 4,
+        }
+    }
+
+    /// Returns the size of the bytes to took to construct this instruction
+    pub const fn size(&self) -> u8 {
+        match self {
+            Instruction::Load(op) => op.size(),
+            Instruction::BitShift(op) => op.size(),
+            Instruction::ControlOp(op) => op.size(),
+            Instruction::Bit(op) => op.size(),
+            Instruction::Jump(op) => op.size(),
+            Instruction::Arithmetic(op) => op.size(),
+            Instruction::Daa => 1,
+            Instruction::Scf => 1,
+            Instruction::Cpl => 1,
+            Instruction::Ccf => 1,
+            Instruction::Di => 1,
+            Instruction::Ei => 1,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ArithmeticOp {
     Add16(WideReg),
@@ -57,6 +99,72 @@ pub enum ArithmeticOp {
     AddSP(i8),
 }
 
+impl ArithmeticOp {
+    /// Returns the number of ticks to will take to complete this instruction.
+    pub fn length(&self) -> u8 {
+        match self {
+            ArithmeticOp::Add16(_) => 8,
+            ArithmeticOp::Add(RegOrPointer::Pointer) => 8,
+            ArithmeticOp::Add(_) => 4,
+            ArithmeticOp::AddDirect(_) => 8,
+            ArithmeticOp::Adc(RegOrPointer::Pointer) => 8,
+            ArithmeticOp::Adc(_) => 4,
+            ArithmeticOp::AdcDirect(_) => 8,
+            ArithmeticOp::Sub(RegOrPointer::Pointer) => 8,
+            ArithmeticOp::Sub(_) => 4,
+            ArithmeticOp::SubDirect(_) => 8,
+            ArithmeticOp::Sbc(RegOrPointer::Pointer) => 8,
+            ArithmeticOp::Sbc(_) => 4,
+            ArithmeticOp::SbcDirect(_) => 8,
+            ArithmeticOp::And(RegOrPointer::Pointer) => 8,
+            ArithmeticOp::And(_) => 4,
+            ArithmeticOp::AndDirect(_) => 8,
+            ArithmeticOp::Xor(RegOrPointer::Pointer) => 8,
+            ArithmeticOp::Xor(_) => 4,
+            ArithmeticOp::XorDirect(_) => 8,
+            ArithmeticOp::Or(RegOrPointer::Pointer) => 8,
+            ArithmeticOp::Or(_) => 4,
+            ArithmeticOp::OrDirect(_) => 8,
+            ArithmeticOp::Cp(RegOrPointer::Pointer) => 8,
+            ArithmeticOp::Cp(_) => 4,
+            ArithmeticOp::CpDirect(_) => 8,
+            ArithmeticOp::Inc(_) => 8,
+            ArithmeticOp::Dec(_) => 8,
+            ArithmeticOp::Inc16(_) => 8,
+            ArithmeticOp::Dec16(_) => 8,
+            ArithmeticOp::AddSP(_) => 16,
+        }
+    }
+
+    /// Returns the size of the bytes to took to construct this instruction
+    pub const fn size(&self) -> u8 {
+        match self {
+            ArithmeticOp::Add16(_) => 1,
+            ArithmeticOp::Add(_) => 1,
+            ArithmeticOp::AddDirect(_) => 2,
+            ArithmeticOp::Adc(_) => 1,
+            ArithmeticOp::AdcDirect(_) => 2,
+            ArithmeticOp::Sub(_) => 1,
+            ArithmeticOp::SubDirect(_) => 2,
+            ArithmeticOp::Sbc(_) => 1,
+            ArithmeticOp::SbcDirect(_) => 2,
+            ArithmeticOp::And(_) => 1,
+            ArithmeticOp::AndDirect(_) => 2,
+            ArithmeticOp::Xor(_) => 1,
+            ArithmeticOp::XorDirect(_) => 2,
+            ArithmeticOp::Or(_) => 1,
+            ArithmeticOp::OrDirect(_) => 2,
+            ArithmeticOp::Cp(_) => 1,
+            ArithmeticOp::CpDirect(_) => 2,
+            ArithmeticOp::Inc(_) => 1,
+            ArithmeticOp::Dec(_) => 1,
+            ArithmeticOp::Inc16(_) => 1,
+            ArithmeticOp::Dec16(_) => 1,
+            ArithmeticOp::AddSP(_) => 2,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum JumpOp {
     ConditionalRelative(Condition, i8),
@@ -80,10 +188,78 @@ pub enum JumpOp {
     RST38,
 }
 
+impl JumpOp {
+    /// Returns the number of ticks to will take to complete this instruction.
+    pub fn length(&self, cpu: &Cpu) -> u8 {
+        match self {
+            JumpOp::ConditionalRelative(cond, _) => 8 + (4 * cond.passed(cpu) as u8),
+            JumpOp::Relative(_) => 12,
+            JumpOp::ConditionalAbsolute(cond, _) => 12 + (4 * cond.passed(cpu) as u8),
+            JumpOp::Absolute(_) => 16,
+            JumpOp::JumpToHL => 4,
+            JumpOp::Call(_) => 24,
+            JumpOp::ConditionalCall(cond, _) => 12 + (12 * cond.passed(cpu) as u8),
+            JumpOp::Return => 16,
+            JumpOp::ConditionalReturn(cond) => 8 + (12 * cond.passed(cpu) as u8),
+            JumpOp::ReturnAndEnable => 16,
+            JumpOp::RST00 => 16,
+            JumpOp::RST08 => 16,
+            JumpOp::RST10 => 16,
+            JumpOp::RST18 => 16,
+            JumpOp::RST20 => 16,
+            JumpOp::RST28 => 16,
+            JumpOp::RST30 => 16,
+            JumpOp::RST38 => 16,
+        }
+    }
+
+    /// Returns the size of the bytes to took to construct this instruction
+    pub const fn size(&self) -> u8 {
+        match self {
+            JumpOp::ConditionalRelative(_, _) => 2,
+            JumpOp::Relative(_) => 2,
+            JumpOp::ConditionalAbsolute(_, _) => 3,
+            JumpOp::Absolute(_) => 3,
+            JumpOp::JumpToHL => 1,
+            JumpOp::Call(_) => 3,
+            JumpOp::ConditionalCall(_, _) => 3,
+            JumpOp::Return => 1,
+            JumpOp::ConditionalReturn(_) => 1,
+            JumpOp::ReturnAndEnable => 1,
+            JumpOp::RST00 => 1,
+            JumpOp::RST08 => 1,
+            JumpOp::RST10 => 1,
+            JumpOp::RST18 => 1,
+            JumpOp::RST20 => 1,
+            JumpOp::RST28 => 1,
+            JumpOp::RST30 => 1,
+            JumpOp::RST38 => 1,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ControlOp {
     Noop,
     Stop(u8),
+}
+
+impl ControlOp {
+    /// Returns the number of ticks to will take to complete this instruction.
+    pub fn length(&self) -> u8 {
+        match self {
+            ControlOp::Noop => 4,
+            ControlOp::Stop(_) => 4,
+        }
+    }
+
+    /// Returns the size of the bytes to took to construct this instruction
+    pub const fn size(&self) -> u8 {
+        match self {
+            ControlOp::Noop => 1,
+            ControlOp::Stop(_) => 2,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -143,12 +319,78 @@ pub enum LoadOp {
     StoreA { ptr: u16 },
 }
 
+impl LoadOp {
+    /// Returns the number of ticks to will take to complete this instruction.
+    pub fn length(&self) -> u8 {
+        match self {
+            LoadOp::Basic {
+                dest: RegOrPointer::Pointer,
+                ..
+            }
+            | LoadOp::Basic {
+                src: RegOrPointer::Pointer,
+                ..
+            } => 8,
+            LoadOp::Basic { .. } => 4,
+            LoadOp::Direct16(_, _) => 12,
+            LoadOp::Direct(RegOrPointer::Pointer, _) => 12,
+            LoadOp::Direct(_, _) => 8,
+            LoadOp::LoadIntoA(_) => 8,
+            LoadOp::StoreFromA(_) => 8,
+            LoadOp::StoreSP(_) => 20,
+            LoadOp::HLIntoSP => 8,
+            LoadOp::SPIntoHL(_) => 12,
+            LoadOp::Pop(_) => 12,
+            LoadOp::Push(_) => 16,
+            LoadOp::LoadHigh(_) => 12,
+            LoadOp::StoreHigh(_) => 12,
+            LoadOp::LoadHighCarry => 8,
+            LoadOp::StoreHighCarry => 8,
+            LoadOp::LoadA { .. } => 16,
+            LoadOp::StoreA { .. } => 16,
+        }
+    }
+
+    /// Returns the size of the bytes to took to construct this instruction
+    pub const fn size(&self) -> u8 {
+        match self {
+            LoadOp::Basic { .. } => 1,
+            LoadOp::Direct16(_, _) => 3,
+            LoadOp::Direct(_, _) => 2,
+            LoadOp::LoadIntoA(_) => 1,
+            LoadOp::StoreFromA(_) => 1,
+            LoadOp::StoreSP(_) => 3,
+            LoadOp::HLIntoSP => 1,
+            LoadOp::SPIntoHL(_) => 2,
+            LoadOp::Pop(_) => 1,
+            LoadOp::Push(_) => 1,
+            LoadOp::LoadHigh(_) => 2,
+            LoadOp::StoreHigh(_) => 2,
+            LoadOp::LoadHighCarry => 1,
+            LoadOp::StoreHighCarry => 1,
+            LoadOp::LoadA { .. } => 3,
+            LoadOp::StoreA { .. } => 3,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Condition {
     Zero,
     NotZero,
     Carry,
     NotCarry,
+}
+
+impl Condition {
+    fn passed(&self, cpu: &Cpu) -> bool {
+        match self {
+            Condition::Zero => cpu.zero_flag(),
+            Condition::NotZero => !cpu.zero_flag(),
+            Condition::Carry => cpu.carry_flag(),
+            Condition::NotCarry => !cpu.carry_flag(),
+        }
+    }
 }
 
 /// There are special operations for loading into the A register, so it is easier to have a special
@@ -177,6 +419,52 @@ pub enum BitShiftOp {
     Srl(RegOrPointer),
 }
 
+impl BitShiftOp {
+    /// Returns the number of ticks to will take to complete this instruction.
+    pub fn length(&self) -> u8 {
+        match self {
+            BitShiftOp::Rlc(RegOrPointer::A) => 4,
+            BitShiftOp::Rlc(RegOrPointer::Pointer) => 16,
+            BitShiftOp::Rlc(_) => 8,
+            BitShiftOp::Rrc(RegOrPointer::A) => 4,
+            BitShiftOp::Rrc(RegOrPointer::Pointer) => 16,
+            BitShiftOp::Rrc(_) => 8,
+            BitShiftOp::Rl(RegOrPointer::A) => 4,
+            BitShiftOp::Rl(RegOrPointer::Pointer) => 16,
+            BitShiftOp::Rl(_) => 8,
+            BitShiftOp::Rr(RegOrPointer::A) => 4,
+            BitShiftOp::Rr(RegOrPointer::Pointer) => 16,
+            BitShiftOp::Rr(_) => 8,
+            BitShiftOp::Sla(RegOrPointer::Pointer) => 16,
+            BitShiftOp::Sla(_) => 8,
+            BitShiftOp::Sra(RegOrPointer::Pointer) => 16,
+            BitShiftOp::Sra(_) => 8,
+            BitShiftOp::Swap(RegOrPointer::Pointer) => 16,
+            BitShiftOp::Swap(_) => 8,
+            BitShiftOp::Srl(RegOrPointer::Pointer) => 16,
+            BitShiftOp::Srl(_) => 8,
+        }
+    }
+
+    /// Returns the size of the bytes to took to construct this instruction
+    pub const fn size(&self) -> u8 {
+        match self {
+            BitShiftOp::Rlc(RegOrPointer::A) => 1,
+            BitShiftOp::Rlc(_) => 2,
+            BitShiftOp::Rrc(RegOrPointer::A) => 1,
+            BitShiftOp::Rrc(_) => 2,
+            BitShiftOp::Rl(RegOrPointer::A) => 1,
+            BitShiftOp::Rl(_) => 2,
+            BitShiftOp::Rr(RegOrPointer::A) => 1,
+            BitShiftOp::Rr(_) => 2,
+            BitShiftOp::Sla(_) => 2,
+            BitShiftOp::Sra(_) => 2,
+            BitShiftOp::Swap(_) => 2,
+            BitShiftOp::Srl(_) => 2,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RegOrPointer {
     A,
@@ -194,6 +482,29 @@ pub enum BitOp {
     Bit(u8, RegOrPointer),
     Res(u8, RegOrPointer),
     Set(u8, RegOrPointer),
+}
+
+impl BitOp {
+    /// Returns the number of ticks to will take to complete this instruction.
+    pub fn length(&self) -> u8 {
+        match self {
+            BitOp::Bit(_, RegOrPointer::Pointer) => 12,
+            BitOp::Bit(_, _) => 8,
+            BitOp::Res(_, RegOrPointer::Pointer) => 12,
+            BitOp::Res(_, _) => 8,
+            BitOp::Set(_, RegOrPointer::Pointer) => 12,
+            BitOp::Set(_, _) => 8,
+        }
+    }
+
+    /// Returns the size of the bytes to took to construct this instruction
+    pub const fn size(&self) -> u8 {
+        match self {
+            BitOp::Bit(_, _) => 2,
+            BitOp::Res(_, _) => 2,
+            BitOp::Set(_, _) => 2,
+        }
+    }
 }
 
 macro_rules! define_op {
