@@ -289,9 +289,9 @@ pub enum LoadOp {
     Direct16(WideReg, u16),
     /// Used for opcodes 0x_6 and 0x_E
     Direct(RegOrPointer, u8),
-    /// Used for opcodes 0x_2
-    LoadIntoA(LoadAPointer),
     /// Used for opcodes 0x_A
+    LoadIntoA(LoadAPointer),
+    /// Used for opcodes 0x_2
     StoreFromA(LoadAPointer),
     /// Opcode: 0x08
     /// Store SP & $FF at address n16 and SP >> 8 at address n16 + 1.

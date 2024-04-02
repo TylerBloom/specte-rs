@@ -7,19 +7,18 @@
 //! # Notes
 //! The Z80 CPU is big endian.
 
-#![allow(dead_code)]
+#![allow(dead_code, unused)]
 
 use std::borrow::Cow;
 
 use cpu::Cpu;
-use instruction::Instruction;
+use lookup::Instruction;
 use mbc::MemoryBankController;
 
 mod cpu;
 mod decoder;
 mod emulator;
 mod gameboy;
-mod instruction;
 mod mbc;
 mod rom;
 mod lookup;
@@ -95,7 +94,7 @@ impl<'a> StepProcess<'a> {
     }
 
     pub fn is_complete(&self) -> bool {
-        self.counter >= self.op.ticks()
+        self.counter >= self.op.length(&self.gb.cpu)
     }
 
     /// Consumes the step processor, dropping it immediately.
@@ -134,7 +133,7 @@ impl<'a> StartUpSequence<'a> {
     }
 
     pub fn is_complete(&self) -> bool {
-        self.counter >= self.op.ticks()
+        self.counter >= self.op.length(&self.gb.cpu)
     }
 
     /// Consumes the start-up processor, dropping it immediately.
