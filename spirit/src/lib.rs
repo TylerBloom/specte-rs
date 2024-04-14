@@ -7,25 +7,23 @@
 //! # Notes
 //! The Z80 CPU is big endian.
 
-#![allow(dead_code, unused)]
+#![allow(dead_code, unused, clippy::all)]
 
 use std::borrow::Cow;
 
 use cpu::Cpu;
 use lookup::Instruction;
-use mbc::MemoryBankController;
+use mbc::{MemoryBankController, MemoryMap, StartUpHeaders};
 
 mod cpu;
-mod decoder;
-mod emulator;
-mod gameboy;
+mod lookup;
 mod mbc;
 mod rom;
-mod lookup;
 
 /// Represents a Gameboy color with a cartridge inserted.
+#[derive(Debug)]
 pub struct Gameboy {
-    mbc: MemoryBankController,
+    mem: MemoryMap,
     cpu: Cpu,
 }
 
@@ -33,7 +31,7 @@ impl Gameboy {
     /// Takes data that represents the data stored on a game cartridge and uses it to construct the
     pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
         Self {
-            mbc: MemoryBankController::new(cart),
+            mem: MemoryMap::new(cart),
             cpu: Cpu::new(),
         }
     }
@@ -57,19 +55,19 @@ impl Gameboy {
     }
 
     fn read_op(&self) -> Instruction {
-        self.cpu.read_op(&self.mbc)
+        self.cpu.read_op(&self.mem)
     }
 
     fn start_up_read_op(&self) -> Instruction {
-        self.cpu.start_up_read_op(&self.mbc)
+        self.cpu.start_up_read_op(&self.mem)
     }
 
     fn apply_op(&mut self, op: Instruction) {
-        self.cpu.execute(op, &mut self.mbc)
+        self.cpu.execute(op, &mut self.mem)
     }
 
     fn start_up_apply_op(&mut self, op: Instruction) -> Option<Instruction> {
-        self.cpu.start_up_execute(op, &mut self.mbc)
+        self.cpu.start_up_execute(op, &mut self.mem)
     }
 }
 
@@ -112,27 +110,49 @@ pub struct StartUpSequence<'a> {
     gb: &'a mut Gameboy,
     op: Instruction,
     counter: u8,
+    done: bool,
+    /// The memory that the ROM contains that get mapped over during the startup process.
+    remap_mem: StartUpHeaders,
 }
 
 impl<'a> StartUpSequence<'a> {
     fn new(gb: &'a mut Gameboy) -> Self {
+        let remap_mem = gb.mem.start_up_remap();
         println!("-- Start up Gameboy");
         let op = gb.start_up_read_op();
         println!("First start up op: {op:?}");
-        Self { gb, op, counter: 0 }
+        Self {
+            gb,
+            op,
+            counter: 0,
+            done: false,
+            remap_mem,
+        }
     }
 
     pub fn tick(&mut self) {
-        self.counter += 1;
-        if self.is_complete() {
-            if let Some(op) = self.gb.start_up_apply_op(self.op) {
-                self.op = op;
-                self.counter = 0;
+        if !self.is_complete() {
+            self.counter += 1;
+            if self.is_step_complete() {
+                self.step()
             }
         }
     }
 
+    fn step(&mut self) {
+        self.counter = 0;
+        if let Some(op) = self.gb.start_up_apply_op(self.op) {
+            self.op = op;
+        } else {
+            self.done = true
+        }
+    }
+
     pub fn is_complete(&self) -> bool {
+        self.done
+    }
+
+    pub fn is_step_complete(&self) -> bool {
         self.counter >= self.op.length(&self.gb.cpu)
     }
 
@@ -142,8 +162,9 @@ impl<'a> StartUpSequence<'a> {
 
 impl Drop for StartUpSequence<'_> {
     fn drop(&mut self) {
-        while let Some(op) = self.gb.start_up_apply_op(self.op) {
-            self.op = op;
+        while !self.is_complete() {
+            self.step()
         }
+        self.gb.mem.start_up_unmap(self.remap_mem)
     }
 }

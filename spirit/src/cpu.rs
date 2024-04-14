@@ -5,10 +5,8 @@ use crate::{
         parse_instruction, BitShiftOp, Instruction, LoadAPointer, LoadOp, RegOrPointer, WideReg,
         WideRegWithoutSP,
     },
-    mbc::MemoryBankController,
+    mbc::MemoryMap,
 };
-
-static START_UP_HEADER: &[u8; 0x900] = include_bytes!("cgb.bin");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FullRegister {
@@ -83,24 +81,24 @@ impl Cpu {
         check_bit(self.flags(), 7)
     }
 
-    pub fn read_op(&self, mbc: &MemoryBankController) -> Instruction {
-        mbc.read_op(self.sp)
+    pub fn read_op(&self, mem: &MemoryMap) -> Instruction {
+        mem.read_op(self.sp)
     }
 
     /// A method similar to `Self::read_op`, but is ran during start up, when the ROM that is
     /// burned-into the CPU is mapped over normal memory.
-    pub(crate) fn start_up_read_op(&self, mbc: &MemoryBankController) -> Instruction {
-        let sp = match self.sp {
-            sp @ 0x0000..=0x00FF | sp @ 0x0200..=0x08FF => sp,
-            sp => mbc.read_op(sp),
-        };
-        parse_instruction(sp)
+    pub(crate) fn start_up_read_op(&self, mem: &MemoryMap) -> Instruction {
+        println!("Reading start up op from: {}", self.sp);
+        match self.sp {
+            sp @ 0x0000..=0x00FF | sp @ 0x0200..=0x08FF => mem.start_up_read_op(sp),
+            sp => mem.read_op(sp),
+        }
     }
 
-    pub fn execute(&mut self, instr: Instruction, mbc: &mut MemoryBankController) {
+    pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
         match instr {
-            Instruction::Load(op) => self.execute_load_op(op, mbc),
-            Instruction::BitShift(op) => self.execute_bit_shift_op(op, mbc),
+            Instruction::Load(op) => self.execute_load_op(op, mem),
+            Instruction::BitShift(op) => self.execute_bit_shift_op(op, mem),
             Instruction::ControlOp(_) => todo!(),
             Instruction::Bit(_) => todo!(),
             Instruction::Jump(_) => todo!(),
@@ -114,7 +112,7 @@ impl Cpu {
         }
     }
 
-    fn execute_bit_shift_op(&mut self, op: BitShiftOp, mbc: &mut MemoryBankController) {
+    fn execute_bit_shift_op(&mut self, op: BitShiftOp, mbc: &mut MemoryMap) {
         match op {
             BitShiftOp::Rlc(reg) => {}
             BitShiftOp::Rrc(_) => todo!(),
@@ -145,7 +143,7 @@ impl Cpu {
                 val = hi | lw;
                 self.set_zero_flag(val == 0);
                 self.store_half_value(reg, mbc, val);
-            },
+            }
             BitShiftOp::Srl(_) => todo!(),
         }
     }
@@ -158,7 +156,7 @@ impl Cpu {
         todo!()
     }
 
-    fn execute_load_op(&mut self, op: LoadOp, mbc: &mut MemoryBankController) {
+    fn execute_load_op(&mut self, op: LoadOp, mem: &mut MemoryMap) {
         match op {
             LoadOp::Basic {
                 dest: RegOrPointer::Pointer,
@@ -167,19 +165,19 @@ impl Cpu {
                 todo!("halt")
             }
             LoadOp::Basic { dest, src } => {
-                self.store_half_value(dest, mbc, self.get_half_value(src, mbc))
+                self.store_half_value(dest, mem, self.get_half_value(src, mem))
             }
             LoadOp::Direct16(reg, val) => self[reg] = val,
-            LoadOp::Direct(reg, val) => self.store_half_value(reg, mbc, val),
+            LoadOp::Direct(reg, val) => self.store_half_value(reg, mem, val),
             LoadOp::LoadIntoA(ptr) => {
-                let val = *self.deref_ptr(mbc, ptr);
+                let val = *self.deref_ptr(mem, ptr);
                 self.store_reg_a(val)
             }
-            LoadOp::StoreFromA(ptr) => *self.deref_ptr(mbc, ptr) = self.get_reg_a(),
+            LoadOp::StoreFromA(ptr) => *self.deref_ptr(mem, ptr) = self.get_reg_a(),
             LoadOp::StoreSP(val) => {
                 let [lw, hi] = self.sp.to_le_bytes();
-                mbc[val] = lw;
-                mbc[val + 1] = hi;
+                mem[val] = lw;
+                mem[val + 1] = hi;
             }
             LoadOp::HLIntoSP => self.sp = self.hl,
             LoadOp::SPIntoHL(val) => {
@@ -190,9 +188,9 @@ impl Cpu {
                 }
             }
             LoadOp::Pop(reg) => {
-                let a = mbc[self.sp];
+                let a = mem[self.sp];
                 self.sp += 1;
-                let b = mbc[self.sp];
+                let b = mem[self.sp];
                 self.sp += 1;
                 self[reg] = u16::from_le_bytes([a, b]);
             }
@@ -203,46 +201,42 @@ impl Cpu {
                     WideRegWithoutSP::HL => self.hl.to_le_bytes(),
                     WideRegWithoutSP::AF => self.af.to_le_bytes(),
                 };
-                mbc[self.sp] = a;
+                mem[self.sp] = a;
                 self.sp -= 1;
-                mbc[self.sp] = b;
+                mem[self.sp] = b;
                 self.sp -= 1;
             }
-            LoadOp::LoadHigh(val) => self.store_reg_a(mbc[u16::from_le_bytes([0xFF, val])]),
-            LoadOp::StoreHigh(val) => mbc[u16::from_le_bytes([0xFF, val])] = self.get_reg_a(),
+            LoadOp::LoadHigh(val) => self.store_reg_a(mem[u16::from_le_bytes([0xFF, val])]),
+            LoadOp::StoreHigh(val) => mem[u16::from_le_bytes([0xFF, val])] = self.get_reg_a(),
             LoadOp::LoadHighCarry => {
-                self.store_reg_a(mbc[u16::from_le_bytes([0xFF, self.carry_flag() as u8])])
+                self.store_reg_a(mem[u16::from_le_bytes([0xFF, self.carry_flag() as u8])])
             }
             LoadOp::StoreHighCarry => {
-                mbc[u16::from_le_bytes([0xFF, self.carry_flag() as u8])] = self.get_reg_a()
+                mem[u16::from_le_bytes([0xFF, self.carry_flag() as u8])] = self.get_reg_a()
             }
-            LoadOp::LoadA { ptr } => mbc[ptr] = self.get_reg_a(),
-            LoadOp::StoreA { ptr } => self.store_reg_a(mbc[ptr]),
+            LoadOp::LoadA { ptr } => mem[ptr] = self.get_reg_a(),
+            LoadOp::StoreA { ptr } => self.store_reg_a(mem[ptr]),
         }
     }
 
-    fn deref_ptr<'a, 'b>(
-        &'a mut self,
-        mbc: &'b mut MemoryBankController,
-        ptr: LoadAPointer,
-    ) -> &'b mut u8 {
+    fn deref_ptr<'a, 'b>(&'a mut self, mem: &'b mut MemoryMap, ptr: LoadAPointer) -> &'b mut u8 {
         match ptr {
-            LoadAPointer::BC => &mut mbc[self.bc],
-            LoadAPointer::DE => &mut mbc[self.de],
+            LoadAPointer::BC => &mut mem[self.bc],
+            LoadAPointer::DE => &mut mem[self.de],
             LoadAPointer::Hli => {
-                let digest = &mut mbc[self.hl];
+                let digest = &mut mem[self.hl];
                 self.hl += 1;
                 digest
             }
             LoadAPointer::Hld => {
-                let digest = &mut mbc[self.hl];
+                let digest = &mut mem[self.hl];
                 self.hl -= 1;
                 digest
             }
         }
     }
 
-    fn get_half_value(&self, reg: RegOrPointer, mbc: &MemoryBankController) -> u8 {
+    fn get_half_value(&self, reg: RegOrPointer, mem: &MemoryMap) -> u8 {
         match reg {
             RegOrPointer::A => self.get_reg_a(),
             RegOrPointer::B => self.get_reg_b(),
@@ -251,7 +245,7 @@ impl Cpu {
             RegOrPointer::E => self.get_reg_e(),
             RegOrPointer::H => self.get_reg_h(),
             RegOrPointer::L => self.get_reg_l(),
-            RegOrPointer::Pointer => mbc[self.hl],
+            RegOrPointer::Pointer => mem[self.hl],
         }
     }
 
@@ -325,7 +319,7 @@ impl Cpu {
         todo!()
     }
 
-    fn store_half_value(&self, reg: RegOrPointer, mbc: &mut MemoryBankController, val: u8) {
+    fn store_half_value(&self, reg: RegOrPointer, mbc: &mut MemoryMap, val: u8) {
         todo!()
     }
 
@@ -336,11 +330,11 @@ impl Cpu {
     pub fn start_up_execute(
         &mut self,
         instr: Instruction,
-        mbc: &mut MemoryBankController,
+        mbc: &mut MemoryMap,
     ) -> Option<Instruction> {
-        // TODO: Do we need to work about remapped memory??
-        // self.execute(instr, mbc)
-        todo!()
+        self.execute(instr, mbc);
+        println!("Applied startup op: {:?}", self);
+        (self.sp != 0x0100).then(|| self.start_up_read_op(mbc))
     }
 }
 

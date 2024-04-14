@@ -1,5 +1,6 @@
 #![allow(dead_code, unused)]
 
+use std::fmt::Debug;
 use std::ops::{Index, IndexMut};
 
 mod mbc1;
@@ -13,13 +14,112 @@ pub use mbc3::*;
 mod mbc5;
 pub use mbc5::*;
 
-use crate::instruction::Instruction;
+use crate::lookup::{parse_instruction, Instruction};
 
-pub static NINTENDO_LOGO: &[u8] = &[
+static START_UP_HEADER: &[u8; 0x900] = include_bytes!("../cgb.bin");
+
+pub(crate) type StartUpHeaders = ([u8; 0x100], [u8; 0x700]);
+
+static NINTENDO_LOGO: &[u8] = &[
     0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
     0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
     0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
 ];
+
+#[derive(Debug)]
+pub struct MemoryMap {
+    // The MBC
+    mbc: MemoryBankController,
+    // IO registers
+    io: [u8; 0x80],
+    // High RAM
+    hr: [u8; 0x7F],
+    // Interrupt reg
+    interrupt: u8,
+}
+
+impl MemoryMap {
+    pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
+        Self {
+            mbc: MemoryBankController::new(cart),
+            io: [0; 0x80],
+            hr: [0; 0x7F],
+            interrupt: 0,
+        }
+    }
+
+    pub(crate) fn start_up_remap(&mut self) -> StartUpHeaders {
+        println!("Remapping ROM for start up...");
+        let mut digest = ([0; 0x100], [0; 0x700]);
+        for i in 0..=0xFF {
+            digest.0[i] = START_UP_HEADER[i];
+            self.mbc.direct_overwrite(i as u16, &mut digest.0[i]);
+        }
+        for i in 0..=0x6FF {
+            digest.1[i] = START_UP_HEADER[i + 0x200];
+            self.mbc.direct_overwrite((i + 0x200) as u16, &mut digest.1[i]);
+        }
+        digest
+    }
+
+    pub(crate) fn start_up_unmap(&mut self, mut headers: StartUpHeaders) {
+        for i in 0..=0xFF {
+            self.mbc.direct_overwrite(i as u16, &mut headers.0[i]);
+        }
+        for i in 0..=0x6FF {
+            self.mbc.direct_overwrite((i + 0x200) as u16, &mut headers.1[i]);
+        }
+    }
+
+    pub fn start_up_read_op(&self, index: u16) -> Instruction {
+        parse_instruction(self, index)
+    }
+
+    pub fn read_op(&self, index: u16) -> Instruction {
+        parse_instruction(self, index)
+    }
+}
+
+impl Index<u16> for MemoryMap {
+    type Output = u8;
+
+    fn index(&self, index: u16) -> &Self::Output {
+        match index {
+            0x0000..=0x7FFF => &self.mbc[index],
+            0x8000..=0x9FFF => todo!(),
+            0xA000..=0xBFFF => todo!(),
+            0xC000..=0xCFFF => todo!(),
+            0xD000..=0xDFFF => todo!(),
+            0xE000..=0xFDFF => todo!(),
+            0xFE00..=0xFE9F => todo!(),
+            0xFEA0..=0xFEFF => unreachable!("No ROM should attempt to access this region"),
+            index @ 0xFF00..=0xFF7F => &self.io[(index & !0xFF00) as usize],
+            index @ 0xFF80..=0xFFFE => {
+                println!("Index is: {index:X}, masked: {:X}", index - 0xFF80);
+                &self.hr[(index & !0xFF80) as usize]
+            },
+            0xFFFF => &self.interrupt,
+        }
+    }
+}
+
+impl IndexMut<u16> for MemoryMap {
+    fn index_mut(&mut self, index: u16) -> &mut Self::Output {
+        match index {
+            0x0000..=0x7FFF => &mut self.mbc[index],
+            0x8000..=0x9FFF => todo!(),
+            0xA000..=0xBFFF => todo!(),
+            0xC000..=0xCFFF => todo!(),
+            0xD000..=0xDFFF => todo!(),
+            0xE000..=0xFDFF => todo!(),
+            0xFE00..=0xFE9F => todo!(),
+            0xFEA0..=0xFEFF => unreachable!("No ROM should attempt to access this region"),
+            0xFF00..=0xFF7F => &mut self.io[(index - 0xFF00) as usize],
+            0xFF80..=0xFFFE => &mut self.hr[(index - 0xFF80) as usize],
+            0xFFFF => &mut self.interrupt,
+        }
+    }
+}
 
 pub enum MemoryBankController {
     /// There is no external MBC. The game ROM is mapped into the 32 KiB that starts at 0x0000 and
@@ -151,10 +251,6 @@ impl MemoryBankController {
         }
     }
 
-    pub fn read_op(&self, index: u16) -> Instruction {
-        Instruction::parse(self.read_from(index))
-    }
-
     fn read_from(&self, index: u16) -> &[u8] {
         let index = index as usize;
         match self {
@@ -173,11 +269,26 @@ impl MemoryBankController {
     }
 
     pub fn read_mut_from(&mut self, index: u16) -> &mut [u8] {
+        println!("MBC is get a &mut at index: {index:X}");
         let index = index as usize;
         match self {
             // TODO: This should probably panic (or something) if index < rom.len(), i.e. they are
             // trying to write to ROM.
-            MemoryBankController::Direct { rom, ram } => &mut ram[index - rom.len()..],
+            MemoryBankController::Direct { rom, ram } => &mut ram[index + 1 - rom.len()..],
+            MemoryBankController::MBC1(_) => todo!(),
+            MemoryBankController::MBC2 => todo!(),
+            MemoryBankController::MBC3 => todo!(),
+            MemoryBankController::MBC5 => todo!(),
+        }
+    }
+
+    fn direct_overwrite(&mut self, index: u16, val: &mut u8) {
+        match self {
+            MemoryBankController::Direct { rom, ram } => if index as usize >= rom.len() {
+                std::mem::swap(&mut ram[(index as usize) - rom.len()], val)
+            } else {
+                std::mem::swap(&mut rom[index as usize], val)
+            },
             MemoryBankController::MBC1(_) => todo!(),
             MemoryBankController::MBC2 => todo!(),
             MemoryBankController::MBC3 => todo!(),
@@ -197,5 +308,22 @@ impl Index<u16> for MemoryBankController {
 impl IndexMut<u16> for MemoryBankController {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
         &mut self.read_mut_from(index)[0]
+    }
+}
+
+impl Debug for MemoryBankController {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MemoryBankController::Direct { rom, ram } => write!(
+                f,
+                "Direct {{ rom_size: {}, ram_size: {} }}",
+                rom.len(),
+                ram.len()
+            ),
+            MemoryBankController::MBC1(_) => todo!(),
+            MemoryBankController::MBC2 => todo!(),
+            MemoryBankController::MBC3 => todo!(),
+            MemoryBankController::MBC5 => todo!(),
+        }
     }
 }

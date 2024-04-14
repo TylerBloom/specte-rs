@@ -1,16 +1,17 @@
 use array_concat::concat_arrays;
 
-use crate::cpu::Cpu;
+use crate::{cpu::Cpu, mbc::MemoryMap};
 
-pub fn parse_instruction(data: &[u8]) -> Instruction {
-    OP_LOOKUP[data[0] as usize](data)
+pub fn parse_instruction(mem: &MemoryMap, sp: u16) -> Instruction {
+    println!("Loading instruction with OP code: {:X}", mem[0]);
+    OP_LOOKUP[mem[sp] as usize](mem, sp)
 }
 
-fn parse_prefixed_instruction(data: &[u8]) -> Instruction {
-    PREFIXED_OP_LOOKUP[data[0] as usize](data)
+fn parse_prefixed_instruction(mem: &MemoryMap, sp: u16) -> Instruction {
+    PREFIXED_OP_LOOKUP[mem[sp] as usize](mem, sp)
 }
 
-type OpArray<const N: usize> = [fn(&[u8]) -> Instruction; N];
+type OpArray<const N: usize> = [fn(&MemoryMap, u16) -> Instruction; N];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Instruction {
@@ -509,7 +510,7 @@ impl BitOp {
 
 macro_rules! define_op {
     () => {
-        |data| {
+        |data, _| {
             unreachable!(
                 "Op code '0x{:X}' does not correspond to any valid operation",
                 data[0]
@@ -517,34 +518,34 @@ macro_rules! define_op {
         }
     };
     (DAA) => {
-        |_| Instruction::Daa
+        |_, _| Instruction::Daa
     };
     (SCF) => {
-        |_| Instruction::Scf
+        |_, _| Instruction::Scf
     };
     (CPL) => {
-        |_| Instruction::Cpl
+        |_, _| Instruction::Cpl
     };
     (CCF) => {
-        |_| Instruction::Ccf
+        |_, _| Instruction::Ccf
     };
     (NOOP) => {
-        |_| Instruction::ControlOp(ControlOp::Noop)
+        |_, _| Instruction::ControlOp(ControlOp::Noop)
     };
     (JR) => {
-        |data| Instruction::Jump(JumpOp::Relative(data[1] as i8))
+        |data, _| Instruction::Jump(JumpOp::Relative(data[1] as i8))
     };
     (JR, $r: ident) => {
-        |data| Instruction::Jump(JumpOp::ConditionalRelative(Condition::$r, data[1] as i8))
+        |data, _| Instruction::Jump(JumpOp::ConditionalRelative(Condition::$r, data[1] as i8))
     };
     (JP) => {
-        |data| Instruction::Jump(JumpOp::Absolute(u16::from_le_bytes([data[1], data[2]])))
+        |data, _| Instruction::Jump(JumpOp::Absolute(u16::from_le_bytes([data[1], data[2]])))
     };
     (JP, HL) => {
-        |_| Instruction::Jump(JumpOp::JumpToHL)
+        |_, _| Instruction::Jump(JumpOp::JumpToHL)
     };
     (JP, $r: ident) => {
-        |data| {
+        |data, _| {
             Instruction::Jump(JumpOp::ConditionalAbsolute(
                 Condition::$r,
                 u16::from_le_bytes([data[1], data[2]]),
@@ -552,99 +553,100 @@ macro_rules! define_op {
         }
     };
     (STOP) => {
-        |data| Instruction::ControlOp(ControlOp::Stop(data[1]))
+        |data, _| Instruction::ControlOp(ControlOp::Stop(data[1]))
     };
     (ADD) => {
-        |data| Instruction::Arithmetic(ArithmeticOp::AddDirect(data[0]))
+        |data, _| Instruction::Arithmetic(ArithmeticOp::AddDirect(data[0]))
     };
     (ADD, SP) => {
-        |data| Instruction::Arithmetic(ArithmeticOp::AddSP(data[0] as i8))
+        |data, _| Instruction::Arithmetic(ArithmeticOp::AddSP(data[0] as i8))
     };
     (ADD, $r: ident) => {
-        |_| Instruction::Arithmetic(ArithmeticOp::Add(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Add(RegOrPointer::$r))
     };
     (ADC) => {
-        |data| Instruction::Arithmetic(ArithmeticOp::AdcDirect(data[0]))
+        |data, _| Instruction::Arithmetic(ArithmeticOp::AdcDirect(data[0]))
     };
     (ADC, $r: ident) => {
-        |_| Instruction::Arithmetic(ArithmeticOp::Adc(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Adc(RegOrPointer::$r))
     };
     (SUB) => {
-        |data| Instruction::Arithmetic(ArithmeticOp::SubDirect(data[1]))
+        |data, _| Instruction::Arithmetic(ArithmeticOp::SubDirect(data[1]))
     };
     (SUB, $r: ident) => {
-        |_| Instruction::Arithmetic(ArithmeticOp::Sub(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Sub(RegOrPointer::$r))
     };
     (SBC) => {
-        |data| Instruction::Arithmetic(ArithmeticOp::SbcDirect(data[1]))
+        |data, _| Instruction::Arithmetic(ArithmeticOp::SbcDirect(data[1]))
     };
     (SBC, $r: ident) => {
-        |_| Instruction::Arithmetic(ArithmeticOp::Sbc(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Sbc(RegOrPointer::$r))
     };
     (AND) => {
-        |data| Instruction::Arithmetic(ArithmeticOp::AndDirect(data[1]))
+        |data, _| Instruction::Arithmetic(ArithmeticOp::AndDirect(data[1]))
     };
     (AND, $r: ident) => {
-        |_| Instruction::Arithmetic(ArithmeticOp::And(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::And(RegOrPointer::$r))
     };
     (XOR) => {
-        |data| Instruction::Arithmetic(ArithmeticOp::XorDirect(data[1]))
+        |data, _| Instruction::Arithmetic(ArithmeticOp::XorDirect(data[1]))
     };
     (XOR, $r: ident) => {
-        |_| Instruction::Arithmetic(ArithmeticOp::Xor(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Xor(RegOrPointer::$r))
     };
     (OR) => {
-        |data| Instruction::Arithmetic(ArithmeticOp::OrDirect(data[1]))
+        |data, _| Instruction::Arithmetic(ArithmeticOp::OrDirect(data[1]))
     };
     (OR, $r: ident) => {
-        |_| Instruction::Arithmetic(ArithmeticOp::Or(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Or(RegOrPointer::$r))
     };
     (CP) => {
-        |data| Instruction::Arithmetic(ArithmeticOp::CpDirect(data[1]))
+        |data, _| Instruction::Arithmetic(ArithmeticOp::CpDirect(data[1]))
     };
     (CP, $r: ident) => {
-        |_| Instruction::Arithmetic(ArithmeticOp::Cp(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Cp(RegOrPointer::$r))
     };
     (ADD16, $r: ident) => {
-        |_| Instruction::Arithmetic(ArithmeticOp::Add16(WideReg::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Add16(WideReg::$r))
     };
     (INC, $r: ident) => {
-        |_| Instruction::Arithmetic(ArithmeticOp::Inc(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Inc(RegOrPointer::$r))
     };
     (INC16, $r: ident) => {
-        |_| Instruction::Arithmetic(ArithmeticOp::Inc16(WideReg::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Inc16(WideReg::$r))
     };
     (DEC, $r: ident) => {
-        |_| Instruction::Arithmetic(ArithmeticOp::Dec(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Dec(RegOrPointer::$r))
     };
     (DEC16, $r: ident) => {
-        |_| Instruction::Arithmetic(ArithmeticOp::Dec16(WideReg::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Dec16(WideReg::$r))
     };
     (LD, $r: ident, A) => {
-        |_| Instruction::Load(LoadOp::StoreFromA(LoadAPointer::$r))
+        |_, _| Instruction::Load(LoadOp::StoreFromA(LoadAPointer::$r))
     };
     (LD SP) => {
-        |data| Instruction::Load(LoadOp::StoreSP(u16::from_le_bytes([data[0], data[1]])))
+        |data, _| Instruction::Load(LoadOp::StoreSP(u16::from_le_bytes([data[0], data[1]])))
     };
     (LoadA) => {
-        |data| {
+        |data, _| {
             Instruction::Load(LoadOp::LoadA {
                 ptr: u16::from_le_bytes([data[0], data[1]]),
             })
         }
     };
     (StoreA) => {
-        |data| {
+        |data, _| {
             Instruction::Load(LoadOp::StoreA {
                 ptr: u16::from_le_bytes([data[0], data[1]]),
             })
         }
     };
     (LD, $r: ident) => {
-        |data| Instruction::Load(LoadOp::Direct(RegOrPointer::$r, data[1]))
+        |data, _| Instruction::Load(LoadOp::Direct(RegOrPointer::$r, data[1]))
     };
     (LD16, $r: ident) => {
-        |data| {
+        |data, _| {
+            println!("Load direct 16: ({:X}, {:X})", data[1], data[2]);
             Instruction::Load(LoadOp::Direct16(
                 WideReg::$r,
                 u16::from_le_bytes([data[1], data[2]]),
@@ -652,16 +654,16 @@ macro_rules! define_op {
         }
     };
     (LD, A, $r: ident) => {
-        |_| Instruction::Load(LoadOp::LoadIntoA(LoadAPointer::$r))
+        |_, _| Instruction::Load(LoadOp::LoadIntoA(LoadAPointer::$r))
     };
     (LD, HL, SP) => {
-        |data| Instruction::Load(LoadOp::SPIntoHL(data[0] as i8))
+        |data, _| Instruction::Load(LoadOp::SPIntoHL(data[0] as i8))
     };
     (LD, SP, HL) => {
-        |_| Instruction::Load(LoadOp::HLIntoSP)
+        |_, _| Instruction::Load(LoadOp::HLIntoSP)
     };
     (LD, $r1: ident, $r2: ident,) => {
-        |_| {
+        |_, _| {
             Instruction::Load(LoadOp::Basic {
                 dest: RegOrPointer::$r1,
                 src: RegOrPointer::$r2,
@@ -669,28 +671,28 @@ macro_rules! define_op {
         }
     };
     (LD, Pointer, Pointer,) => {
-        |_| Instruction::Control(ControlOp::Halt)
+        |_, _| Instruction::Control(ControlOp::Halt)
     };
     (POP, $r: ident) => {
-        |_| Instruction::Load(LoadOp::Pop(WideRegWithoutSP::$r))
+        |_, _| Instruction::Load(LoadOp::Pop(WideRegWithoutSP::$r))
     };
     (PUSH, $r: ident) => {
-        |_| Instruction::Load(LoadOp::Push(WideRegWithoutSP::$r))
+        |_, _| Instruction::Load(LoadOp::Push(WideRegWithoutSP::$r))
     };
     (RET) => {
-        |_| Instruction::Jump(JumpOp::Return)
+        |_, _| Instruction::Jump(JumpOp::Return)
     };
     (RETI) => {
-        |_| Instruction::Jump(JumpOp::ReturnAndEnable)
+        |_, _| Instruction::Jump(JumpOp::ReturnAndEnable)
     };
     (RET, $r: ident) => {
-        |_| Instruction::Jump(JumpOp::ConditionalReturn(Condition::$r))
+        |_, _| Instruction::Jump(JumpOp::ConditionalReturn(Condition::$r))
     };
     (CALL) => {
-        |data| Instruction::Jump(JumpOp::Call(u16::from_le_bytes([data[1], data[2]])))
+        |data, _| Instruction::Jump(JumpOp::Call(u16::from_le_bytes([data[1], data[2]])))
     };
     (CALL, $r: ident) => {
-        |data| {
+        |data, _| {
             Instruction::Jump(JumpOp::ConditionalCall(
                 Condition::$r,
                 u16::from_le_bytes([data[1], data[2]]),
@@ -698,83 +700,83 @@ macro_rules! define_op {
         }
     };
     (PREFIX) => {
-        |data| parse_prefixed_instruction(data)
+        |mem, sp| parse_prefixed_instruction(mem, sp)
     };
     (DI) => {
-        |_| Instruction::Di
+        |_, _| Instruction::Di
     };
     (EI) => {
-        |_| Instruction::Ei
+        |_, _| Instruction::Ei
     };
     (RST00) => {
-        |_| Instruction::Jump(JumpOp::RST00)
+        |_, _| Instruction::Jump(JumpOp::RST00)
     };
     (RST08) => {
-        |_| Instruction::Jump(JumpOp::RST08)
+        |_, _| Instruction::Jump(JumpOp::RST08)
     };
     (RST10) => {
-        |_| Instruction::Jump(JumpOp::RST10)
+        |_, _| Instruction::Jump(JumpOp::RST10)
     };
     (RST18) => {
-        |_| Instruction::Jump(JumpOp::RST18)
+        |_, _| Instruction::Jump(JumpOp::RST18)
     };
     (RST20) => {
-        |_| Instruction::Jump(JumpOp::RST20)
+        |_, _| Instruction::Jump(JumpOp::RST20)
     };
     (RST28) => {
-        |_| Instruction::Jump(JumpOp::RST28)
+        |_, _| Instruction::Jump(JumpOp::RST28)
     };
     (RST30) => {
-        |_| Instruction::Jump(JumpOp::RST30)
+        |_, _| Instruction::Jump(JumpOp::RST30)
     };
     (RST38) => {
-        |_| Instruction::Jump(JumpOp::RST38)
+        |_, _| Instruction::Jump(JumpOp::RST38)
     };
     (LoadHigh) => {
-        |data| Instruction::Load(LoadOp::LoadHigh(data[1]))
+        |data, _| Instruction::Load(LoadOp::LoadHigh(data[1]))
     };
     (StoreHigh) => {
-        |data| Instruction::Load(LoadOp::StoreHigh(data[1]))
+        |data, _| Instruction::Load(LoadOp::StoreHigh(data[1]))
     };
     (LoadHighCarry) => {
-        |_| Instruction::Load(LoadOp::LoadHighCarry)
+        |_, _| Instruction::Load(LoadOp::LoadHighCarry)
     };
     (StoreHighCarry) => {
-        |_| Instruction::Load(LoadOp::StoreHighCarry)
+        |_, _| Instruction::Load(LoadOp::StoreHighCarry)
     };
     /* --- Prefixed op definitions --- */
     (RL, $r: ident) => {
-        |_| Instruction::BitShift(BitShiftOp::Rl(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Rl(RegOrPointer::$r))
     };
     (RLC, $r: ident) => {
-        |_| Instruction::BitShift(BitShiftOp::Rlc(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Rlc(RegOrPointer::$r))
     };
     (RRC, $r: ident) => {
-        |_| Instruction::BitShift(BitShiftOp::Rrc(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Rrc(RegOrPointer::$r))
     };
     (RR, $r: ident) => {
-        |_| Instruction::BitShift(BitShiftOp::Rr(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Rr(RegOrPointer::$r))
     };
     (SLA, $r: ident) => {
-        |_| Instruction::BitShift(BitShiftOp::Sla(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Sla(RegOrPointer::$r))
     };
     (SRA, $r: ident) => {
-        |_| Instruction::BitShift(BitShiftOp::Sra(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Sra(RegOrPointer::$r))
     };
     (SWAP, $r: ident) => {
-        |_| Instruction::BitShift(BitShiftOp::Swap(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Swap(RegOrPointer::$r))
     };
     (SRL, $r: ident) => {
-        |_| Instruction::BitShift(BitShiftOp::Srl(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Srl(RegOrPointer::$r))
     };
     (BIT, $b: literal, $r: ident) => {
-        |data| Instruction::Bit(BitOp::Bit(data[1], RegOrPointer::$r))
+        |data, _| Instruction::Bit(BitOp::Bit(data[1], RegOrPointer::$r))
     };
     (RES, $b: literal, $r: ident) => {
-        |data| Instruction::Bit(BitOp::Res(data[1], RegOrPointer::$r))
+        |data, _| Instruction::Bit(BitOp::Res(data[1], RegOrPointer::$r))
     };
     (SET, $b: literal, $r: ident) => {
-        |data| Instruction::Bit(BitOp::Set(data[1], RegOrPointer::$r))
+        |data, _| Instruction::Bit(BitOp::Set(data[1], RegOrPointer::$r))
     };
 }
 
@@ -1141,6 +1143,8 @@ mod test {
 
     #[test]
     fn dedupped_op_lookup_tables() {
+        todo!()
+        /*
         let mut data = [0; 10];
         // Test standard ops
         let mut ops: Vec<_> = (0..=u8::MAX)
@@ -1165,5 +1169,6 @@ mod test {
         assert_eq!(0x100, ops.len());
         ops.dedup();
         assert_eq!(0x100, ops.len());
+        */
     }
 }
