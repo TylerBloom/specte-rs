@@ -2,13 +2,13 @@ use array_concat::concat_arrays;
 
 use crate::{cpu::Cpu, mbc::MemoryMap};
 
-pub fn parse_instruction(mem: &MemoryMap, sp: u16) -> Instruction {
-    println!("Loading instruction with OP code: {:X}", mem[0]);
-    OP_LOOKUP[mem[sp] as usize](mem, sp)
+pub fn parse_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
+    println!("Loading instruction with OP code: {:X}", mem[pc]);
+    OP_LOOKUP[mem[pc] as usize](mem, pc)
 }
 
-fn parse_prefixed_instruction(mem: &MemoryMap, sp: u16) -> Instruction {
-    PREFIXED_OP_LOOKUP[mem[sp] as usize](mem, sp)
+fn parse_prefixed_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
+    PREFIXED_OP_LOOKUP[mem[pc] as usize](mem, pc)
 }
 
 type OpArray<const N: usize> = [fn(&MemoryMap, u16) -> Instruction; N];
@@ -510,10 +510,10 @@ impl BitOp {
 
 macro_rules! define_op {
     () => {
-        |data, _| {
+        |data, pc| {
             unreachable!(
                 "Op code '0x{:X}' does not correspond to any valid operation",
-                data[0]
+                data[pc]
             )
         }
     };
@@ -533,75 +533,75 @@ macro_rules! define_op {
         |_, _| Instruction::ControlOp(ControlOp::Noop)
     };
     (JR) => {
-        |data, _| Instruction::Jump(JumpOp::Relative(data[1] as i8))
+        |data, pc| Instruction::Jump(JumpOp::Relative(data[pc + 1] as i8))
     };
     (JR, $r: ident) => {
-        |data, _| Instruction::Jump(JumpOp::ConditionalRelative(Condition::$r, data[1] as i8))
+        |data, pc| Instruction::Jump(JumpOp::ConditionalRelative(Condition::$r, data[pc + 1] as i8))
     };
     (JP) => {
-        |data, _| Instruction::Jump(JumpOp::Absolute(u16::from_le_bytes([data[1], data[2]])))
+        |data, pc| Instruction::Jump(JumpOp::Absolute(u16::from_le_bytes([data[pc + 1], data[pc + 2]])))
     };
     (JP, HL) => {
         |_, _| Instruction::Jump(JumpOp::JumpToHL)
     };
     (JP, $r: ident) => {
-        |data, _| {
+        |data, pc| {
             Instruction::Jump(JumpOp::ConditionalAbsolute(
                 Condition::$r,
-                u16::from_le_bytes([data[1], data[2]]),
+                u16::from_le_bytes([data[pc + 1], data[pc + 2]]),
             ))
         }
     };
     (STOP) => {
-        |data, _| Instruction::ControlOp(ControlOp::Stop(data[1]))
+        |data, pc| Instruction::ControlOp(ControlOp::Stop(data[pc + 1]))
     };
     (ADD) => {
-        |data, _| Instruction::Arithmetic(ArithmeticOp::AddDirect(data[0]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::AddDirect(data[pc + 1]))
     };
     (ADD, SP) => {
-        |data, _| Instruction::Arithmetic(ArithmeticOp::AddSP(data[0] as i8))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::AddSP(data[pc + 1] as i8))
     };
     (ADD, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Add(RegOrPointer::$r))
     };
     (ADC) => {
-        |data, _| Instruction::Arithmetic(ArithmeticOp::AdcDirect(data[0]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::AdcDirect(data[pc + 1]))
     };
     (ADC, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Adc(RegOrPointer::$r))
     };
     (SUB) => {
-        |data, _| Instruction::Arithmetic(ArithmeticOp::SubDirect(data[1]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::SubDirect(data[pc + 1]))
     };
     (SUB, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Sub(RegOrPointer::$r))
     };
     (SBC) => {
-        |data, _| Instruction::Arithmetic(ArithmeticOp::SbcDirect(data[1]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::SbcDirect(data[pc + 1]))
     };
     (SBC, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Sbc(RegOrPointer::$r))
     };
     (AND) => {
-        |data, _| Instruction::Arithmetic(ArithmeticOp::AndDirect(data[1]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::AndDirect(data[pc + 1]))
     };
     (AND, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::And(RegOrPointer::$r))
     };
     (XOR) => {
-        |data, _| Instruction::Arithmetic(ArithmeticOp::XorDirect(data[1]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::XorDirect(data[pc + 1]))
     };
     (XOR, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Xor(RegOrPointer::$r))
     };
     (OR) => {
-        |data, _| Instruction::Arithmetic(ArithmeticOp::OrDirect(data[1]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::OrDirect(data[pc + 1]))
     };
     (OR, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Or(RegOrPointer::$r))
     };
     (CP) => {
-        |data, _| Instruction::Arithmetic(ArithmeticOp::CpDirect(data[1]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::CpDirect(data[pc + 1]))
     };
     (CP, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Cp(RegOrPointer::$r))
@@ -625,31 +625,30 @@ macro_rules! define_op {
         |_, _| Instruction::Load(LoadOp::StoreFromA(LoadAPointer::$r))
     };
     (LD SP) => {
-        |data, _| Instruction::Load(LoadOp::StoreSP(u16::from_le_bytes([data[0], data[1]])))
+        |data, pc| Instruction::Load(LoadOp::StoreSP(u16::from_le_bytes([data[pc + 1], data[pc + 1]])))
     };
     (LoadA) => {
-        |data, _| {
+        |data, pc| {
             Instruction::Load(LoadOp::LoadA {
-                ptr: u16::from_le_bytes([data[0], data[1]]),
+                ptr: u16::from_le_bytes([data[pc + 1], data[pc + 1]]),
             })
         }
     };
     (StoreA) => {
-        |data, _| {
+        |data, pc| {
             Instruction::Load(LoadOp::StoreA {
-                ptr: u16::from_le_bytes([data[0], data[1]]),
+                ptr: u16::from_le_bytes([data[pc + 1], data[pc + 2]]),
             })
         }
     };
     (LD, $r: ident) => {
-        |data, _| Instruction::Load(LoadOp::Direct(RegOrPointer::$r, data[1]))
+        |data, pc| Instruction::Load(LoadOp::Direct(RegOrPointer::$r, data[pc + 1]))
     };
     (LD16, $r: ident) => {
-        |data, _| {
-            println!("Load direct 16: ({:X}, {:X})", data[1], data[2]);
+        |data, pc| {
             Instruction::Load(LoadOp::Direct16(
                 WideReg::$r,
-                u16::from_le_bytes([data[1], data[2]]),
+                u16::from_le_bytes([data[pc + 1], data[pc + 2]]),
             ))
         }
     };
@@ -657,7 +656,7 @@ macro_rules! define_op {
         |_, _| Instruction::Load(LoadOp::LoadIntoA(LoadAPointer::$r))
     };
     (LD, HL, SP) => {
-        |data, _| Instruction::Load(LoadOp::SPIntoHL(data[0] as i8))
+        |data, pc| Instruction::Load(LoadOp::SPIntoHL(data[pc + 1] as i8))
     };
     (LD, SP, HL) => {
         |_, _| Instruction::Load(LoadOp::HLIntoSP)
@@ -689,18 +688,18 @@ macro_rules! define_op {
         |_, _| Instruction::Jump(JumpOp::ConditionalReturn(Condition::$r))
     };
     (CALL) => {
-        |data, _| Instruction::Jump(JumpOp::Call(u16::from_le_bytes([data[1], data[2]])))
+        |data, pc| Instruction::Jump(JumpOp::Call(u16::from_le_bytes([data[pc + 1], data[pc + 2]])))
     };
     (CALL, $r: ident) => {
-        |data, _| {
+        |data, pc| {
             Instruction::Jump(JumpOp::ConditionalCall(
                 Condition::$r,
-                u16::from_le_bytes([data[1], data[2]]),
+                u16::from_le_bytes([data[pc + 1], data[pc + 2]]),
             ))
         }
     };
     (PREFIX) => {
-        |mem, sp| parse_prefixed_instruction(mem, sp)
+        |mem, pc| parse_prefixed_instruction(mem, pc + 1)
     };
     (DI) => {
         |_, _| Instruction::Di
@@ -733,10 +732,10 @@ macro_rules! define_op {
         |_, _| Instruction::Jump(JumpOp::RST38)
     };
     (LoadHigh) => {
-        |data, _| Instruction::Load(LoadOp::LoadHigh(data[1]))
+        |data, pc| Instruction::Load(LoadOp::LoadHigh(data[pc + 1]))
     };
     (StoreHigh) => {
-        |data, _| Instruction::Load(LoadOp::StoreHigh(data[1]))
+        |data, pc| Instruction::Load(LoadOp::StoreHigh(data[pc + 1]))
     };
     (LoadHighCarry) => {
         |_, _| Instruction::Load(LoadOp::LoadHighCarry)
@@ -770,13 +769,13 @@ macro_rules! define_op {
         |_, _| Instruction::BitShift(BitShiftOp::Srl(RegOrPointer::$r))
     };
     (BIT, $b: literal, $r: ident) => {
-        |data, _| Instruction::Bit(BitOp::Bit(data[1], RegOrPointer::$r))
+        |data, pc| Instruction::Bit(BitOp::Bit(data[pc + 1], RegOrPointer::$r))
     };
     (RES, $b: literal, $r: ident) => {
-        |data, _| Instruction::Bit(BitOp::Res(data[1], RegOrPointer::$r))
+        |data, pc| Instruction::Bit(BitOp::Res(data[pc + 1], RegOrPointer::$r))
     };
     (SET, $b: literal, $r: ident) => {
-        |data, _| Instruction::Bit(BitOp::Set(data[1], RegOrPointer::$r))
+        |data, pc| Instruction::Bit(BitOp::Set(data[pc + 1], RegOrPointer::$r))
     };
 }
 
@@ -1143,7 +1142,8 @@ mod test {
 
     #[test]
     fn dedupped_op_lookup_tables() {
-        todo!()
+        // TODO: This test was created when the lookup table only took a byte slice. It needs to be
+        // updated to use a MemMap before any changes to the lookup logic can happen.
         /*
         let mut data = [0; 10];
         // Test standard ops

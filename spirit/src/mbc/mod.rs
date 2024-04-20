@@ -16,9 +16,9 @@ pub use mbc5::*;
 
 use crate::lookup::{parse_instruction, Instruction};
 
-static START_UP_HEADER: &[u8; 0x900] = include_bytes!("../cgb.bin");
+pub static START_UP_HEADER: &[u8; 0x900] = include_bytes!("../cgb.bin");
 
-pub(crate) type StartUpHeaders = ([u8; 0x100], [u8; 0x700]);
+pub type StartUpHeaders = ([u8; 0x100], [u8; 0x700]);
 
 static NINTENDO_LOGO: &[u8] = &[
     0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
@@ -57,7 +57,8 @@ impl MemoryMap {
         }
         for i in 0..=0x6FF {
             digest.1[i] = START_UP_HEADER[i + 0x200];
-            self.mbc.direct_overwrite((i + 0x200) as u16, &mut digest.1[i]);
+            self.mbc
+                .direct_overwrite((i + 0x200) as u16, &mut digest.1[i]);
         }
         digest
     }
@@ -67,12 +68,9 @@ impl MemoryMap {
             self.mbc.direct_overwrite(i as u16, &mut headers.0[i]);
         }
         for i in 0..=0x6FF {
-            self.mbc.direct_overwrite((i + 0x200) as u16, &mut headers.1[i]);
+            self.mbc
+                .direct_overwrite((i + 0x200) as u16, &mut headers.1[i]);
         }
-    }
-
-    pub fn start_up_read_op(&self, index: u16) -> Instruction {
-        parse_instruction(self, index)
     }
 
     pub fn read_op(&self, index: u16) -> Instruction {
@@ -97,7 +95,7 @@ impl Index<u16> for MemoryMap {
             index @ 0xFF80..=0xFFFE => {
                 println!("Index is: {index:X}, masked: {:X}", index - 0xFF80);
                 &self.hr[(index & !0xFF80) as usize]
-            },
+            }
             0xFFFF => &self.interrupt,
         }
     }
@@ -284,11 +282,13 @@ impl MemoryBankController {
 
     fn direct_overwrite(&mut self, index: u16, val: &mut u8) {
         match self {
-            MemoryBankController::Direct { rom, ram } => if index as usize >= rom.len() {
-                std::mem::swap(&mut ram[(index as usize) - rom.len()], val)
-            } else {
-                std::mem::swap(&mut rom[index as usize], val)
-            },
+            MemoryBankController::Direct { rom, ram } => {
+                if index as usize >= rom.len() {
+                    std::mem::swap(&mut ram[(index as usize) - rom.len()], val)
+                } else {
+                    std::mem::swap(&mut rom[index as usize], val)
+                }
+            }
             MemoryBankController::MBC1(_) => todo!(),
             MemoryBankController::MBC2 => todo!(),
             MemoryBankController::MBC3 => todo!(),

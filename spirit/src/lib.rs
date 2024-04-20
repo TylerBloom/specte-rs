@@ -17,7 +17,7 @@ use mbc::{MemoryBankController, MemoryMap, StartUpHeaders};
 
 mod cpu;
 mod lookup;
-mod mbc;
+pub mod mbc;
 mod rom;
 
 /// Represents a Gameboy color with a cartridge inserted.
@@ -146,6 +146,7 @@ impl<'a> StartUpSequence<'a> {
         } else {
             self.done = true
         }
+        println!("");
     }
 
     pub fn is_complete(&self) -> bool {

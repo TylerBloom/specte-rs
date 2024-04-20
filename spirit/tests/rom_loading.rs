@@ -1,4 +1,4 @@
-use spirit::Gameboy;
+use spirit::{mbc::START_UP_HEADER, Gameboy};
 
 macro_rules! include_roms {
     ($($file:literal),+) => {{
@@ -35,6 +35,7 @@ pub const TEST_ROMS: &[(&str, &[u8])] = include_roms!(
 
 #[test]
 fn run_test_roms() {
+    println!("{:X?}", START_UP_HEADER);
     for (name, cart) in TEST_ROMS {
         println!("Running ROM from file '{name}'");
         let mut gb = Gameboy::new(*cart);
