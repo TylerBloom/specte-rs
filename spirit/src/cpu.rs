@@ -2,7 +2,8 @@ use std::ops::{Index, IndexMut};
 
 use crate::{
     lookup::{
-        parse_instruction, ArithmeticOp, BitShiftOp, Condition, ControlOp, Instruction, JumpOp, LoadAPointer, LoadOp, RegOrPointer, WideReg, WideRegWithoutSP
+        parse_instruction, ArithmeticOp, BitShiftOp, Condition, ControlOp, Instruction, JumpOp,
+        LoadAPointer, LoadOp, RegOrPointer, WideReg, WideRegWithoutSP,
     },
     mbc::MemoryMap,
 };
@@ -36,16 +37,37 @@ pub enum RegisterFlags {
     C,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Flags {
+    /// The zero flag
+    z: bool,
+    /// The substraction flag
+    n: bool,
+    /// The half-carry flag
+    h: bool,
+    /// The full carry flag
+    c: bool,
+}
+
+impl Flags {
+    pub fn as_byte(&self) -> u8 {
+        ((self.z as u8) << 7)
+            | ((self.n as u8) << 6)
+            | ((self.h as u8) << 5)
+            | ((self.c as u8) << 4)
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct Cpu {
-    /// The AF register
-    af: u16,
-    /// The BC register
-    bc: u16,
-    /// The DE register
-    de: u16,
-    /// The HL register
-    hl: u16,
+    a: u8,
+    f: Flags,
+    b: u8,
+    c: u8,
+    d: u8,
+    e: u8,
+    h: u8,
+    l: u8,
     /// The SP register
     sp: u16,
     /// The PC register
@@ -56,7 +78,8 @@ pub(crate) struct Cpu {
 }
 
 fn check_bit(src: u8, bit: u8) -> bool {
-    (src & (0x1 << bit)) == bit
+    let bit = 0x1 << bit;
+    (src & bit) == bit
 }
 
 impl Cpu {
@@ -69,18 +92,28 @@ impl Cpu {
 
     /// Get the top four bits of the F register
     #[inline]
-    pub fn flags(&self) -> u8 {
-        self.af as u8 & 0xF0
+    pub fn flags(&self) -> &Flags {
+        &self.f
     }
 
     /// Returns the value of the Z flag
     pub fn zero_flag(&self) -> bool {
-        check_bit(self.flags(), 7)
+        self.f.z
+    }
+
+    /// Returns the value of the N flag
+    pub fn subtraction_flag(&self) -> bool {
+        self.f.n
+    }
+
+    /// Returns the value of the H flag
+    pub fn half_carry_flag(&self) -> bool {
+        self.f.h
     }
 
     /// Returns the value of the Z flag
     pub fn carry_flag(&self) -> bool {
-        check_bit(self.flags(), 7)
+        self.f.c
     }
 
     pub fn read_op(&self, mem: &MemoryMap) -> Instruction {
@@ -110,13 +143,17 @@ impl Cpu {
             Instruction::Cpl => {
                 let val = !self.get_reg_a();
                 self.store_reg_a(val);
-                self.set_zero_flag(true);
-                self.set_half_carry_flag(true);
+                self.f.n = true;
+                self.f.h = true;
             }
             Instruction::Ccf => todo!(),
             Instruction::Di => todo!(),
             Instruction::Ei => todo!(),
         }
+    }
+
+    fn ptr(&self) -> u16 {
+        u16::from_be_bytes([self.h, self.l])
     }
 
     fn execute_arithmetic_op(&mut self, op: ArithmeticOp, mem: &mut MemoryMap) {
@@ -136,7 +173,7 @@ impl Cpu {
                 let val = self.read_byte(mem, reg);
                 let new = self.get_reg_a() ^ val;
                 if new == 0 {
-                    self.set_zero_flag(true);
+                    self.f.z = true;
                 }
                 self.store_reg_a(new);
             }
@@ -152,7 +189,7 @@ impl Cpu {
                         let val = self.get_reg_a() - 1;
                         self.store_reg_a(val);
                         val
-                    },
+                    }
                     RegOrPointer::B => {
                         let val = self.get_reg_b() - 1;
                         self.store_reg_b(val);
@@ -184,16 +221,16 @@ impl Cpu {
                         val
                     }
                     RegOrPointer::Pointer => {
-                        let val = mem[self.hl] - 1;
-                        mem[self.hl] = val;
+                        let val = mem[self.ptr()] - 1;
+                        mem[self.ptr()] = val;
                         val
                     }
                 };
                 if val == 0 {
-                    self.set_zero_flag(true);
+                    self.f.z = true;
                 }
-                self.set_subtraction_flag(true);
-                self.set_carry_flag(((val >> 3) != 0) as bool);
+                self.f.n = true;
+                self.f.h = ((val >> 3) != 0) as bool;
             }
             ArithmeticOp::Inc16(_) => todo!(),
             ArithmeticOp::Dec16(_) => todo!(),
@@ -210,7 +247,7 @@ impl Cpu {
             RegOrPointer::E => self.get_reg_e(),
             RegOrPointer::H => self.get_reg_h(),
             RegOrPointer::L => self.get_reg_l(),
-            RegOrPointer::Pointer => mem[self.hl],
+            RegOrPointer::Pointer => mem[self.ptr()],
         }
     }
 
@@ -277,8 +314,8 @@ impl Cpu {
                 val = val.rotate_left(1);
                 let carry = (val & 0x1) == 1;
                 val &= (0xFF & self.carry_flag() as u8);
-                self.set_carry_flag(carry);
-                self.set_zero_flag(val == 0);
+                self.f.c = carry;
+                self.f.z = val == 0;
                 self.store_half_value(reg, mem, val);
             }
             BitShiftOp::Rr(reg) => {
@@ -286,8 +323,8 @@ impl Cpu {
                 val = val.rotate_right(1);
                 let carry = (val & 0x80) == 1;
                 val &= (0xFF & ((self.carry_flag() as u8) << 7));
-                self.set_carry_flag(carry);
-                self.set_zero_flag(val == 0);
+                self.f.c = carry;
+                self.f.z = val == 0;
                 self.store_half_value(reg, mem, val);
             }
             BitShiftOp::Sla(_) => todo!(),
@@ -297,35 +334,11 @@ impl Cpu {
                 let lw = val & 0xF0 >> 4;
                 let hi = val & 0x0F << 4;
                 val = hi | lw;
-                self.set_zero_flag(val == 0);
+                self.f.z = val == 0;
                 self.store_half_value(reg, mem, val);
             }
             BitShiftOp::Srl(_) => todo!(),
         }
-    }
-
-    fn set_carry_flag(&mut self, flag: bool) {
-        let flag = (flag as u8) << 4;
-        let mask = !(1 << 4) | flag;
-        self.af &= 0xFF00 | (mask as u16);
-    }
-
-    fn set_subtraction_flag(&mut self, flag: bool) {
-        let flag = (flag as u8) << 6;
-        let mask = !(1 << 6) | flag;
-        self.af &= 0xFF00 | (mask as u16);
-    }
-
-    fn set_half_carry_flag(&mut self, flag: bool) {
-        let flag = (flag as u8) << 5;
-        let mask = !(1 << 5) | flag;
-        self.af &= 0xFF00 | (mask as u16);
-    }
-
-    fn set_zero_flag(&mut self, flag: bool) {
-        let flag = (flag as u8) << 7;
-        let mask = !(1 << 7) | flag;
-        self.af &= 0xFF00 | (mask as u16);
     }
 
     fn execute_load_op(&mut self, op: LoadOp, mem: &mut MemoryMap) {
@@ -351,13 +364,16 @@ impl Cpu {
                 mem[val] = lw;
                 mem[val + 1] = hi;
             }
-            LoadOp::HLIntoSP => self.sp = self.hl,
+            LoadOp::HLIntoSP => self.sp = self.ptr(),
             LoadOp::SPIntoHL(val) => {
-                self.hl = if val >= 0 {
+                let [h, l] = if val >= 0 {
                     self.sp + val as u16
                 } else {
                     self.sp - val as u16
                 }
+                .to_be_bytes();
+                self.h = h;
+                self.l = l;
             }
             LoadOp::Pop(reg) => {
                 let a = mem[self.sp];
@@ -368,10 +384,10 @@ impl Cpu {
             }
             LoadOp::Push(reg) => {
                 let [a, b] = match reg {
-                    WideRegWithoutSP::BC => self.bc.to_le_bytes(),
-                    WideRegWithoutSP::DE => self.de.to_le_bytes(),
-                    WideRegWithoutSP::HL => self.hl.to_le_bytes(),
-                    WideRegWithoutSP::AF => self.af.to_le_bytes(),
+                    WideRegWithoutSP::BC => [self.b, self.c],
+                    WideRegWithoutSP::DE => [self.d, self.e],
+                    WideRegWithoutSP::HL => [self.h, self.l],
+                    WideRegWithoutSP::AF => [self.a, self.f.as_byte()],
                 };
                 mem[self.sp] = a;
                 self.sp -= 1;
@@ -503,7 +519,7 @@ impl Cpu {
             RegOrPointer::H => self.store_reg_h(val),
             RegOrPointer::L => self.store_reg_l(val),
             RegOrPointer::Pointer => {
-                mem[self.hl] = val;
+                mem[self.ptr()] = val;
             }
         }
     }
@@ -567,6 +583,101 @@ impl IndexMut<WideRegWithoutSP> for Cpu {
             WideRegWithoutSP::DE => &mut self.de,
             WideRegWithoutSP::HL => &mut self.hl,
             WideRegWithoutSP::AF => &mut self.af,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        lookup::{Instruction, LoadOp, RegOrPointer},
+        mbc::MemoryMap,
+    };
+
+    use super::Cpu;
+
+    fn init() -> (Cpu, MemoryMap) {
+        static CART: &[u8] = include_bytes!("../tests/roms/acid/which.gb");
+        let cpu = Cpu::default();
+        let mem = MemoryMap::new(CART);
+        (cpu, mem)
+    }
+
+    fn reg_iter() -> &'static [RegOrPointer] {
+        static REGS: &[RegOrPointer] = &[
+            RegOrPointer::A,
+            RegOrPointer::B,
+            RegOrPointer::C,
+            RegOrPointer::D,
+            RegOrPointer::E,
+            RegOrPointer::H,
+            RegOrPointer::L,
+            RegOrPointer::Pointer,
+        ];
+        REGS
+    }
+
+    #[test]
+    fn test_cpl() {
+        let (mut cpu, mut mem) = init();
+        assert_eq!(cpu.pc, 0);
+        cpu.execute(Instruction::Cpl, &mut mem);
+        assert_eq!(cpu.pc, 1);
+        assert_eq!(cpu.get_reg_a(), u8::MAX);
+        assert!(cpu.subtraction_flag(), "{cpu:#X?}");
+        assert!(cpu.half_carry_flag(), "{cpu:#X?}");
+        cpu.store_reg_a(1);
+        cpu.execute(Instruction::Cpl, &mut mem);
+        assert_eq!(cpu.get_reg_a(), u8::MAX << 1);
+        assert_eq!(cpu.pc, 2);
+    }
+
+    /*
+    pub enum LoadOp {
+        /// Used for opcodes 0xX1
+        Direct16(WideReg, u16),
+        /// Used for opcodes 0x_6 and 0x_E
+        Direct(RegOrPointer, u8),
+        /// Used for opcodes 0x_A
+        LoadIntoA(LoadAPointer),
+        /// Used for opcodes 0x_2
+        StoreFromA(LoadAPointer),
+        /// Opcode: 0x08
+        /// Store SP & $FF at address n16 and SP >> 8 at address n16 + 1.
+        StoreSP(u16),
+        /// Opcode: 0xF9
+        HLIntoSP,
+        /// Opcode: 0xF8
+        /// Add the signed value e8 to SP and store the result in HL.
+        SPIntoHL(i8),
+        /// Used for opcodes 0x_1
+        Pop(WideRegWithoutSP),
+        /// Used for opcodes 0x_5
+        Push(WideRegWithoutSP),
+        /// Used for opcode 0xE0
+        LoadHigh(u8),
+        /// Used for opcode 0xF0
+        StoreHigh(u8),
+        /// Used for opcode 0xE2
+        LoadHighCarry,
+        /// Used for opcode 0xF2
+        StoreHighCarry,
+        /// Used for opcode 0xEA
+        LoadA { ptr: u16 },
+        /// Used for opcode 0xFA
+        StoreA { ptr: u16 },
+    }
+    */
+    #[test]
+    fn test_basic_load_op() {
+        let (mut cpu, mut mem) = init();
+        let iter = reg_iter().into_iter().copied();
+        for (dest, src) in iter
+            .clone()
+            .flat_map(|r| iter.clone().map(move |rr| (r, rr)))
+        {
+            let op = Instruction::Load(LoadOp::Basic { dest, src });
+            cpu.execute(op, &mut mem);
         }
     }
 }
