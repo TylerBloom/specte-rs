@@ -141,8 +141,7 @@ impl Cpu {
             Instruction::Daa => todo!(),
             Instruction::Scf => todo!(),
             Instruction::Cpl => {
-                let val = !self.get_reg_a();
-                self.store_reg_a(val);
+                self.a = !self.a;
                 self.f.n = true;
                 self.f.h = true;
             }
@@ -171,11 +170,10 @@ impl Cpu {
             ArithmeticOp::AndDirect(_) => todo!(),
             ArithmeticOp::Xor(reg) => {
                 let val = self.read_byte(mem, reg);
-                let new = self.get_reg_a() ^ val;
-                if new == 0 {
+                self.a ^= val;
+                if self.a == 0 {
                     self.f.z = true;
                 }
-                self.store_reg_a(new);
             }
             ArithmeticOp::XorDirect(_) => todo!(),
             ArithmeticOp::Or(_) => todo!(),
@@ -186,39 +184,32 @@ impl Cpu {
             ArithmeticOp::Dec(reg) => {
                 let val = match reg {
                     RegOrPointer::A => {
-                        let val = self.get_reg_a() - 1;
-                        self.store_reg_a(val);
-                        val
+                        self.a -= 1;
+                        self.a
                     }
                     RegOrPointer::B => {
-                        let val = self.get_reg_b() - 1;
-                        self.store_reg_b(val);
-                        val
+                        self.b -= 1;
+                        self.b
                     }
                     RegOrPointer::C => {
-                        let val = self.get_reg_c() - 1;
-                        self.store_reg_c(val);
-                        val
+                        self.c -= 1;
+                        self.c
                     }
                     RegOrPointer::D => {
-                        let val = self.get_reg_d() - 1;
-                        self.store_reg_d(val);
-                        val
+                        self.d -= 1;
+                        self.d
                     }
                     RegOrPointer::E => {
-                        let val = self.get_reg_e() - 1;
-                        self.store_reg_e(val);
-                        val
+                        self.e -= 1;
+                        self.e
                     }
                     RegOrPointer::H => {
-                        let val = self.get_reg_h() - 1;
-                        self.store_reg_h(val);
-                        val
+                        self.h -= 1;
+                        self.h
                     }
                     RegOrPointer::L => {
-                        let val = self.get_reg_l() - 1;
-                        self.store_reg_l(val);
-                        val
+                        self.l -= 1;
+                        self.l
                     }
                     RegOrPointer::Pointer => {
                         let val = mem[self.ptr()] - 1;
@@ -240,13 +231,13 @@ impl Cpu {
 
     fn read_byte(&self, mem: &MemoryMap, reg: RegOrPointer) -> u8 {
         match reg {
-            RegOrPointer::A => self.get_reg_a(),
-            RegOrPointer::B => self.get_reg_b(),
-            RegOrPointer::C => self.get_reg_c(),
-            RegOrPointer::D => self.get_reg_d(),
-            RegOrPointer::E => self.get_reg_e(),
-            RegOrPointer::H => self.get_reg_h(),
-            RegOrPointer::L => self.get_reg_l(),
+            RegOrPointer::A => self.a,
+            RegOrPointer::B => self.b,
+            RegOrPointer::C => self.c,
+            RegOrPointer::D => self.d,
+            RegOrPointer::E => self.e,
+            RegOrPointer::H => self.h,
+            RegOrPointer::L => self.l,
             RegOrPointer::Pointer => mem[self.ptr()],
         }
     }
@@ -355,10 +346,9 @@ impl Cpu {
             LoadOp::Direct16(reg, val) => self[reg] = val,
             LoadOp::Direct(reg, val) => self.store_half_value(reg, mem, val),
             LoadOp::LoadIntoA(ptr) => {
-                let val = *self.deref_ptr(mem, ptr);
-                self.store_reg_a(val)
+                self.a = *self.deref_ptr(mem, ptr);
             }
-            LoadOp::StoreFromA(ptr) => *self.deref_ptr(mem, ptr) = self.get_reg_a(),
+            LoadOp::StoreFromA(ptr) => *self.deref_ptr(mem, ptr) = self.a,
             LoadOp::StoreSP(val) => {
                 let [lw, hi] = self.sp.to_le_bytes();
                 mem[val] = lw;
@@ -394,31 +384,47 @@ impl Cpu {
                 mem[self.sp] = b;
                 self.sp -= 1;
             }
-            LoadOp::LoadHigh(val) => self.store_reg_a(mem[u16::from_le_bytes([0xFF, val])]),
-            LoadOp::StoreHigh(val) => mem[u16::from_le_bytes([0xFF, val])] = self.get_reg_a(),
+            LoadOp::LoadHigh(val) => self.a = mem[u16::from_le_bytes([0xFF, val])],
+            LoadOp::StoreHigh(val) => mem[u16::from_le_bytes([0xFF, val])] = self.a,
             LoadOp::LoadHighCarry => {
-                self.store_reg_a(mem[u16::from_le_bytes([0xFF, self.carry_flag() as u8])])
+                self.a = mem[u16::from_le_bytes([0xFF, self.carry_flag() as u8])];
             }
             LoadOp::StoreHighCarry => {
-                mem[u16::from_le_bytes([0xFF, self.carry_flag() as u8])] = self.get_reg_a()
+                mem[u16::from_le_bytes([0xFF, self.carry_flag() as u8])] = self.a
             }
-            LoadOp::LoadA { ptr } => mem[ptr] = self.get_reg_a(),
-            LoadOp::StoreA { ptr } => self.store_reg_a(mem[ptr]),
+            LoadOp::LoadA { ptr } => mem[ptr] = self.a,
+            LoadOp::StoreA { ptr } => self.a = mem[ptr],
         }
+    }
+
+    fn bc(&self) -> u16 {
+        u16::from_be_bytes([self.b, self.c])
+    }
+
+    fn de(&self) -> u16 {
+        u16::from_be_bytes([self.d, self.e])
+    }
+
+    fn inc_ptr(&mut self, val: u8) {
+        todo!()
+    }
+
+    fn dec_ptr(&mut self, val: u8) {
+        todo!()
     }
 
     fn deref_ptr<'a, 'b>(&'a mut self, mem: &'b mut MemoryMap, ptr: LoadAPointer) -> &'b mut u8 {
         match ptr {
-            LoadAPointer::BC => &mut mem[self.bc],
-            LoadAPointer::DE => &mut mem[self.de],
+            LoadAPointer::BC => &mut mem[self.bc()],
+            LoadAPointer::DE => &mut mem[self.de()],
             LoadAPointer::Hli => {
-                let digest = &mut mem[self.hl];
-                self.hl += 1;
+                let digest = &mut mem[self.ptr()];
+                self.inc_ptr(1);
                 digest
             }
             LoadAPointer::Hld => {
-                let digest = &mut mem[self.hl];
-                self.hl -= 1;
+                let digest = &mut mem[self.ptr()];
+                self.inc_ptr(1);
                 digest
             }
         }
@@ -426,98 +432,28 @@ impl Cpu {
 
     fn get_half_value(&self, reg: RegOrPointer, mem: &MemoryMap) -> u8 {
         match reg {
-            RegOrPointer::A => self.get_reg_a(),
-            RegOrPointer::B => self.get_reg_b(),
-            RegOrPointer::C => self.get_reg_c(),
-            RegOrPointer::D => self.get_reg_d(),
-            RegOrPointer::E => self.get_reg_e(),
-            RegOrPointer::H => self.get_reg_h(),
-            RegOrPointer::L => self.get_reg_l(),
-            RegOrPointer::Pointer => mem[self.hl],
+            RegOrPointer::A => self.a,
+            RegOrPointer::B => self.d,
+            RegOrPointer::C => self.c,
+            RegOrPointer::D => self.d,
+            RegOrPointer::E => self.e,
+            RegOrPointer::H => self.h,
+            RegOrPointer::L => self.l,
+            RegOrPointer::Pointer => mem[self.ptr()],
         }
-    }
-
-    #[inline(always)]
-    fn get_reg_a(&self) -> u8 {
-        self.af.to_ne_bytes()[1]
-    }
-
-    #[inline(always)]
-    fn store_reg_a(&mut self, val: u8) {
-        self.af = (self.af & 0x00FF) | ((val as u16) << 8);
-    }
-
-    #[inline(always)]
-    fn get_reg_b(&self) -> u8 {
-        self.bc.to_ne_bytes()[1]
-    }
-
-    #[inline(always)]
-    fn store_reg_b(&mut self, val: u8) {
-        self.bc = (self.bc & 0x00FF) | ((val as u16) << 8);
-    }
-
-    #[inline(always)]
-    fn get_reg_c(&self) -> u8 {
-        self.bc.to_ne_bytes()[0]
-    }
-
-    #[inline(always)]
-    fn store_reg_c(&mut self, val: u8) {
-        self.bc = (self.bc & 0xFF00) | val as u16;
-    }
-
-    #[inline(always)]
-    fn get_reg_d(&self) -> u8 {
-        self.de.to_ne_bytes()[1]
-    }
-
-    #[inline(always)]
-    fn store_reg_d(&mut self, val: u8) {
-        self.de = (self.de & 0x00FF) | ((val as u16) << 8);
-    }
-
-    #[inline(always)]
-    fn get_reg_e(&self) -> u8 {
-        self.de.to_ne_bytes()[0]
-    }
-
-    #[inline(always)]
-    fn store_reg_e(&mut self, val: u8) {
-        self.de = (self.de & 0xFF00) | val as u16;
-    }
-
-    #[inline(always)]
-    fn get_reg_h(&self) -> u8 {
-        self.hl.to_ne_bytes()[1]
-    }
-
-    #[inline(always)]
-    fn store_reg_h(&mut self, val: u8) {
-        self.hl = (self.hl & 0x00FF) | ((val as u16) << 8);
-    }
-
-    #[inline(always)]
-    fn get_reg_l(&self) -> u8 {
-        self.hl.to_ne_bytes()[0]
-    }
-
-    #[inline(always)]
-    fn store_reg_l(&mut self, val: u8) {
-        self.hl = (self.hl & 0xFF00) | val as u16;
     }
 
     /// Stores the given byte into either an (half) register or into the MemoryMap using the HL
     /// register as an index.
     fn store_half_value(&mut self, reg: RegOrPointer, mem: &mut MemoryMap, val: u8) {
         match reg {
-            RegOrPointer::A => self.store_reg_a(val),
-            RegOrPointer::B => self.store_reg_b(val),
-            RegOrPointer::C => self.store_reg_c(val),
-            RegOrPointer::D => self.store_reg_d(val),
-            RegOrPointer::E => self.store_reg_e(val),
-            RegOrPointer::H => self.store_reg_h(val),
-            RegOrPointer::L => self.store_reg_l(val),
+            RegOrPointer::A => self.a = val,
+            RegOrPointer::B => self.b = val,
+            RegOrPointer::C => self.c = val,
+            RegOrPointer::D => self.d = val,
+            RegOrPointer::E => self.e = val,
+            RegOrPointer::H => self.h = val,
+            RegOrPointer::L => self.l = val,
             RegOrPointer::Pointer => {
                 mem[self.ptr()] = val;
             }
@@ -543,23 +479,13 @@ impl Index<WideReg> for Cpu {
     type Output = u16;
 
     fn index(&self, index: WideReg) -> &Self::Output {
-        match index {
-            WideReg::BC => &self.bc,
-            WideReg::DE => &self.de,
-            WideReg::HL => &self.hl,
-            WideReg::SP => &self.sp,
-        }
+        todo!("Remove")
     }
 }
 
 impl IndexMut<WideReg> for Cpu {
     fn index_mut(&mut self, index: WideReg) -> &mut Self::Output {
-        match index {
-            WideReg::BC => &mut self.bc,
-            WideReg::DE => &mut self.de,
-            WideReg::HL => &mut self.hl,
-            WideReg::SP => &mut self.sp,
-        }
+        todo!("Remove")
     }
 }
 
@@ -567,23 +493,13 @@ impl Index<WideRegWithoutSP> for Cpu {
     type Output = u16;
 
     fn index(&self, index: WideRegWithoutSP) -> &Self::Output {
-        match index {
-            WideRegWithoutSP::BC => &self.bc,
-            WideRegWithoutSP::DE => &self.de,
-            WideRegWithoutSP::HL => &self.hl,
-            WideRegWithoutSP::AF => &self.af,
-        }
+        todo!("Remove")
     }
 }
 
 impl IndexMut<WideRegWithoutSP> for Cpu {
     fn index_mut(&mut self, index: WideRegWithoutSP) -> &mut Self::Output {
-        match index {
-            WideRegWithoutSP::BC => &mut self.bc,
-            WideRegWithoutSP::DE => &mut self.de,
-            WideRegWithoutSP::HL => &mut self.hl,
-            WideRegWithoutSP::AF => &mut self.af,
-        }
+        todo!("Remove")
     }
 }
 
@@ -623,12 +539,12 @@ mod tests {
         assert_eq!(cpu.pc, 0);
         cpu.execute(Instruction::Cpl, &mut mem);
         assert_eq!(cpu.pc, 1);
-        assert_eq!(cpu.get_reg_a(), u8::MAX);
+        assert_eq!(cpu.a, u8::MAX);
         assert!(cpu.subtraction_flag(), "{cpu:#X?}");
         assert!(cpu.half_carry_flag(), "{cpu:#X?}");
-        cpu.store_reg_a(1);
+        cpu.a = 1;
         cpu.execute(Instruction::Cpl, &mut mem);
-        assert_eq!(cpu.get_reg_a(), u8::MAX << 1);
+        assert_eq!(cpu.a, u8::MAX << 1);
         assert_eq!(cpu.pc, 2);
     }
 
