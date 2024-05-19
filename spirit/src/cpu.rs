@@ -2,8 +2,7 @@ use std::ops::{Index, IndexMut};
 
 use crate::{
     lookup::{
-        parse_instruction, ArithmeticOp, BitShiftOp, Condition, ControlOp, Instruction, JumpOp,
-        LoadAPointer, LoadOp, RegOrPointer, WideReg, WideRegWithoutSP,
+        parse_instruction, ArithmeticOp, BitShiftOp, Condition, ControlOp, HalfRegister, Instruction, JumpOp, LoadAPointer, LoadOp, RegOrPointer, WideReg, WideRegWithoutSP
     },
     mbc::MemoryMap,
 };
@@ -18,16 +17,6 @@ pub enum FullRegister {
     PC,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HalfRegister {
-    A,
-    B,
-    C,
-    D,
-    E,
-    H,
-    L,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegisterFlags {
@@ -475,6 +464,36 @@ impl Cpu {
     }
 }
 
+impl Index<HalfRegister> for Cpu {
+    type Output = u8;
+
+    fn index(&self, index: HalfRegister) -> &Self::Output {
+        match index {
+            HalfRegister::A => &self.a,
+            HalfRegister::B => &self.b,
+            HalfRegister::C => &self.c,
+            HalfRegister::D => &self.d,
+            HalfRegister::E => &self.e,
+            HalfRegister::H => &self.h,
+            HalfRegister::L => &self.l,
+        }
+    }
+}
+
+impl IndexMut<HalfRegister> for Cpu {
+    fn index_mut(&mut self, index: HalfRegister) -> &mut Self::Output {
+        match index {
+            HalfRegister::A => &mut self.a,
+            HalfRegister::B => &mut self.b,
+            HalfRegister::C => &mut self.c,
+            HalfRegister::D => &mut self.d,
+            HalfRegister::E => &mut self.e,
+            HalfRegister::H => &mut self.h,
+            HalfRegister::L => &mut self.l,
+        }
+    }
+}
+
 impl Index<WideReg> for Cpu {
     type Output = u16;
 
@@ -520,6 +539,7 @@ mod tests {
     }
 
     fn reg_iter() -> &'static [RegOrPointer] {
+        /*
         static REGS: &[RegOrPointer] = &[
             RegOrPointer::A,
             RegOrPointer::B,
@@ -531,6 +551,8 @@ mod tests {
             RegOrPointer::Pointer,
         ];
         REGS
+        */
+        todo!()
     }
 
     #[test]

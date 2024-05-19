@@ -2,6 +2,8 @@ use array_concat::concat_arrays;
 
 use crate::{cpu::Cpu, mbc::MemoryMap};
 
+use derive_more::From;
+
 pub fn parse_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
     println!("Loading instruction with OP code: {:X}", mem[pc]);
     OP_LOOKUP[mem[pc] as usize](mem, pc)
@@ -466,8 +468,8 @@ impl BitShiftOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum RegOrPointer {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HalfRegister {
     A,
     B,
     C,
@@ -475,6 +477,11 @@ pub enum RegOrPointer {
     E,
     H,
     L,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, From)]
+pub enum RegOrPointer {
+    Reg(HalfRegister),
     Pointer,
 }
 
@@ -536,10 +543,20 @@ macro_rules! define_op {
         |data, pc| Instruction::Jump(JumpOp::Relative(data[pc + 1] as i8))
     };
     (JR, $r: ident) => {
-        |data, pc| Instruction::Jump(JumpOp::ConditionalRelative(Condition::$r, data[pc + 1] as i8))
+        |data, pc| {
+            Instruction::Jump(JumpOp::ConditionalRelative(
+                Condition::$r,
+                data[pc + 1] as i8,
+            ))
+        }
     };
     (JP) => {
-        |data, pc| Instruction::Jump(JumpOp::Absolute(u16::from_le_bytes([data[pc + 1], data[pc + 2]])))
+        |data, pc| {
+            Instruction::Jump(JumpOp::Absolute(u16::from_le_bytes([
+                data[pc + 1],
+                data[pc + 2],
+            ])))
+        }
     };
     (JP, HL) => {
         |_, _| Instruction::Jump(JumpOp::JumpToHL)
@@ -625,7 +642,12 @@ macro_rules! define_op {
         |_, _| Instruction::Load(LoadOp::StoreFromA(LoadAPointer::$r))
     };
     (LD SP) => {
-        |data, pc| Instruction::Load(LoadOp::StoreSP(u16::from_le_bytes([data[pc + 1], data[pc + 1]])))
+        |data, pc| {
+            Instruction::Load(LoadOp::StoreSP(u16::from_le_bytes([
+                data[pc + 1],
+                data[pc + 1],
+            ])))
+        }
     };
     (LoadA) => {
         |data, pc| {
@@ -661,11 +683,11 @@ macro_rules! define_op {
     (LD, SP, HL) => {
         |_, _| Instruction::Load(LoadOp::HLIntoSP)
     };
-    (LD, $r1: ident, $r2: ident,) => {
+    (LD, $r1: literal, $r2: literal,) => {
         |_, _| {
             Instruction::Load(LoadOp::Basic {
-                dest: RegOrPointer::$r1,
-                src: RegOrPointer::$r2,
+                dest: $r1.into(),
+                src: $r1.into(),
             })
         }
     };
@@ -688,7 +710,12 @@ macro_rules! define_op {
         |_, _| Instruction::Jump(JumpOp::ConditionalReturn(Condition::$r))
     };
     (CALL) => {
-        |data, pc| Instruction::Jump(JumpOp::Call(u16::from_le_bytes([data[pc + 1], data[pc + 2]])))
+        |data, pc| {
+            Instruction::Jump(JumpOp::Call(u16::from_le_bytes([
+                data[pc + 1],
+                data[pc + 2],
+            ])))
+        }
     };
     (CALL, $r: ident) => {
         |data, pc| {
@@ -839,7 +866,7 @@ macro_rules! define_op_chunk {
             define_op!($x, $r, D,),
             define_op!($x, $r, E,),
             define_op!($x, $r, H,),
-            define_op!($x, $r, L,),
+            define_op!($x, $r, Reg(HalfRegister::L)),
             define_op!($x, $r, Pointer,),
             define_op!($x, $r, A,),
         ];
