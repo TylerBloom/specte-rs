@@ -38,8 +38,6 @@ impl Gameboy {
 
     /// Runs the power-up sequence for the gameboy. During this time, the Gameboy remaps part of
     /// the memory to read from the start up sequence.
-    // TODO: It might be a good idea to have this function return an state type that can ticked and
-    // read from.
     pub fn start_up(&mut self) -> StartUpSequence<'_> {
         StartUpSequence::new(self)
     }

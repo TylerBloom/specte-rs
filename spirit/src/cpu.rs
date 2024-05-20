@@ -2,7 +2,8 @@ use std::ops::{Index, IndexMut};
 
 use crate::{
     lookup::{
-        parse_instruction, ArithmeticOp, BitShiftOp, Condition, ControlOp, HalfRegister, Instruction, JumpOp, LoadAPointer, LoadOp, RegOrPointer, WideReg, WideRegWithoutSP
+        parse_instruction, ArithmeticOp, BitShiftOp, Condition, ControlOp, HalfRegister,
+        Instruction, JumpOp, LoadAPointer, LoadOp, RegOrPointer, WideReg, WideRegWithoutSP,
     },
     mbc::MemoryMap,
 };
@@ -16,7 +17,6 @@ pub enum FullRegister {
     SP,
     PC,
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegisterFlags {
@@ -48,7 +48,7 @@ impl Flags {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct Cpu {
+pub struct Cpu {
     a: u8,
     f: Flags,
     b: u8,
@@ -144,6 +144,10 @@ impl Cpu {
         u16::from_be_bytes([self.h, self.l])
     }
 
+    fn pc_bytes(&self) -> [u8; 2] {
+        u16::to_be_bytes(self.pc)
+    }
+
     fn execute_arithmetic_op(&mut self, op: ArithmeticOp, mem: &mut MemoryMap) {
         match op {
             ArithmeticOp::Add16(_) => todo!(),
@@ -158,7 +162,7 @@ impl Cpu {
             ArithmeticOp::And(_) => todo!(),
             ArithmeticOp::AndDirect(_) => todo!(),
             ArithmeticOp::Xor(reg) => {
-                let val = self.read_byte(mem, reg);
+                let val = self.copy_byte(mem, reg);
                 self.a ^= val;
                 if self.a == 0 {
                     self.f.z = true;
@@ -172,33 +176,10 @@ impl Cpu {
             ArithmeticOp::Inc(_) => todo!(),
             ArithmeticOp::Dec(reg) => {
                 let val = match reg {
-                    RegOrPointer::A => {
-                        self.a -= 1;
-                        self.a
-                    }
-                    RegOrPointer::B => {
-                        self.b -= 1;
-                        self.b
-                    }
-                    RegOrPointer::C => {
-                        self.c -= 1;
-                        self.c
-                    }
-                    RegOrPointer::D => {
-                        self.d -= 1;
-                        self.d
-                    }
-                    RegOrPointer::E => {
-                        self.e -= 1;
-                        self.e
-                    }
-                    RegOrPointer::H => {
-                        self.h -= 1;
-                        self.h
-                    }
-                    RegOrPointer::L => {
-                        self.l -= 1;
-                        self.l
+                    RegOrPointer::Reg(reg) => {
+                        let val = &mut self[reg];
+                        *val -= 1;
+                        *val
                     }
                     RegOrPointer::Pointer => {
                         let val = mem[self.ptr()] - 1;
@@ -218,17 +199,48 @@ impl Cpu {
         }
     }
 
-    fn read_byte(&self, mem: &MemoryMap, reg: RegOrPointer) -> u8 {
+    fn ref_byte<'a>(&'a self, mem: &'a MemoryMap, reg: RegOrPointer) -> &'a u8 {
         match reg {
-            RegOrPointer::A => self.a,
-            RegOrPointer::B => self.b,
-            RegOrPointer::C => self.c,
-            RegOrPointer::D => self.d,
-            RegOrPointer::E => self.e,
-            RegOrPointer::H => self.h,
-            RegOrPointer::L => self.l,
+            RegOrPointer::Reg(reg) => &self[reg],
+            RegOrPointer::Pointer => &mem[self.ptr()],
+        }
+    }
+
+    fn ref_mut_byte<'a>(&'a mut self, mem: &'a mut MemoryMap, reg: RegOrPointer) -> &'a mut u8 {
+        match reg {
+            RegOrPointer::Reg(reg) => &mut self[reg],
+            RegOrPointer::Pointer => &mut mem[self.ptr()],
+        }
+    }
+
+    fn copy_byte(&self, mem: &MemoryMap, reg: RegOrPointer) -> u8 {
+        match reg {
+            RegOrPointer::Reg(reg) => self[reg],
             RegOrPointer::Pointer => mem[self.ptr()],
         }
+    }
+
+    fn update_byte<F>(&mut self, reg: RegOrPointer, mem: &mut MemoryMap, update: F) -> u8
+    where
+        F: FnOnce(&mut u8),
+    {
+        let digest = self.ref_mut_byte(mem, reg);
+        update(digest);
+        *digest
+    }
+
+    /// Stores the given byte into either an (half) register or into the MemoryMap using the HL
+    /// register as an index.
+    fn write_byte(&mut self, reg: RegOrPointer, mem: &mut MemoryMap, val: u8) {
+        self.cow_byte(reg, mem, val);
+    }
+
+    /// Functions similiarly to `write_byte` but also returns the byte that was modified *after*
+    /// the modification.
+    fn cow_byte(&mut self, reg: RegOrPointer, mem: &mut MemoryMap, val: u8) -> u8 {
+        let digest = self.ref_mut_byte(mem, reg);
+        *digest = val;
+        *digest
     }
 
     fn matches(&self, cond: Condition) -> bool {
@@ -256,7 +268,7 @@ impl Cpu {
             JumpOp::JumpToHL => todo!(),
             JumpOp::Absolute(val) => self.pc = val,
             JumpOp::Call(ptr) => {
-                let [hi, lo] = self.pc.to_be_bytes();
+                let [hi, lo] = self.pc_bytes();
                 self.sp -= 1;
                 mem[self.sp] = hi;
                 self.sp -= 1;
@@ -281,7 +293,7 @@ impl Cpu {
     fn execute_control_op(&mut self, op: ControlOp, mem: &mut MemoryMap) {
         match op {
             ControlOp::Noop => {}
-            ControlOp::Stop(_) => self.done = true,
+            ControlOp::Halt | ControlOp::Stop(_) => self.done = true,
         }
     }
 
@@ -290,32 +302,32 @@ impl Cpu {
             BitShiftOp::Rlc(reg) => {}
             BitShiftOp::Rrc(_) => todo!(),
             BitShiftOp::Rl(reg) => {
-                let mut val = self.get_half_value(reg, mem);
+                let mut val = self.copy_byte(mem, reg);
                 val = val.rotate_left(1);
                 let carry = (val & 0x1) == 1;
                 val &= (0xFF & self.carry_flag() as u8);
                 self.f.c = carry;
                 self.f.z = val == 0;
-                self.store_half_value(reg, mem, val);
+                self.write_byte(reg, mem, val);
             }
             BitShiftOp::Rr(reg) => {
-                let mut val = self.get_half_value(reg, mem);
+                let mut val = self.copy_byte(mem, reg);
                 val = val.rotate_right(1);
                 let carry = (val & 0x80) == 1;
                 val &= (0xFF & ((self.carry_flag() as u8) << 7));
                 self.f.c = carry;
                 self.f.z = val == 0;
-                self.store_half_value(reg, mem, val);
+                self.write_byte(reg, mem, val);
             }
             BitShiftOp::Sla(_) => todo!(),
             BitShiftOp::Sra(_) => todo!(),
             BitShiftOp::Swap(reg) => {
-                let mut val = self.get_half_value(reg, mem);
-                let lw = val & 0xF0 >> 4;
-                let hi = val & 0x0F << 4;
-                val = hi | lw;
+                let val = self.update_byte(reg, mem, |val| {
+                    let lw = *val & 0xF0 >> 4;
+                    let hi = *val & 0x0F << 4;
+                    *val = hi | lw;
+                });
                 self.f.z = val == 0;
-                self.store_half_value(reg, mem, val);
             }
             BitShiftOp::Srl(_) => todo!(),
         }
@@ -329,11 +341,9 @@ impl Cpu {
             } => {
                 todo!("halt")
             }
-            LoadOp::Basic { dest, src } => {
-                self.store_half_value(dest, mem, self.get_half_value(src, mem))
-            }
+            LoadOp::Basic { dest, src } => self.write_byte(dest, mem, self.copy_byte(mem, src)),
             LoadOp::Direct16(reg, val) => self[reg] = val,
-            LoadOp::Direct(reg, val) => self.store_half_value(reg, mem, val),
+            LoadOp::Direct(reg, val) => self.write_byte(reg, mem, val),
             LoadOp::LoadIntoA(ptr) => {
                 self.a = *self.deref_ptr(mem, ptr);
             }
@@ -419,36 +429,6 @@ impl Cpu {
         }
     }
 
-    fn get_half_value(&self, reg: RegOrPointer, mem: &MemoryMap) -> u8 {
-        match reg {
-            RegOrPointer::A => self.a,
-            RegOrPointer::B => self.d,
-            RegOrPointer::C => self.c,
-            RegOrPointer::D => self.d,
-            RegOrPointer::E => self.e,
-            RegOrPointer::H => self.h,
-            RegOrPointer::L => self.l,
-            RegOrPointer::Pointer => mem[self.ptr()],
-        }
-    }
-
-    /// Stores the given byte into either an (half) register or into the MemoryMap using the HL
-    /// register as an index.
-    fn store_half_value(&mut self, reg: RegOrPointer, mem: &mut MemoryMap, val: u8) {
-        match reg {
-            RegOrPointer::A => self.a = val,
-            RegOrPointer::B => self.b = val,
-            RegOrPointer::C => self.c = val,
-            RegOrPointer::D => self.d = val,
-            RegOrPointer::E => self.e = val,
-            RegOrPointer::H => self.h = val,
-            RegOrPointer::L => self.l = val,
-            RegOrPointer::Pointer => {
-                mem[self.ptr()] = val;
-            }
-        }
-    }
-
     /// A method similar to `Self::execute`, but is ran during start up, when the ROM that is
     /// burned-into the CPU is mapped over normal memory.
     ///
@@ -525,7 +505,7 @@ impl IndexMut<WideRegWithoutSP> for Cpu {
 #[cfg(test)]
 mod tests {
     use crate::{
-        lookup::{Instruction, LoadOp, RegOrPointer},
+        lookup::{HalfRegister, Instruction, LoadOp, RegOrPointer},
         mbc::MemoryMap,
     };
 
@@ -539,20 +519,17 @@ mod tests {
     }
 
     fn reg_iter() -> &'static [RegOrPointer] {
-        /*
         static REGS: &[RegOrPointer] = &[
-            RegOrPointer::A,
-            RegOrPointer::B,
-            RegOrPointer::C,
-            RegOrPointer::D,
-            RegOrPointer::E,
-            RegOrPointer::H,
-            RegOrPointer::L,
+            RegOrPointer::Reg(HalfRegister::A),
+            RegOrPointer::Reg(HalfRegister::B),
+            RegOrPointer::Reg(HalfRegister::C),
+            RegOrPointer::Reg(HalfRegister::D),
+            RegOrPointer::Reg(HalfRegister::E),
+            RegOrPointer::Reg(HalfRegister::H),
+            RegOrPointer::Reg(HalfRegister::L),
             RegOrPointer::Pointer,
         ];
         REGS
-        */
-        todo!()
     }
 
     #[test]

@@ -2,7 +2,7 @@ use array_concat::concat_arrays;
 
 use crate::{cpu::Cpu, mbc::MemoryMap};
 
-use derive_more::From;
+use derive_more::{From, IsVariant};
 
 pub fn parse_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
     println!("Loading instruction with OP code: {:X}", mem[pc]);
@@ -243,6 +243,7 @@ impl JumpOp {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ControlOp {
+    Halt,
     Noop,
     Stop(u8),
 }
@@ -253,6 +254,7 @@ impl ControlOp {
         match self {
             ControlOp::Noop => 4,
             ControlOp::Stop(_) => 4,
+            ControlOp::Halt => todo!(),
         }
     }
 
@@ -261,6 +263,7 @@ impl ControlOp {
         match self {
             ControlOp::Noop => 1,
             ControlOp::Stop(_) => 2,
+            ControlOp::Halt => todo!(),
         }
     }
 }
@@ -426,16 +429,16 @@ impl BitShiftOp {
     /// Returns the number of ticks to will take to complete this instruction.
     pub fn length(&self) -> u8 {
         match self {
-            BitShiftOp::Rlc(RegOrPointer::A) => 4,
+            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 4,
             BitShiftOp::Rlc(RegOrPointer::Pointer) => 16,
             BitShiftOp::Rlc(_) => 8,
-            BitShiftOp::Rrc(RegOrPointer::A) => 4,
+            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 4,
             BitShiftOp::Rrc(RegOrPointer::Pointer) => 16,
             BitShiftOp::Rrc(_) => 8,
-            BitShiftOp::Rl(RegOrPointer::A) => 4,
+            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 4,
             BitShiftOp::Rl(RegOrPointer::Pointer) => 16,
             BitShiftOp::Rl(_) => 8,
-            BitShiftOp::Rr(RegOrPointer::A) => 4,
+            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 4,
             BitShiftOp::Rr(RegOrPointer::Pointer) => 16,
             BitShiftOp::Rr(_) => 8,
             BitShiftOp::Sla(RegOrPointer::Pointer) => 16,
@@ -452,13 +455,13 @@ impl BitShiftOp {
     /// Returns the size of the bytes to took to construct this instruction
     pub const fn size(&self) -> u8 {
         match self {
-            BitShiftOp::Rlc(RegOrPointer::A) => 1,
+            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 1,
             BitShiftOp::Rlc(_) => 2,
-            BitShiftOp::Rrc(RegOrPointer::A) => 1,
+            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 1,
             BitShiftOp::Rrc(_) => 2,
-            BitShiftOp::Rl(RegOrPointer::A) => 1,
+            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 1,
             BitShiftOp::Rl(_) => 2,
-            BitShiftOp::Rr(RegOrPointer::A) => 1,
+            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 1,
             BitShiftOp::Rr(_) => 2,
             BitShiftOp::Sla(_) => 2,
             BitShiftOp::Sra(_) => 2,
@@ -479,10 +482,36 @@ pub enum HalfRegister {
     L,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, From)]
+#[derive(Debug, Clone, Copy, PartialEq, From, IsVariant)]
 pub enum RegOrPointer {
     Reg(HalfRegister),
     Pointer,
+}
+
+enum InnerRegOrPointer {
+    A,
+    B,
+    C,
+    D,
+    E,
+    H,
+    L,
+    Pointer,
+}
+
+impl InnerRegOrPointer {
+    const fn convert(self) -> RegOrPointer {
+        match self {
+            InnerRegOrPointer::A => RegOrPointer::Reg(HalfRegister::A),
+            InnerRegOrPointer::B => RegOrPointer::Reg(HalfRegister::B),
+            InnerRegOrPointer::C => RegOrPointer::Reg(HalfRegister::C),
+            InnerRegOrPointer::D => RegOrPointer::Reg(HalfRegister::D),
+            InnerRegOrPointer::E => RegOrPointer::Reg(HalfRegister::E),
+            InnerRegOrPointer::H => RegOrPointer::Reg(HalfRegister::H),
+            InnerRegOrPointer::L => RegOrPointer::Reg(HalfRegister::L),
+            InnerRegOrPointer::Pointer => RegOrPointer::Pointer,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -579,61 +608,61 @@ macro_rules! define_op {
         |data, pc| Instruction::Arithmetic(ArithmeticOp::AddSP(data[pc + 1] as i8))
     };
     (ADD, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Add(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Add(InnerRegOrPointer::$r.convert()))
     };
     (ADC) => {
         |data, pc| Instruction::Arithmetic(ArithmeticOp::AdcDirect(data[pc + 1]))
     };
     (ADC, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Adc(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Adc(InnerRegOrPointer::$r.convert()))
     };
     (SUB) => {
         |data, pc| Instruction::Arithmetic(ArithmeticOp::SubDirect(data[pc + 1]))
     };
     (SUB, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Sub(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Sub(InnerRegOrPointer::$r.convert()))
     };
     (SBC) => {
         |data, pc| Instruction::Arithmetic(ArithmeticOp::SbcDirect(data[pc + 1]))
     };
     (SBC, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Sbc(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Sbc(InnerRegOrPointer::$r.convert()))
     };
     (AND) => {
         |data, pc| Instruction::Arithmetic(ArithmeticOp::AndDirect(data[pc + 1]))
     };
     (AND, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::And(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::And(InnerRegOrPointer::$r.convert()))
     };
     (XOR) => {
         |data, pc| Instruction::Arithmetic(ArithmeticOp::XorDirect(data[pc + 1]))
     };
     (XOR, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Xor(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Xor(InnerRegOrPointer::$r.convert()))
     };
     (OR) => {
         |data, pc| Instruction::Arithmetic(ArithmeticOp::OrDirect(data[pc + 1]))
     };
     (OR, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Or(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Or(InnerRegOrPointer::$r.convert()))
     };
     (CP) => {
         |data, pc| Instruction::Arithmetic(ArithmeticOp::CpDirect(data[pc + 1]))
     };
     (CP, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Cp(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Cp(InnerRegOrPointer::$r.convert()))
     };
     (ADD16, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Add16(WideReg::$r))
     };
     (INC, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Inc(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Inc(InnerRegOrPointer::$r.convert()))
     };
     (INC16, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Inc16(WideReg::$r))
     };
     (DEC, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Dec(RegOrPointer::$r))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Dec(InnerRegOrPointer::$r.convert()))
     };
     (DEC16, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Dec16(WideReg::$r))
@@ -664,7 +693,7 @@ macro_rules! define_op {
         }
     };
     (LD, $r: ident) => {
-        |data, pc| Instruction::Load(LoadOp::Direct(RegOrPointer::$r, data[pc + 1]))
+        |data, pc| Instruction::Load(LoadOp::Direct(InnerRegOrPointer::$r.convert(), data[pc + 1]))
     };
     (LD16, $r: ident) => {
         |data, pc| {
@@ -683,16 +712,16 @@ macro_rules! define_op {
     (LD, SP, HL) => {
         |_, _| Instruction::Load(LoadOp::HLIntoSP)
     };
-    (LD, $r1: literal, $r2: literal,) => {
+    (LD, $r1: ident, $r2: ident,) => {
         |_, _| {
             Instruction::Load(LoadOp::Basic {
-                dest: $r1.into(),
-                src: $r1.into(),
+                dest: InnerRegOrPointer::$r1.convert(),
+                src: InnerRegOrPointer::$r1.convert(),
             })
         }
     };
     (LD, Pointer, Pointer,) => {
-        |_, _| Instruction::Control(ControlOp::Halt)
+        |_, _| Instruction::ControlOp(ControlOp::Halt)
     };
     (POP, $r: ident) => {
         |_, _| Instruction::Load(LoadOp::Pop(WideRegWithoutSP::$r))
@@ -772,37 +801,37 @@ macro_rules! define_op {
     };
     /* --- Prefixed op definitions --- */
     (RL, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Rl(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Rl(InnerRegOrPointer::$r.convert()))
     };
     (RLC, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Rlc(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Rlc(InnerRegOrPointer::$r.convert()))
     };
     (RRC, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Rrc(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Rrc(InnerRegOrPointer::$r.convert()))
     };
     (RR, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Rr(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Rr(InnerRegOrPointer::$r.convert()))
     };
     (SLA, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Sla(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Sla(InnerRegOrPointer::$r.convert()))
     };
     (SRA, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Sra(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Sra(InnerRegOrPointer::$r.convert()))
     };
     (SWAP, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Swap(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Swap(InnerRegOrPointer::$r.convert()))
     };
     (SRL, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Srl(RegOrPointer::$r))
+        |_, _| Instruction::BitShift(BitShiftOp::Srl(InnerRegOrPointer::$r.convert()))
     };
     (BIT, $b: literal, $r: ident) => {
-        |data, pc| Instruction::Bit(BitOp::Bit(data[pc + 1], RegOrPointer::$r))
+        |data, pc| Instruction::Bit(BitOp::Bit(data[pc + 1], InnerRegOrPointer::$r.convert()))
     };
     (RES, $b: literal, $r: ident) => {
-        |data, pc| Instruction::Bit(BitOp::Res(data[pc + 1], RegOrPointer::$r))
+        |data, pc| Instruction::Bit(BitOp::Res(data[pc + 1], InnerRegOrPointer::$r.convert()))
     };
     (SET, $b: literal, $r: ident) => {
-        |data, pc| Instruction::Bit(BitOp::Set(data[pc + 1], RegOrPointer::$r))
+        |data, pc| Instruction::Bit(BitOp::Set(data[pc + 1], InnerRegOrPointer::$r.convert()))
     };
 }
 
@@ -866,7 +895,7 @@ macro_rules! define_op_chunk {
             define_op!($x, $r, D,),
             define_op!($x, $r, E,),
             define_op!($x, $r, H,),
-            define_op!($x, $r, Reg(HalfRegister::L)),
+            define_op!($x, $r, L,),
             define_op!($x, $r, Pointer,),
             define_op!($x, $r, A,),
         ];
