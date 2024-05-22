@@ -7,7 +7,7 @@
 //! # Notes
 //! The Z80 CPU is big endian.
 
-#![allow(dead_code, unused, clippy::all)]
+#![allow(dead_code, unused, private_interfaces, clippy::all)]
 
 use std::borrow::Cow;
 
@@ -165,5 +165,17 @@ impl Drop for StartUpSequence<'_> {
             self.step()
         }
         self.gb.mem.start_up_unmap(self.remap_mem)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::mem::size_of;
+
+    use crate::lookup::Instruction;
+
+    #[test]
+    fn size() {
+        assert!(size_of::<Instruction>() <= size_of::<usize>())
     }
 }

@@ -148,6 +148,37 @@ impl Cpu {
         u16::to_be_bytes(self.pc)
     }
 
+    fn set_ptr(&mut self, val: u16) {
+        todo!()
+    }
+
+    fn read_wide_reg(&self, reg: WideReg) -> u16 {
+        match reg {
+            WideReg::BC => self.bc(),
+            WideReg::DE => self.de(),
+            WideReg::HL => self.ptr(),
+            WideReg::SP => self.sp,
+        }
+    }
+
+    fn write_wide_reg(&mut self, reg: WideReg, val: u16) {
+        match reg {
+            WideReg::BC => self.write_bc(val),
+            WideReg::DE => self.write_de(val),
+            WideReg::HL => self.set_ptr(val),
+            WideReg::SP => self.sp = val,
+        }
+    }
+
+    fn write_wide_reg_without_sp(&mut self, reg: WideRegWithoutSP, val: u16) {
+        match reg {
+            WideRegWithoutSP::BC => self.write_bc(val),
+            WideRegWithoutSP::DE => self.write_de(val),
+            WideRegWithoutSP::HL => self.set_ptr(val),
+            WideRegWithoutSP::AF => self.write_af(val),
+        }
+    }
+
     fn execute_arithmetic_op(&mut self, op: ArithmeticOp, mem: &mut MemoryMap) {
         match op {
             ArithmeticOp::Add16(_) => todo!(),
@@ -342,7 +373,7 @@ impl Cpu {
                 todo!("halt")
             }
             LoadOp::Basic { dest, src } => self.write_byte(dest, mem, self.copy_byte(mem, src)),
-            LoadOp::Direct16(reg, val) => self[reg] = val,
+            LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),
             LoadOp::Direct(reg, val) => self.write_byte(reg, mem, val),
             LoadOp::LoadIntoA(ptr) => {
                 self.a = *self.deref_ptr(mem, ptr);
@@ -369,7 +400,7 @@ impl Cpu {
                 self.sp += 1;
                 let b = mem[self.sp];
                 self.sp += 1;
-                self[reg] = u16::from_le_bytes([a, b]);
+                self.write_wide_reg_without_sp(reg, u16::from_le_bytes([a, b]));
             }
             LoadOp::Push(reg) => {
                 let [a, b] = match reg {
@@ -396,12 +427,24 @@ impl Cpu {
         }
     }
 
+    fn write_af(&mut self, val: u16) {
+        todo!()
+    }
+
     fn bc(&self) -> u16 {
         u16::from_be_bytes([self.b, self.c])
     }
 
+    fn write_bc(&mut self, val: u16) {
+        todo!()
+    }
+
     fn de(&self) -> u16 {
         u16::from_be_bytes([self.d, self.e])
+    }
+
+    fn write_de(&mut self, val: u16) {
+        todo!()
     }
 
     fn inc_ptr(&mut self, val: u8) {
@@ -471,34 +514,6 @@ impl IndexMut<HalfRegister> for Cpu {
             HalfRegister::H => &mut self.h,
             HalfRegister::L => &mut self.l,
         }
-    }
-}
-
-impl Index<WideReg> for Cpu {
-    type Output = u16;
-
-    fn index(&self, index: WideReg) -> &Self::Output {
-        todo!("Remove")
-    }
-}
-
-impl IndexMut<WideReg> for Cpu {
-    fn index_mut(&mut self, index: WideReg) -> &mut Self::Output {
-        todo!("Remove")
-    }
-}
-
-impl Index<WideRegWithoutSP> for Cpu {
-    type Output = u16;
-
-    fn index(&self, index: WideRegWithoutSP) -> &Self::Output {
-        todo!("Remove")
-    }
-}
-
-impl IndexMut<WideRegWithoutSP> for Cpu {
-    fn index_mut(&mut self, index: WideRegWithoutSP) -> &mut Self::Output {
-        todo!("Remove")
     }
 }
 
