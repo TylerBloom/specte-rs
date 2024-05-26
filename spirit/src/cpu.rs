@@ -39,11 +39,18 @@ pub struct Flags {
 }
 
 impl Flags {
+    pub fn set_from_byte(&mut self, val: u8) {
+        self.z = check_bit::<7>(val);
+        self.n = check_bit::<6>(val);
+        self.h = check_bit::<5>(val);
+        self.c = check_bit::<4>(val);
+    }
+
     pub fn as_byte(&self) -> u8 {
-        ((self.z as u8) << 7)
-            | ((self.n as u8) << 6)
-            | ((self.h as u8) << 5)
-            | ((self.c as u8) << 4)
+        bool_to_mask::<7>(self.z)
+            | bool_to_mask::<6>(self.n)
+            | bool_to_mask::<5>(self.h)
+            | bool_to_mask::<4>(self.c)
     }
 }
 
@@ -66,9 +73,21 @@ pub struct Cpu {
     done: bool,
 }
 
-fn check_bit(src: u8, bit: u8) -> bool {
-    let bit = 0x1 << bit;
-    (src & bit) == bit
+const fn bit_select<const B: u8>() -> u8 {
+    const {
+        match B {
+            n @ 0..=7 => 0x1 << n,
+            _ => panic!("You must select between the 0th and 7th bit!"),
+        }
+    }
+}
+
+const fn bool_to_mask<const B: u8>(val: bool) -> u8 {
+    (val as u8) << B
+}
+
+const fn check_bit<const B: u8>(src: u8) -> bool {
+    (src & bit_select::<B>()) == bit_select::<B>()
 }
 
 impl Cpu {
@@ -428,6 +447,9 @@ impl Cpu {
     }
 
     fn write_af(&mut self, val: u16) {
+        let [a, f] = val.to_be_bytes();
+        self.a = a;
+        self.flags();
         todo!()
     }
 
@@ -436,7 +458,9 @@ impl Cpu {
     }
 
     fn write_bc(&mut self, val: u16) {
-        todo!()
+        let [b, c] = val.to_be_bytes();
+        self.b = b;
+        self.c = c;
     }
 
     fn de(&self) -> u16 {
@@ -444,7 +468,9 @@ impl Cpu {
     }
 
     fn write_de(&mut self, val: u16) {
-        todo!()
+        let [d, e] = val.to_be_bytes();
+        self.d = d;
+        self.e = e;
     }
 
     fn inc_ptr(&mut self, val: u8) {
