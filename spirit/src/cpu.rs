@@ -2,8 +2,9 @@ use std::ops::{Index, IndexMut};
 
 use crate::{
     lookup::{
-        parse_instruction, ArithmeticOp, BitShiftOp, Condition, ControlOp, HalfRegister,
-        Instruction, JumpOp, LoadAPointer, LoadOp, RegOrPointer, WideReg, WideRegWithoutSP,
+        parse_instruction, ArithmeticOp, BitOp, BitOpInner, BitShiftOp, Condition, ControlOp,
+        HalfRegister, Instruction, JumpOp, LoadAPointer, LoadOp, RegOrPointer, WideReg,
+        WideRegWithoutSP,
     },
     mbc::MemoryMap,
 };
@@ -40,10 +41,10 @@ pub struct Flags {
 
 impl Flags {
     pub fn set_from_byte(&mut self, val: u8) {
-        self.z = check_bit::<7>(val);
-        self.n = check_bit::<6>(val);
-        self.h = check_bit::<5>(val);
-        self.c = check_bit::<4>(val);
+        self.z = check_bit_const::<7>(val);
+        self.n = check_bit_const::<6>(val);
+        self.h = check_bit_const::<5>(val);
+        self.c = check_bit_const::<4>(val);
     }
 
     pub fn as_byte(&self) -> u8 {
@@ -86,7 +87,12 @@ const fn bool_to_mask<const B: u8>(val: bool) -> u8 {
     (val as u8) << B
 }
 
-const fn check_bit<const B: u8>(src: u8) -> bool {
+const fn check_bit(bit: u8, src: u8) -> bool {
+    let bit = 0x1 << bit;
+    (src & bit) == bibit
+}
+
+const fn check_bit_const<const B: u8>(src: u8) -> bool {
     (src & bit_select::<B>()) == bit_select::<B>()
 }
 
@@ -143,7 +149,7 @@ impl Cpu {
             Instruction::Load(op) => self.execute_load_op(op, mem),
             Instruction::BitShift(op) => self.execute_bit_shift_op(op, mem),
             Instruction::ControlOp(op) => self.execute_control_op(op, mem),
-            Instruction::Bit(_) => todo!(),
+            Instruction::Bit(op) => self.execute_bit_op(op, mem),
             Instruction::Jump(op) => self.execute_jump_op(op, mem),
             Instruction::Arithmetic(op) => self.execute_arithmetic_op(op, mem),
             Instruction::Daa => todo!(),
@@ -344,6 +350,25 @@ impl Cpu {
         match op {
             ControlOp::Noop => {}
             ControlOp::Halt | ControlOp::Stop(_) => self.done = true,
+        }
+    }
+
+    fn execute_bit_op(&mut self, op: BitOp, mem: &mut MemoryMap) {
+        let BitOp { bit, reg, op } = op;
+        debug_assert!(bit < 8);
+        let byte = self.copy_byte(mem, reg);
+        match op {
+            BitOpInner::Bit => {
+                self.f.z = !check_bit(bit, byte);
+                self.f.n = false;
+                self.f.h = true;
+            }
+            BitOpInner::Res => {
+                self.update_byte(reg, mem, |byte| *byte &= !(0x1 << bit));
+            }
+            BitOpInner::Set =>  {
+                self.update_byte(reg, mem, |byte| *byte |= 0x1 << bit);
+            }
         }
     }
 

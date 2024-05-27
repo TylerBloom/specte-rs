@@ -515,32 +515,28 @@ impl InnerRegOrPointer {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BitOp {
-    Bit(u8, RegOrPointer),
-    Res(u8, RegOrPointer),
-    Set(u8, RegOrPointer),
+pub struct BitOp {
+    pub bit: u8,
+    pub reg: RegOrPointer,
+    pub op: BitOpInner,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BitOpInner {
+    Bit,
+    Res,
+    Set,
 }
 
 impl BitOp {
     /// Returns the number of ticks to will take to complete this instruction.
     pub fn length(&self) -> u8 {
-        match self {
-            BitOp::Bit(_, RegOrPointer::Pointer) => 12,
-            BitOp::Bit(_, _) => 8,
-            BitOp::Res(_, RegOrPointer::Pointer) => 12,
-            BitOp::Res(_, _) => 8,
-            BitOp::Set(_, RegOrPointer::Pointer) => 12,
-            BitOp::Set(_, _) => 8,
-        }
+        8 + 4 * (self.reg.is_pointer() as u8)
     }
 
     /// Returns the size of the bytes to took to construct this instruction
     pub const fn size(&self) -> u8 {
-        match self {
-            BitOp::Bit(_, _) => 2,
-            BitOp::Res(_, _) => 2,
-            BitOp::Set(_, _) => 2,
-        }
+        2
     }
 }
 
@@ -825,13 +821,13 @@ macro_rules! define_op {
         |_, _| Instruction::BitShift(BitShiftOp::Srl(InnerRegOrPointer::$r.convert()))
     };
     (BIT, $b: literal, $r: ident) => {
-        |data, pc| Instruction::Bit(BitOp::Bit(data[pc + 1], InnerRegOrPointer::$r.convert()))
+        |data, pc| Instruction::Bit(BitOp { bit: (data[pc] - 0x40)/8, reg: InnerRegOrPointer::$r.convert() , op: BitOpInner::Bit  })
     };
     (RES, $b: literal, $r: ident) => {
-        |data, pc| Instruction::Bit(BitOp::Res(data[pc + 1], InnerRegOrPointer::$r.convert()))
+        |data, pc| Instruction::Bit(BitOp { bit: (data[pc] - 0x80)/8, reg: InnerRegOrPointer::$r.convert() , op: BitOpInner::Res  })
     };
     (SET, $b: literal, $r: ident) => {
-        |data, pc| Instruction::Bit(BitOp::Set(data[pc + 1], InnerRegOrPointer::$r.convert()))
+        |data, pc| Instruction::Bit(BitOp { bit: (data[pc] - 0xC0)/8, reg: InnerRegOrPointer::$r.convert() , op: BitOpInner::Set  })
     };
 }
 
