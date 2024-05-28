@@ -47,6 +47,13 @@ impl Flags {
         self.c = check_bit_const::<4>(val);
     }
 
+    pub fn set_for_byte_shift_op(&mut self, z: bool, c: bool) {
+        self.z = z;
+        self.n = false;
+        self.h = false;
+        self.c = c;
+    }
+
     pub fn as_byte(&self) -> u8 {
         bool_to_mask::<7>(self.z)
             | bool_to_mask::<6>(self.n)
@@ -89,7 +96,11 @@ const fn bool_to_mask<const B: u8>(val: bool) -> u8 {
 
 const fn check_bit(bit: u8, src: u8) -> bool {
     let bit = 0x1 << bit;
-    (src & bit) == bibit
+    (src & bit) == bit
+}
+
+const fn select_bit<const B: u8>(src: u8) -> u8 {
+    src & bit_select::<B>()
 }
 
 const fn check_bit_const<const B: u8>(src: u8) -> bool {
@@ -366,7 +377,7 @@ impl Cpu {
             BitOpInner::Res => {
                 self.update_byte(reg, mem, |byte| *byte &= !(0x1 << bit));
             }
-            BitOpInner::Set =>  {
+            BitOpInner::Set => {
                 self.update_byte(reg, mem, |byte| *byte |= 0x1 << bit);
             }
         }
@@ -374,37 +385,79 @@ impl Cpu {
 
     fn execute_bit_shift_op(&mut self, op: BitShiftOp, mem: &mut MemoryMap) {
         match op {
-            BitShiftOp::Rlc(reg) => {}
-            BitShiftOp::Rrc(_) => todo!(),
+            BitShiftOp::Rlc(reg) => {
+                let mut carry = false;
+                let byte = self.update_byte(reg, mem, |byte| {
+                    let [c, new] = (u16::from_be_bytes([0, *byte]) << 1).to_be_bytes();
+                    *byte = c | new;
+                    carry = c == 1;
+                });
+                self.f.set_for_byte_shift_op(byte != 0, carry)
+            }
+            BitShiftOp::Rrc(reg) => {
+                let mut carry = false;
+                let byte = self.update_byte(reg, mem, |byte| {
+                    let [c, new] = (u16::from_be_bytes([*byte, 0]) >> 1).to_be_bytes();
+                    *byte = c | new;
+                    carry = c == 0b1000_0000;
+                });
+                self.f.set_for_byte_shift_op(byte != 0, carry)
+            }
             BitShiftOp::Rl(reg) => {
-                let mut val = self.copy_byte(mem, reg);
-                val = val.rotate_left(1);
-                let carry = (val & 0x1) == 1;
-                val &= (0xFF & self.carry_flag() as u8);
-                self.f.c = carry;
-                self.f.z = val == 0;
-                self.write_byte(reg, mem, val);
+                let carry = self.f.c as u8;
+                let mask = carry | (carry << 7);
+                let mut new_carry = false;
+                let byte = self.update_byte(reg, mem, |byte| {
+                    let [c, new] = (u16::from_be_bytes([mask, *byte]) << 1).to_be_bytes();
+                    new_carry = c & 1 != 0;
+                });
+                self.f.set_for_byte_shift_op(byte != 0, new_carry)
             }
             BitShiftOp::Rr(reg) => {
-                let mut val = self.copy_byte(mem, reg);
-                val = val.rotate_right(1);
-                let carry = (val & 0x80) == 1;
-                val &= (0xFF & ((self.carry_flag() as u8) << 7));
-                self.f.c = carry;
-                self.f.z = val == 0;
-                self.write_byte(reg, mem, val);
-            }
-            BitShiftOp::Sla(_) => todo!(),
-            BitShiftOp::Sra(_) => todo!(),
-            BitShiftOp::Swap(reg) => {
-                let val = self.update_byte(reg, mem, |val| {
-                    let lw = *val & 0xF0 >> 4;
-                    let hi = *val & 0x0F << 4;
-                    *val = hi | lw;
+                let carry = self.f.c as u8;
+                let mask = carry | (carry << 7);
+                let mut new_carry = false;
+                let byte = self.update_byte(reg, mem, |byte| {
+                    let [c, new] = (u16::from_be_bytes([*byte, mask]) >> 1).to_be_bytes();
+                    new_carry = c >> 7 != 0;
                 });
-                self.f.z = val == 0;
+                self.f.set_for_byte_shift_op(byte != 0, new_carry)
             }
-            BitShiftOp::Srl(_) => todo!(),
+            BitShiftOp::Sla(reg) => {
+                let mut new_carry = false;
+                let byte = self.update_byte(reg, mem, |byte| {
+                    let [c, new] = (u16::from_be_bytes([0, *byte]) << 1).to_be_bytes();
+                    new_carry = c != 0;
+                });
+                self.f.set_for_byte_shift_op(byte != 0, new_carry)
+            }
+            BitShiftOp::Sra(reg) => {
+                let mut carry = false;
+                let byte = self.update_byte(reg, mem, |byte| {
+                    let bit = select_bit::<7>(*byte);
+                    let [c, new] = (u16::from_be_bytes([*byte, 0]) >> 1).to_be_bytes();
+                    carry = c >> 7 != 0;
+                    *byte = new | bit;
+                });
+                self.f.set_for_byte_shift_op(byte != 0, carry)
+            }
+            BitShiftOp::Swap(reg) => {
+                let byte = self.update_byte(reg, mem, |byte| {
+                    let lw = *byte & 0xF0 >> 4;
+                    let hi = *byte & 0x0F << 4;
+                    *byte = hi | lw;
+                });
+                self.f.set_for_byte_shift_op(byte != 0, false)
+            }
+            BitShiftOp::Srl(reg) => {
+                let mut carry = false;
+                let byte = self.update_byte(reg, mem, |byte| {
+                    let [c, new] = (u16::from_be_bytes([*byte, 0]) >> 1).to_be_bytes();
+                    carry = c >> 7 != 0;
+                    *byte = new;
+                });
+                self.f.set_for_byte_shift_op(byte != 0, carry)
+            }
         }
     }
 
