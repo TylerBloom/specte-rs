@@ -3,7 +3,7 @@ use std::ops::{Index, IndexMut};
 use crate::{
     lookup::{
         parse_instruction, ArithmeticOp, BitOp, BitOpInner, BitShiftOp, Condition, ControlOp,
-        HalfRegister, Instruction, JumpOp, LoadAPointer, LoadOp, RegOrPointer, WideReg,
+        HalfRegister, Instruction, JumpOp, LoadAPointer, LoadOp, RegOrPointer, SomeByte, WideReg,
         WideRegWithoutSP,
     },
     mbc::MemoryMap,
@@ -107,6 +107,14 @@ const fn check_bit_const<const B: u8>(src: u8) -> bool {
     (src & bit_select::<B>()) == bit_select::<B>()
 }
 
+fn check_half_carry() -> bool {
+    todo!()
+}
+
+fn check_carry() -> bool {
+    todo!()
+}
+
 impl Cpu {
     /// Constructs a new CPU with each register set to 0.
     pub fn new() -> Self {
@@ -185,7 +193,9 @@ impl Cpu {
     }
 
     fn set_ptr(&mut self, val: u16) {
-        todo!()
+        let [h, l] = u16::to_be_bytes(val);
+        self.h = h;
+        self.l = l;
     }
 
     fn read_wide_reg(&self, reg: WideReg) -> u16 {
@@ -206,6 +216,15 @@ impl Cpu {
         }
     }
 
+    fn update_wide_reg<F>(&mut self, reg: WideReg, update: F)
+    where
+        F: FnOnce(&mut u16),
+    {
+        let mut value = self.read_wide_reg(reg);
+        update(&mut value);
+        self.write_wide_reg(reg, value);
+    }
+
     fn write_wide_reg_without_sp(&mut self, reg: WideRegWithoutSP, val: u16) {
         match reg {
             WideRegWithoutSP::BC => self.write_bc(val),
@@ -217,52 +236,106 @@ impl Cpu {
 
     fn execute_arithmetic_op(&mut self, op: ArithmeticOp, mem: &mut MemoryMap) {
         match op {
-            ArithmeticOp::Add16(_) => todo!(),
-            ArithmeticOp::Add(_) => todo!(),
-            ArithmeticOp::AddDirect(_) => todo!(),
-            ArithmeticOp::Adc(_) => todo!(),
-            ArithmeticOp::AdcDirect(_) => todo!(),
-            ArithmeticOp::Sub(_) => todo!(),
-            ArithmeticOp::SubDirect(_) => todo!(),
-            ArithmeticOp::Sbc(_) => todo!(),
-            ArithmeticOp::SbcDirect(_) => todo!(),
-            ArithmeticOp::And(_) => todo!(),
-            ArithmeticOp::AndDirect(_) => todo!(),
-            ArithmeticOp::Xor(reg) => {
-                let val = self.copy_byte(mem, reg);
-                self.a ^= val;
-                if self.a == 0 {
-                    self.f.z = true;
+            ArithmeticOp::AddSP(val) => {
+                if val < 0 {
+                    self.sp -= val.abs() as u16;
+                } else {
+                    self.sp += val.abs() as u16;
                 }
+                self.f.z = false;
+                self.f.n = false;
+                self.f.h = todo!();
+                self.f.c = todo!();
             }
-            ArithmeticOp::XorDirect(_) => todo!(),
-            ArithmeticOp::Or(_) => todo!(),
-            ArithmeticOp::OrDirect(_) => todo!(),
-            ArithmeticOp::Cp(_) => todo!(),
-            ArithmeticOp::CpDirect(_) => todo!(),
-            ArithmeticOp::Inc(_) => todo!(),
-            ArithmeticOp::Dec(reg) => {
-                let val = match reg {
-                    RegOrPointer::Reg(reg) => {
-                        let val = &mut self[reg];
-                        *val -= 1;
-                        *val
-                    }
-                    RegOrPointer::Pointer => {
-                        let val = mem[self.ptr()] - 1;
-                        mem[self.ptr()] = val;
-                        val
-                    }
-                };
-                if val == 0 {
-                    self.f.z = true;
-                }
+            ArithmeticOp::Inc16(reg) => self.update_wide_reg(reg, |value| *value += 1),
+            ArithmeticOp::Dec16(reg) => self.update_wide_reg(reg, |value| *value -= 1),
+            ArithmeticOp::Add16(reg) => {
+                let value = self.read_wide_reg(reg);
+                self.set_ptr(value);
+                self.f.n = false;
+                self.f.h = todo!();
+                self.f.c = todo!();
+            }
+            ArithmeticOp::Add(byte) => {
+                let byte = self.unwrap_some_byte(mem, byte);
+                let (a, carry) = self.a.overflowing_add(byte);
+                self.a = a;
+                self.f.z = a == 0;
+                self.f.n = false;
+                self.f.h = check_half_carry();
+                self.f.c = carry;
+            }
+            ArithmeticOp::Adc(byte) => {
+                let byte = self.unwrap_some_byte(mem, byte);
+                let result = self.a + byte + self.f.c as u8;
+                self.a = result;
+                self.f.z = result == 0;
+                self.f.n = false;
+                self.f.h = check_half_carry();
+                self.f.c = check_carry();
+            }
+            ArithmeticOp::Sub(byte) => {
+                let byte = self.unwrap_some_byte(mem, byte);
+                let result = self.a - byte;
+                self.a = result;
+                self.f.z = result == 0;
                 self.f.n = true;
-                self.f.h = ((val >> 3) != 0) as bool;
+                self.f.h = check_half_carry();
+                self.f.c = byte > result;
             }
-            ArithmeticOp::Inc16(_) => todo!(),
-            ArithmeticOp::Dec16(_) => todo!(),
-            ArithmeticOp::AddSP(_) => todo!(),
+            ArithmeticOp::Sbc(byte) => {
+                let byte = self.unwrap_some_byte(mem, byte);
+                // TODO: Wrapping/saturating operation here??
+                let result = self.a - byte - self.f.c as u8;
+                self.f.z = result == 0;
+                self.f.n = true;
+                self.f.h = check_half_carry();
+                self.f.c = check_carry();
+            }
+            ArithmeticOp::And(byte) => {
+                let byte = self.unwrap_some_byte(mem, byte);
+                self.a &= byte;
+                self.f.z = self.a == 0;
+                self.f.n = false;
+                self.f.h = true;
+                self.f.c = false;
+            }
+            ArithmeticOp::Xor(byte) => {
+                let byte = self.unwrap_some_byte(mem, byte);
+                self.a ^= byte;
+                self.f.z = self.a == 0;
+                self.f.n = false;
+                self.f.h = false;
+                self.f.c = false;
+            }
+            ArithmeticOp::Or(byte) => {
+                let byte = self.unwrap_some_byte(mem, byte);
+                self.a |= byte;
+                self.f.z = self.a == 0;
+                self.f.n = false;
+                self.f.h = false;
+                self.f.c = false;
+            }
+            ArithmeticOp::Cp(byte) => {
+                let byte = self.unwrap_some_byte(mem, byte);
+                let result = self.a - byte;
+                self.f.z = result == 0;
+                self.f.n = true;
+                self.f.h = check_half_carry();
+                self.f.c = check_carry();
+            }
+            ArithmeticOp::Inc(reg) => {
+                let val = self.update_byte(reg, mem, |byte| *byte += 1);
+                self.f.z = val == 0;
+                self.f.n = false;
+                self.f.h = check_half_carry();
+            }
+            ArithmeticOp::Dec(reg) => {
+                let val = self.update_byte(reg, mem, |byte| *byte -= 1);
+                self.f.z = val == 0;
+                self.f.n = true;
+                self.f.h = check_half_carry();
+            }
         }
     }
 
@@ -277,6 +350,13 @@ impl Cpu {
         match reg {
             RegOrPointer::Reg(reg) => &mut self[reg],
             RegOrPointer::Pointer => &mut mem[self.ptr()],
+        }
+    }
+
+    fn unwrap_some_byte(&self, mem: &MemoryMap, byte: SomeByte) -> u8 {
+        match byte {
+            SomeByte::Direct(byte) => byte,
+            SomeByte::Referenced(reg) => self.copy_byte(mem, reg),
         }
     }
 

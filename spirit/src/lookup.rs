@@ -76,25 +76,24 @@ impl Instruction {
     }
 }
 
+// TODO: Name this better
+#[derive(Debug, Clone, Copy, PartialEq, derive_more::From)]
+pub enum SomeByte {
+    Referenced(RegOrPointer),
+    Direct(u8),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ArithmeticOp {
     Add16(WideReg),
-    Add(RegOrPointer),
-    AddDirect(u8),
-    Adc(RegOrPointer),
-    AdcDirect(u8),
-    Sub(RegOrPointer),
-    SubDirect(u8),
-    Sbc(RegOrPointer),
-    SbcDirect(u8),
-    And(RegOrPointer),
-    AndDirect(u8),
-    Xor(RegOrPointer),
-    XorDirect(u8),
-    Or(RegOrPointer),
-    OrDirect(u8),
-    Cp(RegOrPointer),
-    CpDirect(u8),
+    Add(SomeByte),
+    Adc(SomeByte),
+    Sub(SomeByte),
+    Sbc(SomeByte),
+    And(SomeByte),
+    Xor(SomeByte),
+    Or(SomeByte),
+    Cp(SomeByte),
     Inc(RegOrPointer),
     Dec(RegOrPointer),
     Inc16(WideReg),
@@ -107,30 +106,22 @@ impl ArithmeticOp {
     pub fn length(&self) -> u8 {
         match self {
             ArithmeticOp::Add16(_) => 8,
-            ArithmeticOp::Add(RegOrPointer::Pointer) => 8,
-            ArithmeticOp::Add(_) => 4,
-            ArithmeticOp::AddDirect(_) => 8,
-            ArithmeticOp::Adc(RegOrPointer::Pointer) => 8,
-            ArithmeticOp::Adc(_) => 4,
-            ArithmeticOp::AdcDirect(_) => 8,
-            ArithmeticOp::Sub(RegOrPointer::Pointer) => 8,
-            ArithmeticOp::Sub(_) => 4,
-            ArithmeticOp::SubDirect(_) => 8,
-            ArithmeticOp::Sbc(RegOrPointer::Pointer) => 8,
-            ArithmeticOp::Sbc(_) => 4,
-            ArithmeticOp::SbcDirect(_) => 8,
-            ArithmeticOp::And(RegOrPointer::Pointer) => 8,
-            ArithmeticOp::And(_) => 4,
-            ArithmeticOp::AndDirect(_) => 8,
-            ArithmeticOp::Xor(RegOrPointer::Pointer) => 8,
-            ArithmeticOp::Xor(_) => 4,
-            ArithmeticOp::XorDirect(_) => 8,
-            ArithmeticOp::Or(RegOrPointer::Pointer) => 8,
-            ArithmeticOp::Or(_) => 4,
-            ArithmeticOp::OrDirect(_) => 8,
-            ArithmeticOp::Cp(RegOrPointer::Pointer) => 8,
-            ArithmeticOp::Cp(_) => 4,
-            ArithmeticOp::CpDirect(_) => 8,
+            ArithmeticOp::Add(SomeByte::Referenced(RegOrPointer::Reg(_))) => 4,
+            ArithmeticOp::Add(_) => 8,
+            ArithmeticOp::Adc(SomeByte::Referenced(RegOrPointer::Reg(_))) => 4,
+            ArithmeticOp::Adc(_) => 8,
+            ArithmeticOp::Sub(SomeByte::Referenced(RegOrPointer::Reg(_))) => 4,
+            ArithmeticOp::Sub(_) => 8,
+            ArithmeticOp::Sbc(SomeByte::Referenced(RegOrPointer::Reg(_))) => 4,
+            ArithmeticOp::Sbc(_) => 8,
+            ArithmeticOp::And(SomeByte::Referenced(RegOrPointer::Reg(_))) => 4,
+            ArithmeticOp::And(_) => 8,
+            ArithmeticOp::Xor(SomeByte::Referenced(RegOrPointer::Reg(_))) => 4,
+            ArithmeticOp::Xor(_) => 8,
+            ArithmeticOp::Or(SomeByte::Referenced(RegOrPointer::Reg(_))) => 4,
+            ArithmeticOp::Or(_) => 8,
+            ArithmeticOp::Cp(SomeByte::Referenced(RegOrPointer::Reg(_))) => 4,
+            ArithmeticOp::Cp(_) => 8,
             ArithmeticOp::Inc(_) => 8,
             ArithmeticOp::Dec(_) => 8,
             ArithmeticOp::Inc16(_) => 8,
@@ -143,22 +134,22 @@ impl ArithmeticOp {
     pub const fn size(&self) -> u8 {
         match self {
             ArithmeticOp::Add16(_) => 1,
+            ArithmeticOp::Add(SomeByte::Direct(_)) => 2,
             ArithmeticOp::Add(_) => 1,
-            ArithmeticOp::AddDirect(_) => 2,
+            ArithmeticOp::Adc(SomeByte::Direct(_)) => 2,
             ArithmeticOp::Adc(_) => 1,
-            ArithmeticOp::AdcDirect(_) => 2,
+            ArithmeticOp::Sub(SomeByte::Direct(_)) => 2,
             ArithmeticOp::Sub(_) => 1,
-            ArithmeticOp::SubDirect(_) => 2,
+            ArithmeticOp::Sbc(SomeByte::Direct(_)) => 2,
             ArithmeticOp::Sbc(_) => 1,
-            ArithmeticOp::SbcDirect(_) => 2,
+            ArithmeticOp::And(SomeByte::Direct(_)) => 2,
             ArithmeticOp::And(_) => 1,
-            ArithmeticOp::AndDirect(_) => 2,
+            ArithmeticOp::Xor(SomeByte::Direct(_)) => 2,
             ArithmeticOp::Xor(_) => 1,
-            ArithmeticOp::XorDirect(_) => 2,
+            ArithmeticOp::Or(SomeByte::Direct(_)) => 2,
             ArithmeticOp::Or(_) => 1,
-            ArithmeticOp::OrDirect(_) => 2,
+            ArithmeticOp::Cp(SomeByte::Direct(_)) => 2,
             ArithmeticOp::Cp(_) => 1,
-            ArithmeticOp::CpDirect(_) => 2,
             ArithmeticOp::Inc(_) => 1,
             ArithmeticOp::Dec(_) => 1,
             ArithmeticOp::Inc16(_) => 1,
@@ -598,55 +589,55 @@ macro_rules! define_op {
         |data, pc| Instruction::ControlOp(ControlOp::Stop(data[pc + 1]))
     };
     (ADD) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::AddDirect(data[pc + 1]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::Add(SomeByte::Direct(data[pc + 1])))
     };
     (ADD, SP) => {
         |data, pc| Instruction::Arithmetic(ArithmeticOp::AddSP(data[pc + 1] as i8))
     };
     (ADD, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Add(InnerRegOrPointer::$r.convert()))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Add(InnerRegOrPointer::$r.convert().into()))
     };
     (ADC) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::AdcDirect(data[pc + 1]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::Adc(SomeByte::Direct(data[pc + 1])))
     };
     (ADC, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Adc(InnerRegOrPointer::$r.convert()))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Adc(InnerRegOrPointer::$r.convert().into()))
     };
     (SUB) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::SubDirect(data[pc + 1]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::Sub(SomeByte::Direct(data[pc + 1])))
     };
     (SUB, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Sub(InnerRegOrPointer::$r.convert()))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Sub(InnerRegOrPointer::$r.convert().into()))
     };
     (SBC) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::SbcDirect(data[pc + 1]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::Sbc(SomeByte::Direct(data[pc + 1])))
     };
     (SBC, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Sbc(InnerRegOrPointer::$r.convert()))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Sbc(InnerRegOrPointer::$r.convert().into()))
     };
     (AND) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::AndDirect(data[pc + 1]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::And(SomeByte::Direct(data[pc + 1])))
     };
     (AND, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::And(InnerRegOrPointer::$r.convert()))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::And(InnerRegOrPointer::$r.convert().into()))
     };
     (XOR) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::XorDirect(data[pc + 1]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::Xor(SomeByte::Direct(data[pc + 1])))
     };
     (XOR, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Xor(InnerRegOrPointer::$r.convert()))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Xor(InnerRegOrPointer::$r.convert().into()))
     };
     (OR) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::OrDirect(data[pc + 1]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::Or(SomeByte::Direct(data[pc + 1])))
     };
     (OR, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Or(InnerRegOrPointer::$r.convert()))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Or(InnerRegOrPointer::$r.convert().into()))
     };
     (CP) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::CpDirect(data[pc + 1]))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::Cp(SomeByte::Direct(data[pc + 1])))
     };
     (CP, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Cp(InnerRegOrPointer::$r.convert()))
+        |_, _| Instruction::Arithmetic(ArithmeticOp::Cp(InnerRegOrPointer::$r.convert().into()))
     };
     (ADD16, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Add16(WideReg::$r))

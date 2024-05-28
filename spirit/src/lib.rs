@@ -7,7 +7,13 @@
 //! # Notes
 //! The Z80 CPU is big endian.
 
-#![allow(dead_code, unused, private_interfaces, clippy::all)]
+#![allow(
+    dead_code,
+    unused,
+    private_interfaces,
+    clippy::diverging_sub_expression,
+    clippy::all
+)]
 
 use std::borrow::Cow;
 
