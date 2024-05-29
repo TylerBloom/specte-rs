@@ -180,8 +180,12 @@ impl Cpu {
             }
             Instruction::Ccf => todo!(),
             Instruction::Di => todo!(),
-            Instruction::Ei => todo!(),
+            Instruction::Ei => self.enable_interupts(),
         }
+    }
+
+    fn enable_interupts(&mut self) {
+        todo!()
     }
 
     fn ptr(&self) -> u16 {
@@ -400,6 +404,14 @@ impl Cpu {
     }
 
     fn execute_jump_op(&mut self, op: JumpOp, mem: &mut MemoryMap) {
+        fn rst<const N: u16>(cpu: &mut Cpu, mem: &mut MemoryMap) {
+            cpu.sp -= 1;
+            let [p, c] = cpu.pc_bytes();
+            mem[cpu.sp] = p;
+            cpu.sp -= 1;
+            mem[cpu.sp] = c;
+            cpu.pc = N;
+        }
         match op {
             JumpOp::ConditionalRelative(cond, val) => {
                 if self.matches(cond) {
@@ -410,10 +422,20 @@ impl Cpu {
                     }
                 }
             }
-            JumpOp::Relative(_) => todo!(),
-            JumpOp::ConditionalAbsolute(_, _) => todo!(),
-            JumpOp::JumpToHL => todo!(),
-            JumpOp::Absolute(val) => self.pc = val,
+            JumpOp::Relative(val) => {
+                if val < 0 {
+                    self.pc -= val.abs() as u16;
+                } else {
+                    self.pc += val as u16;
+                }
+            }
+            JumpOp::ConditionalAbsolute(cond, dest) => {
+                if self.matches(cond) {
+                    self.pc = dest;
+                }
+            }
+            JumpOp::Absolute(dest) => self.pc = dest,
+            JumpOp::JumpToHL => self.pc = self.ptr(),
             JumpOp::Call(ptr) => {
                 let [hi, lo] = self.pc_bytes();
                 self.sp -= 1;
@@ -422,18 +444,48 @@ impl Cpu {
                 mem[self.sp] = lo;
                 self.pc = ptr;
             }
-            JumpOp::ConditionalCall(_, _) => todo!(),
-            JumpOp::Return => todo!(),
-            JumpOp::ConditionalReturn(_) => todo!(),
-            JumpOp::ReturnAndEnable => todo!(),
-            JumpOp::RST00 => todo!(),
-            JumpOp::RST08 => todo!(),
-            JumpOp::RST10 => todo!(),
-            JumpOp::RST18 => todo!(),
-            JumpOp::RST20 => todo!(),
-            JumpOp::RST28 => todo!(),
-            JumpOp::RST30 => todo!(),
-            JumpOp::RST38 => todo!(),
+            JumpOp::ConditionalCall(cond, dest) => {
+                if self.matches(cond) {
+                    let [hi, lo] = self.pc_bytes();
+                    self.sp -= 1;
+                    mem[self.sp] = hi;
+                    self.sp -= 1;
+                    mem[self.sp] = lo;
+                    self.pc = dest;
+                }
+            }
+            JumpOp::Return => {
+                let lo = mem[self.sp];
+                self.sp += 1;
+                let hi = mem[self.sp];
+                self.sp += 1;
+                self.pc = u16::from_be_bytes([hi, lo]);
+            }
+            JumpOp::ConditionalReturn(cond) => {
+                if self.matches(cond) {
+                    let lo = mem[self.sp];
+                    self.sp += 1;
+                    let hi = mem[self.sp];
+                    self.sp += 1;
+                    self.pc = u16::from_be_bytes([hi, lo]);
+                }
+            }
+            JumpOp::ReturnAndEnable => {
+                self.enable_interupts();
+                let lo = mem[self.sp];
+                self.sp += 1;
+                let hi = mem[self.sp];
+                self.sp += 1;
+                self.pc = u16::from_be_bytes([hi, lo]);
+            }
+            JumpOp::RST00 => rst::<0x00>(self, mem),
+            JumpOp::RST08 => rst::<0x08>(self, mem),
+            JumpOp::RST10 => rst::<0x10>(self, mem),
+            JumpOp::RST18 => rst::<0x18>(self, mem),
+            JumpOp::RST20 => rst::<0x20>(self, mem),
+            JumpOp::RST28 => rst::<0x28>(self, mem),
+            JumpOp::RST30 => rst::<0x30>(self, mem),
+            JumpOp::RST38 => rst::<0x38>(self, mem),
         }
     }
 
@@ -547,7 +599,7 @@ impl Cpu {
                 dest: RegOrPointer::Pointer,
                 src: RegOrPointer::Pointer,
             } => {
-                todo!("halt")
+                unreachable!("This should be encoded as a HALT op")
             }
             LoadOp::Basic { dest, src } => self.write_byte(dest, mem, self.copy_byte(mem, src)),
             LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),
