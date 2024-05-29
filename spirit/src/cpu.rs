@@ -76,6 +76,7 @@ pub struct Cpu {
     sp: u16,
     /// The PC register
     pc: u16,
+    allow_interupts: bool,
     /// Once the gameboy has halted, this flag is set. Note that the gameboy can continue to be
     /// ticked, but the stack pointer is not moved, so it will continue to cycle without change.
     done: bool,
@@ -107,12 +108,46 @@ const fn check_bit_const<const B: u8>(src: u8) -> bool {
     (src & bit_select::<B>()) == bit_select::<B>()
 }
 
-fn check_half_carry() -> bool {
-    todo!()
+fn addition_operation(val: &mut u8, op: u8, flags: &mut Flags) {
+    let (a, carry) = val.overflowing_add(op);
+    flags.z = a == 0;
+    flags.n = false;
+    flags.h = (*val & 0x0F) + (op & 0x0F) > 0x0F;
+    flags.c = carry;
+    *val = a;
 }
 
-fn check_carry() -> bool {
-    todo!()
+fn subtraction_operation(val: &mut u8, op: u8, flags: &mut Flags) {
+    let (a, carry) = val.overflowing_sub(op);
+    flags.z = a == 0;
+    flags.n = true;
+    flags.h = (*val & 0x0F).overflowing_sub(op & 0x0F).1;
+    flags.c = a > *val;
+    *val = a;
+}
+
+/// Takes a byte that is in standard binary representation and converts it to binary coded decimal.
+fn to_bcd(mut val: u8, flags: &mut Flags) -> u8 {
+    if !flags.n {
+        // after an addition, adjust if (half-)carry occurred or if result is out of bounds
+        if flags.c || val > 0x99 {
+            val = val.wrapping_add(0x60);
+            flags.c = true;
+        }
+        if flags.h || (val & 0x0f) > 0x09 {
+            val = val.wrapping_add(0x6);
+        }
+    } else {
+        if flags.c {
+            val = val.wrapping_sub(0x60);
+        }
+        if flags.h {
+            val = val.wrapping_sub(0x6);
+        }
+    }
+    flags.z = val == 0;
+    flags.h = false;
+    val
 }
 
 impl Cpu {
@@ -171,21 +206,33 @@ impl Cpu {
             Instruction::Bit(op) => self.execute_bit_op(op, mem),
             Instruction::Jump(op) => self.execute_jump_op(op, mem),
             Instruction::Arithmetic(op) => self.execute_arithmetic_op(op, mem),
-            Instruction::Daa => todo!(),
-            Instruction::Scf => todo!(),
+            Instruction::Daa => self.a = to_bcd(self.a, &mut self.f),
+            Instruction::Scf => {
+                self.f.n = false;
+                self.f.h = false;
+                self.f.c = true;
+            }
             Instruction::Cpl => {
                 self.a = !self.a;
                 self.f.n = true;
                 self.f.h = true;
             }
-            Instruction::Ccf => todo!(),
-            Instruction::Di => todo!(),
+            Instruction::Ccf => {
+                self.f.n = false;
+                self.f.h = false;
+                self.f.c = !self.f.c;
+            }
+            Instruction::Di => self.disable_interupts(),
             Instruction::Ei => self.enable_interupts(),
         }
     }
 
     fn enable_interupts(&mut self) {
-        todo!()
+        self.allow_interupts = true;
+    }
+
+    fn disable_interupts(&mut self) {
+        self.allow_interupts = false;
     }
 
     fn ptr(&self) -> u16 {
@@ -241,60 +288,47 @@ impl Cpu {
     fn execute_arithmetic_op(&mut self, op: ArithmeticOp, mem: &mut MemoryMap) {
         match op {
             ArithmeticOp::AddSP(val) => {
-                if val < 0 {
-                    self.sp -= val.abs() as u16;
+                let (sp, carry)  = self.sp.overflowing_add_signed(val as i16);
+                let h = if val < 0 {
+                    (sp & 0x0F) < (val.abs() as u16 & 0x0F)
                 } else {
-                    self.sp += val.abs() as u16;
-                }
+                    ((sp & 0x0F) as u8) + ((val.abs() as u8) & 0x0F) > 0x0F
+                };
                 self.f.z = false;
                 self.f.n = false;
-                self.f.h = todo!();
-                self.f.c = todo!();
+                self.f.h = h;
+                self.f.c = carry;
+                self.sp = sp;
             }
             ArithmeticOp::Inc16(reg) => self.update_wide_reg(reg, |value| *value += 1),
             ArithmeticOp::Dec16(reg) => self.update_wide_reg(reg, |value| *value -= 1),
             ArithmeticOp::Add16(reg) => {
                 let value = self.read_wide_reg(reg);
-                self.set_ptr(value);
+                let ptr = self.ptr();
+                self.f.h = (ptr & 0x0F) + (value & 0x0F) > 0x0F;
+                let (ptr, carry) = ptr.overflowing_add(value);
+                self.set_ptr(ptr);
                 self.f.n = false;
-                self.f.h = todo!();
-                self.f.c = todo!();
+                self.f.c = carry;
             }
             ArithmeticOp::Add(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
-                let (a, carry) = self.a.overflowing_add(byte);
-                self.a = a;
-                self.f.z = a == 0;
-                self.f.n = false;
-                self.f.h = check_half_carry();
-                self.f.c = carry;
+                addition_operation(&mut self.a, byte, &mut self.f);
             }
             ArithmeticOp::Adc(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
-                let result = self.a + byte + self.f.c as u8;
-                self.a = result;
-                self.f.z = result == 0;
-                self.f.n = false;
-                self.f.h = check_half_carry();
-                self.f.c = check_carry();
+                let (byte, carry) = byte.overflowing_add(self.f.c as u8);
+                addition_operation(&mut self.a, byte, &mut self.f);
+                self.f.c |= carry;
             }
             ArithmeticOp::Sub(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
-                let result = self.a - byte;
-                self.a = result;
-                self.f.z = result == 0;
-                self.f.n = true;
-                self.f.h = check_half_carry();
-                self.f.c = byte > result;
+                subtraction_operation(&mut self.a, byte, &mut self.f);
             }
             ArithmeticOp::Sbc(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
-                // TODO: Wrapping/saturating operation here??
-                let result = self.a - byte - self.f.c as u8;
-                self.f.z = result == 0;
-                self.f.n = true;
-                self.f.h = check_half_carry();
-                self.f.c = check_carry();
+                let (byte, _) = byte.overflowing_add(self.f.c as u8);
+                subtraction_operation(&mut self.a, byte, &mut self.f);
             }
             ArithmeticOp::And(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
@@ -322,23 +356,28 @@ impl Cpu {
             }
             ArithmeticOp::Cp(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
-                let result = self.a - byte;
-                self.f.z = result == 0;
-                self.f.n = true;
-                self.f.h = check_half_carry();
-                self.f.c = check_carry();
+                let mut a = self.a;
+                subtraction_operation(&mut a, byte, &mut self.f);
             }
             ArithmeticOp::Inc(reg) => {
-                let val = self.update_byte(reg, mem, |byte| *byte += 1);
+                let mut h = false;
+                let val = self.update_byte(reg, mem, |byte| {
+                    h = *byte & 0x0F == 0x0F;
+                    *byte += 1
+                });
                 self.f.z = val == 0;
                 self.f.n = false;
-                self.f.h = check_half_carry();
+                self.f.h = h;
             }
             ArithmeticOp::Dec(reg) => {
-                let val = self.update_byte(reg, mem, |byte| *byte -= 1);
+                let mut h = false;
+                let val = self.update_byte(reg, mem, |byte| {
+                    h = *byte == 0;
+                    *byte -= 1
+                });
                 self.f.z = val == 0;
                 self.f.n = true;
-                self.f.h = check_half_carry();
+                self.f.h = h;
             }
         }
     }
@@ -396,10 +435,10 @@ impl Cpu {
 
     fn matches(&self, cond: Condition) -> bool {
         match cond {
-            Condition::Zero => self.zero_flag(),
-            Condition::NotZero => !self.zero_flag(),
-            Condition::Carry => self.carry_flag(),
-            Condition::NotCarry => !self.carry_flag(),
+            Condition::Zero => self.f.z,
+            Condition::NotZero => !self.f.z,
+            Condition::Carry => self.f.c,
+            Condition::NotCarry => !self.f.c,
         }
     }
 
@@ -659,8 +698,7 @@ impl Cpu {
     fn write_af(&mut self, val: u16) {
         let [a, f] = val.to_be_bytes();
         self.a = a;
-        self.flags();
-        todo!()
+        self.f.set_from_byte(f);
     }
 
     fn bc(&self) -> u16 {
@@ -683,12 +721,16 @@ impl Cpu {
         self.e = e;
     }
 
-    fn inc_ptr(&mut self, val: u8) {
-        todo!()
+    fn inc_ptr(&mut self, val: u16) {
+        let [h, l] = (self.ptr() + val).to_be_bytes();
+        self.h = h;
+        self.l = l;
     }
 
-    fn dec_ptr(&mut self, val: u8) {
-        todo!()
+    fn dec_ptr(&mut self, val: u16) {
+        let [h, l] = (self.ptr() - val).to_be_bytes();
+        self.h = h;
+        self.l = l;
     }
 
     fn deref_ptr<'a, 'b>(&'a mut self, mem: &'b mut MemoryMap, ptr: LoadAPointer) -> &'b mut u8 {
