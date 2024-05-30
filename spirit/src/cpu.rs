@@ -1,4 +1,4 @@
-use std::ops::{Index, IndexMut};
+use std::{num::Wrapping, ops::{Add, Index, IndexMut}};
 
 use crate::{
     lookup::{
@@ -64,18 +64,18 @@ impl Flags {
 
 #[derive(Debug, Default)]
 pub struct Cpu {
-    a: u8,
+    a: Wrapping<u8>,
     f: Flags,
-    b: u8,
-    c: u8,
-    d: u8,
-    e: u8,
-    h: u8,
-    l: u8,
+    b: Wrapping<u8>,
+    c: Wrapping<u8>,
+    d: Wrapping<u8>,
+    e: Wrapping<u8>,
+    h: Wrapping<u8>,
+    l: Wrapping<u8>,
     /// The SP register
-    sp: u16,
+    sp: Wrapping<u16>,
     /// The PC register
-    pc: u16,
+    pc: Wrapping<u16>,
     allow_interupts: bool,
     /// Once the gameboy has halted, this flag is set. Note that the gameboy can continue to be
     /// ticked, but the stack pointer is not moved, so it will continue to cycle without change.
@@ -185,14 +185,14 @@ impl Cpu {
     }
 
     pub fn read_op(&self, mem: &MemoryMap) -> Instruction {
-        mem.read_op(self.sp)
+        mem.read_op(self.sp.0)
     }
 
     /// A method similar to `Self::read_op`, but is ran during start up, when the ROM that is
     /// burned-into the CPU is mapped over normal memory.
     pub(crate) fn start_up_read_op(&self, mem: &MemoryMap) -> Instruction {
         println!("Reading start up op from: {:X}", self.pc);
-        mem.read_op(self.pc)
+        mem.read_op(self.pc.0)
     }
 
     pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
@@ -206,7 +206,7 @@ impl Cpu {
             Instruction::Bit(op) => self.execute_bit_op(op, mem),
             Instruction::Jump(op) => self.execute_jump_op(op, mem),
             Instruction::Arithmetic(op) => self.execute_arithmetic_op(op, mem),
-            Instruction::Daa => self.a = to_bcd(self.a, &mut self.f),
+            Instruction::Daa => self.a = Wrapping(to_bcd(self.a.0, &mut self.f)),
             Instruction::Scf => {
                 self.f.n = false;
                 self.f.h = false;
@@ -236,15 +236,15 @@ impl Cpu {
     }
 
     fn ptr(&self) -> u16 {
-        u16::from_be_bytes([self.h, self.l])
+        u16::from_be_bytes([self.h.0, self.l.0])
     }
 
     fn pc_bytes(&self) -> [u8; 2] {
-        u16::to_be_bytes(self.pc)
+        u16::to_be_bytes(self.pc.0)
     }
 
     fn set_ptr(&mut self, val: u16) {
-        let [h, l] = u16::to_be_bytes(val);
+        let [h, l] = u16::to_be_bytes(val).map(Wrapping);
         self.h = h;
         self.l = l;
     }
@@ -254,7 +254,7 @@ impl Cpu {
             WideReg::BC => self.bc(),
             WideReg::DE => self.de(),
             WideReg::HL => self.ptr(),
-            WideReg::SP => self.sp,
+            WideReg::SP => self.sp.0,
         }
     }
 
@@ -263,7 +263,7 @@ impl Cpu {
             WideReg::BC => self.write_bc(val),
             WideReg::DE => self.write_de(val),
             WideReg::HL => self.set_ptr(val),
-            WideReg::SP => self.sp = val,
+            WideReg::SP => self.sp = Wrapping(val),
         }
     }
 
@@ -288,7 +288,7 @@ impl Cpu {
     fn execute_arithmetic_op(&mut self, op: ArithmeticOp, mem: &mut MemoryMap) {
         match op {
             ArithmeticOp::AddSP(val) => {
-                let (sp, carry)  = self.sp.overflowing_add_signed(val as i16);
+                let (sp, carry)  = self.sp.0.overflowing_add_signed(val as i16);
                 let h = if val < 0 {
                     (sp & 0x0F) < (val.abs() as u16 & 0x0F)
                 } else {
@@ -298,7 +298,7 @@ impl Cpu {
                 self.f.n = false;
                 self.f.h = h;
                 self.f.c = carry;
-                self.sp = sp;
+                self.sp = Wrapping(sp);
             }
             ArithmeticOp::Inc16(reg) => self.update_wide_reg(reg, |value| *value += 1),
             ArithmeticOp::Dec16(reg) => self.update_wide_reg(reg, |value| *value -= 1),
@@ -313,27 +313,27 @@ impl Cpu {
             }
             ArithmeticOp::Add(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
-                addition_operation(&mut self.a, byte, &mut self.f);
+                addition_operation(&mut self.a.0, byte, &mut self.f);
             }
             ArithmeticOp::Adc(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
                 let (byte, carry) = byte.overflowing_add(self.f.c as u8);
-                addition_operation(&mut self.a, byte, &mut self.f);
+                addition_operation(&mut self.a.0, byte, &mut self.f);
                 self.f.c |= carry;
             }
             ArithmeticOp::Sub(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
-                subtraction_operation(&mut self.a, byte, &mut self.f);
+                subtraction_operation(&mut self.a.0, byte, &mut self.f);
             }
             ArithmeticOp::Sbc(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
                 let (byte, _) = byte.overflowing_add(self.f.c as u8);
-                subtraction_operation(&mut self.a, byte, &mut self.f);
+                subtraction_operation(&mut self.a.0, byte, &mut self.f);
             }
             ArithmeticOp::And(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
                 self.a &= byte;
-                self.f.z = self.a == 0;
+                self.f.z = self.a.0 == 0;
                 self.f.n = false;
                 self.f.h = true;
                 self.f.c = false;
@@ -341,7 +341,7 @@ impl Cpu {
             ArithmeticOp::Xor(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
                 self.a ^= byte;
-                self.f.z = self.a == 0;
+                self.f.z = self.a.0 == 0;
                 self.f.n = false;
                 self.f.h = false;
                 self.f.c = false;
@@ -349,7 +349,7 @@ impl Cpu {
             ArithmeticOp::Or(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
                 self.a |= byte;
-                self.f.z = self.a == 0;
+                self.f.z = self.a.0 == 0;
                 self.f.n = false;
                 self.f.h = false;
                 self.f.c = false;
@@ -357,7 +357,7 @@ impl Cpu {
             ArithmeticOp::Cp(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
                 let mut a = self.a;
-                subtraction_operation(&mut a, byte, &mut self.f);
+                subtraction_operation(&mut a.0, byte, &mut self.f);
             }
             ArithmeticOp::Inc(reg) => {
                 let mut h = false;
@@ -384,14 +384,14 @@ impl Cpu {
 
     fn ref_byte<'a>(&'a self, mem: &'a MemoryMap, reg: RegOrPointer) -> &'a u8 {
         match reg {
-            RegOrPointer::Reg(reg) => &self[reg],
+            RegOrPointer::Reg(reg) => &self[reg].0,
             RegOrPointer::Pointer => &mem[self.ptr()],
         }
     }
 
     fn ref_mut_byte<'a>(&'a mut self, mem: &'a mut MemoryMap, reg: RegOrPointer) -> &'a mut u8 {
         match reg {
-            RegOrPointer::Reg(reg) => &mut self[reg],
+            RegOrPointer::Reg(reg) => &mut self[reg].0,
             RegOrPointer::Pointer => &mut mem[self.ptr()],
         }
     }
@@ -405,7 +405,7 @@ impl Cpu {
 
     fn copy_byte(&self, mem: &MemoryMap, reg: RegOrPointer) -> u8 {
         match reg {
-            RegOrPointer::Reg(reg) => self[reg],
+            RegOrPointer::Reg(reg) => self[reg].0,
             RegOrPointer::Pointer => mem[self.ptr()],
         }
     }
@@ -446,10 +446,10 @@ impl Cpu {
         fn rst<const N: u16>(cpu: &mut Cpu, mem: &mut MemoryMap) {
             cpu.sp -= 1;
             let [p, c] = cpu.pc_bytes();
-            mem[cpu.sp] = p;
+            mem[cpu.sp.0] = p;
             cpu.sp -= 1;
-            mem[cpu.sp] = c;
-            cpu.pc = N;
+            mem[cpu.sp.0] = c;
+            cpu.pc = Wrapping(N);
         }
         match op {
             JumpOp::ConditionalRelative(cond, val) => {
@@ -470,52 +470,52 @@ impl Cpu {
             }
             JumpOp::ConditionalAbsolute(cond, dest) => {
                 if self.matches(cond) {
-                    self.pc = dest;
+                    self.pc = Wrapping(dest);
                 }
             }
-            JumpOp::Absolute(dest) => self.pc = dest,
-            JumpOp::JumpToHL => self.pc = self.ptr(),
+            JumpOp::Absolute(dest) => self.pc = Wrapping(dest),
+            JumpOp::JumpToHL => self.pc = Wrapping(self.ptr()),
             JumpOp::Call(ptr) => {
                 let [hi, lo] = self.pc_bytes();
                 self.sp -= 1;
-                mem[self.sp] = hi;
+                mem[self.sp.0] = hi;
                 self.sp -= 1;
-                mem[self.sp] = lo;
-                self.pc = ptr;
+                mem[self.sp.0] = lo;
+                self.pc = Wrapping(ptr);
             }
             JumpOp::ConditionalCall(cond, dest) => {
                 if self.matches(cond) {
                     let [hi, lo] = self.pc_bytes();
                     self.sp -= 1;
-                    mem[self.sp] = hi;
+                    mem[self.sp.0] = hi;
                     self.sp -= 1;
-                    mem[self.sp] = lo;
-                    self.pc = dest;
+                    mem[self.sp.0] = lo;
+                    self.pc = Wrapping(dest);
                 }
             }
             JumpOp::Return => {
-                let lo = mem[self.sp];
+                let lo = mem[self.sp.0];
                 self.sp += 1;
-                let hi = mem[self.sp];
+                let hi = mem[self.sp.0];
                 self.sp += 1;
-                self.pc = u16::from_be_bytes([hi, lo]);
+                self.pc = Wrapping(u16::from_be_bytes([hi, lo]));
             }
             JumpOp::ConditionalReturn(cond) => {
                 if self.matches(cond) {
-                    let lo = mem[self.sp];
+                    let lo = mem[self.sp.0];
                     self.sp += 1;
-                    let hi = mem[self.sp];
+                    let hi = mem[self.sp.0];
                     self.sp += 1;
-                    self.pc = u16::from_be_bytes([hi, lo]);
+                    self.pc = Wrapping(u16::from_be_bytes([hi, lo]));
                 }
             }
             JumpOp::ReturnAndEnable => {
                 self.enable_interupts();
-                let lo = mem[self.sp];
+                let lo = mem[self.sp.0];
                 self.sp += 1;
-                let hi = mem[self.sp];
+                let hi = mem[self.sp.0];
                 self.sp += 1;
-                self.pc = u16::from_be_bytes([hi, lo]);
+                self.pc = Wrapping(u16::from_be_bytes([hi, lo]));
             }
             JumpOp::RST00 => rst::<0x00>(self, mem),
             JumpOp::RST08 => rst::<0x08>(self, mem),
@@ -644,91 +644,94 @@ impl Cpu {
             LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),
             LoadOp::Direct(reg, val) => self.write_byte(reg, mem, val),
             LoadOp::LoadIntoA(ptr) => {
-                self.a = *self.deref_ptr(mem, ptr);
+                self.a = Wrapping(*self.deref_ptr(mem, ptr));
             }
-            LoadOp::StoreFromA(ptr) => *self.deref_ptr(mem, ptr) = self.a,
+            LoadOp::StoreFromA(ptr) => *self.deref_ptr(mem, ptr) = self.a.0,
             LoadOp::StoreSP(val) => {
-                let [lw, hi] = self.sp.to_le_bytes();
+                let [lw, hi] = self.sp.0.to_le_bytes();
                 mem[val] = lw;
                 mem[val + 1] = hi;
             }
-            LoadOp::HLIntoSP => self.sp = self.ptr(),
+            LoadOp::HLIntoSP => self.sp = Wrapping(self.ptr()),
             LoadOp::SPIntoHL(val) => {
                 let [h, l] = if val >= 0 {
-                    self.sp + val as u16
+                    self.sp + Wrapping(val as u16)
                 } else {
-                    self.sp - val as u16
+                    self.sp - Wrapping(val as u16)
                 }
-                .to_be_bytes();
+                .0
+                .to_be_bytes()
+                .map(Wrapping)
+                ;
                 self.h = h;
                 self.l = l;
             }
             LoadOp::Pop(reg) => {
-                let a = mem[self.sp];
+                let a = mem[self.sp.0];
                 self.sp += 1;
-                let b = mem[self.sp];
+                let b = mem[self.sp.0];
                 self.sp += 1;
                 self.write_wide_reg_without_sp(reg, u16::from_le_bytes([a, b]));
             }
             LoadOp::Push(reg) => {
                 let [a, b] = match reg {
-                    WideRegWithoutSP::BC => [self.b, self.c],
-                    WideRegWithoutSP::DE => [self.d, self.e],
-                    WideRegWithoutSP::HL => [self.h, self.l],
-                    WideRegWithoutSP::AF => [self.a, self.f.as_byte()],
+                    WideRegWithoutSP::BC => [self.b.0, self.c.0],
+                    WideRegWithoutSP::DE => [self.d.0, self.e.0],
+                    WideRegWithoutSP::HL => [self.h.0, self.l.0],
+                    WideRegWithoutSP::AF => [self.a.0, self.f.as_byte()],
                 };
-                mem[self.sp] = a;
+                mem[self.sp.0] = a;
                 self.sp -= 1;
-                mem[self.sp] = b;
+                mem[self.sp.0] = b;
                 self.sp -= 1;
             }
-            LoadOp::LoadHigh(val) => self.a = mem[u16::from_le_bytes([0xFF, val])],
-            LoadOp::StoreHigh(val) => mem[u16::from_le_bytes([0xFF, val])] = self.a,
+            LoadOp::LoadHigh(val) => self.a = Wrapping(mem[u16::from_le_bytes([0xFF, val])]),
+            LoadOp::StoreHigh(val) => mem[u16::from_le_bytes([0xFF, val])] = self.a.0,
             LoadOp::LoadHighCarry => {
-                self.a = mem[u16::from_le_bytes([0xFF, self.carry_flag() as u8])];
+                self.a = Wrapping(mem[u16::from_le_bytes([0xFF, self.carry_flag() as u8])]);
             }
             LoadOp::StoreHighCarry => {
-                mem[u16::from_le_bytes([0xFF, self.carry_flag() as u8])] = self.a
+                mem[u16::from_le_bytes([0xFF, self.carry_flag() as u8])] = self.a.0
             }
-            LoadOp::LoadA { ptr } => mem[ptr] = self.a,
-            LoadOp::StoreA { ptr } => self.a = mem[ptr],
+            LoadOp::LoadA { ptr } => mem[ptr] = self.a.0,
+            LoadOp::StoreA { ptr } => self.a = Wrapping(mem[ptr]),
         }
     }
 
     fn write_af(&mut self, val: u16) {
         let [a, f] = val.to_be_bytes();
-        self.a = a;
+        self.a = Wrapping(a);
         self.f.set_from_byte(f);
     }
 
     fn bc(&self) -> u16 {
-        u16::from_be_bytes([self.b, self.c])
+        u16::from_be_bytes([self.b.0, self.c.0])
     }
 
     fn write_bc(&mut self, val: u16) {
-        let [b, c] = val.to_be_bytes();
+        let [b, c] = val.to_be_bytes().map(Wrapping);
         self.b = b;
         self.c = c;
     }
 
     fn de(&self) -> u16 {
-        u16::from_be_bytes([self.d, self.e])
+        u16::from_be_bytes([self.d.0, self.e.0])
     }
 
     fn write_de(&mut self, val: u16) {
-        let [d, e] = val.to_be_bytes();
+        let [d, e] = val.to_be_bytes().map(Wrapping);
         self.d = d;
         self.e = e;
     }
 
     fn inc_ptr(&mut self, val: u16) {
-        let [h, l] = (self.ptr() + val).to_be_bytes();
+        let [h, l] = (self.ptr() + val).to_be_bytes().map(Wrapping);
         self.h = h;
         self.l = l;
     }
 
     fn dec_ptr(&mut self, val: u16) {
-        let [h, l] = (self.ptr() - val).to_be_bytes();
+        let [h, l] = (self.ptr() - val).to_be_bytes().map(Wrapping);
         self.h = h;
         self.l = l;
     }
@@ -738,6 +741,7 @@ impl Cpu {
             LoadAPointer::BC => &mut mem[self.bc()],
             LoadAPointer::DE => &mut mem[self.de()],
             LoadAPointer::Hli => {
+                println!("I'm here!!!");
                 let digest = &mut mem[self.ptr()];
                 self.inc_ptr(1);
                 digest
@@ -761,12 +765,12 @@ impl Cpu {
     ) -> Option<Instruction> {
         self.execute(instr, mem);
         println!("Applied startup op: {:?}", self);
-        (self.sp != 0x0100).then(|| self.start_up_read_op(mem))
+        (self.sp.0 != 0x0100).then(|| self.start_up_read_op(mem))
     }
 }
 
 impl Index<HalfRegister> for Cpu {
-    type Output = u8;
+    type Output = Wrapping<u8>;
 
     fn index(&self, index: HalfRegister) -> &Self::Output {
         match index {
@@ -797,6 +801,8 @@ impl IndexMut<HalfRegister> for Cpu {
 
 #[cfg(test)]
 mod tests {
+    use std::num::Wrapping;
+
     use crate::{
         lookup::{HalfRegister, Instruction, LoadOp, RegOrPointer},
         mbc::MemoryMap,
@@ -828,16 +834,16 @@ mod tests {
     #[test]
     fn test_cpl() {
         let (mut cpu, mut mem) = init();
-        assert_eq!(cpu.pc, 0);
+        assert_eq!(cpu.pc.0, 0);
         cpu.execute(Instruction::Cpl, &mut mem);
-        assert_eq!(cpu.pc, 1);
-        assert_eq!(cpu.a, u8::MAX);
+        assert_eq!(cpu.pc.0, 1);
+        assert_eq!(cpu.a.0, u8::MAX);
         assert!(cpu.subtraction_flag(), "{cpu:#X?}");
         assert!(cpu.half_carry_flag(), "{cpu:#X?}");
-        cpu.a = 1;
+        cpu.a = Wrapping(1);
         cpu.execute(Instruction::Cpl, &mut mem);
-        assert_eq!(cpu.a, u8::MAX << 1);
-        assert_eq!(cpu.pc, 2);
+        assert_eq!(cpu.a.0, u8::MAX << 1);
+        assert_eq!(cpu.pc.0, 2);
     }
 
     /*
