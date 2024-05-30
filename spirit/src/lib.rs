@@ -150,7 +150,6 @@ impl<'a> StartUpSequence<'a> {
         } else {
             self.done = true
         }
-        println!("");
     }
 
     pub fn is_complete(&self) -> bool {

@@ -1,4 +1,6 @@
-use std::{num::Wrapping, ops::{Add, Index, IndexMut}};
+use std::{borrow::BorrowMut, cell::RefCell, collections::HashSet, hash::{Hash, Hasher}, num::Wrapping, ops::{Add, Index, IndexMut}, sync::{Mutex, OnceLock}};
+
+use once_cell::sync::{Lazy, OnceCell};
 
 use crate::{
     lookup::{
@@ -27,7 +29,7 @@ pub enum RegisterFlags {
     C,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct Flags {
     /// The zero flag
     z: bool,
@@ -62,7 +64,7 @@ impl Flags {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Hash, Clone, PartialEq, Eq)]
 pub struct Cpu {
     a: Wrapping<u8>,
     f: Flags,
@@ -196,7 +198,19 @@ impl Cpu {
     }
 
     pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
+        static LOOP_CHECKER: OnceCell<Mutex<HashSet<u64>>> = OnceCell::new();
+        let mut hasher = std::hash::DefaultHasher::new();
+        self.hash(&mut hasher);
+        instr.hash(&mut hasher);
+        mem.hash(&mut hasher);
+        let digest = hasher.finish();
+        // let digest = (self.clone(), instr.clone(), mem.clone());
+        let checker = LOOP_CHECKER.get_or_init(|| Mutex::new(HashSet::new()));
+        if !checker.lock().unwrap().insert(digest) {
+            panic!("Reached an identical state, which means the GB will loop forever!!");
+        }
         // println!("Next op: {instr:X?}");
+        println!("Starting execution: PC=0x{:0>4X} SP=0x{:0>4X}", self.pc.0, self.sp.0);
         let len = instr.size();
         self.pc += (!self.done as u16) * (len as u16);
         match instr {
@@ -225,6 +239,8 @@ impl Cpu {
             Instruction::Di => self.disable_interupts(),
             Instruction::Ei => self.enable_interupts(),
         }
+        println!("Ending execution: PC=0x{:0>4X} SP=0x{:0>4X}", self.pc.0, self.sp.0);
+        println!("");
     }
 
     fn enable_interupts(&mut self) {
@@ -357,6 +373,7 @@ impl Cpu {
             ArithmeticOp::Cp(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
                 let mut a = self.a;
+                println!("Comparing: A=0x{a:0>2X} byte=0x{byte:0>2X}");
                 subtraction_operation(&mut a.0, byte, &mut self.f);
             }
             ArithmeticOp::Inc(reg) => {
@@ -476,6 +493,7 @@ impl Cpu {
             JumpOp::Absolute(dest) => self.pc = Wrapping(dest),
             JumpOp::JumpToHL => self.pc = Wrapping(self.ptr()),
             JumpOp::Call(ptr) => {
+                println!("Calling subroutine.. storing PC: 0x{:0>4X}", self.pc.0);
                 let [hi, lo] = self.pc_bytes();
                 self.sp -= 1;
                 mem[self.sp.0] = hi;
@@ -498,7 +516,9 @@ impl Cpu {
                 self.sp += 1;
                 let hi = mem[self.sp.0];
                 self.sp += 1;
-                self.pc = Wrapping(u16::from_be_bytes([hi, lo]));
+                let pc = u16::from_be_bytes([hi, lo]);
+                println!("Returning from subroutine.. loading PC: 0x{pc:0>4X}");
+                self.pc = Wrapping(pc);
             }
             JumpOp::ConditionalReturn(cond) => {
                 if self.matches(cond) {
@@ -559,6 +579,7 @@ impl Cpu {
             BitShiftOp::Rlc(reg) => {
                 let mut carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
+                    // TODO: This is incorrect. Call .rotate_left
                     let [c, new] = (u16::from_be_bytes([0, *byte]) << 1).to_be_bytes();
                     *byte = c | new;
                     carry = c == 1;
@@ -568,6 +589,7 @@ impl Cpu {
             BitShiftOp::Rrc(reg) => {
                 let mut carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
+                    // TODO: This is incorrect. Call .rotate_right
                     let [c, new] = (u16::from_be_bytes([*byte, 0]) >> 1).to_be_bytes();
                     *byte = c | new;
                     carry = c == 0b1000_0000;
@@ -575,20 +597,25 @@ impl Cpu {
                 self.f.set_for_byte_shift_op(byte != 0, carry)
             }
             BitShiftOp::Rl(reg) => {
+                let byte = self.copy_byte(mem, reg);
                 let carry = self.f.c as u8;
+                println!("Performing rotate left: carry={} byte=0b{byte:0>8b}", self.f.c);
                 let mask = carry | (carry << 7);
+                println!("Carry mask: 0b{mask:0>8b}");
                 let mut new_carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
-                    let [c, new] = (u16::from_be_bytes([mask, *byte]) << 1).to_be_bytes();
+                    let [c, new] = (u16::from_be_bytes([mask, *byte]).rotate_left(1)).to_be_bytes();
                     new_carry = c & 1 != 0;
                 });
-                self.f.set_for_byte_shift_op(byte != 0, new_carry)
+                self.f.set_for_byte_shift_op(byte != 0, new_carry);
+                println!("Done performing rotate left: carry={} byte=0b{byte:0>8b}", self.f.c);
             }
             BitShiftOp::Rr(reg) => {
                 let carry = self.f.c as u8;
                 let mask = carry | (carry << 7);
                 let mut new_carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
+                    // TODO: This is incorrect. Call .rotate_right
                     let [c, new] = (u16::from_be_bytes([*byte, mask]) >> 1).to_be_bytes();
                     new_carry = c >> 7 != 0;
                 });
@@ -597,6 +624,7 @@ impl Cpu {
             BitShiftOp::Sla(reg) => {
                 let mut new_carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
+                    // TODO: This is incorrect. Call .rotate_left
                     let [c, new] = (u16::from_be_bytes([0, *byte]) << 1).to_be_bytes();
                     new_carry = c != 0;
                 });
@@ -606,6 +634,7 @@ impl Cpu {
                 let mut carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
                     let bit = select_bit::<7>(*byte);
+                    // TODO: This is incorrect. Call .rotate_right
                     let [c, new] = (u16::from_be_bytes([*byte, 0]) >> 1).to_be_bytes();
                     carry = c >> 7 != 0;
                     *byte = new | bit;
@@ -623,6 +652,7 @@ impl Cpu {
             BitShiftOp::Srl(reg) => {
                 let mut carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
+                    // TODO: This is incorrect. Call .rotate_right
                     let [c, new] = (u16::from_be_bytes([*byte, 0]) >> 1).to_be_bytes();
                     carry = c >> 7 != 0;
                     *byte = new;
@@ -644,7 +674,7 @@ impl Cpu {
             LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),
             LoadOp::Direct(reg, val) => self.write_byte(reg, mem, val),
             LoadOp::LoadIntoA(ptr) => {
-                self.a = Wrapping(*self.deref_mut_ptr(mem, ptr));
+                self.a = Wrapping(*self.deref_ptr(mem, ptr));
             }
             LoadOp::StoreFromA(ptr) => *self.deref_mut_ptr(mem, ptr) = self.a.0,
             LoadOp::StoreSP(val) => {
@@ -680,18 +710,19 @@ impl Cpu {
                     WideRegWithoutSP::HL => [self.h.0, self.l.0],
                     WideRegWithoutSP::AF => [self.a.0, self.f.as_byte()],
                 };
+                println!("Pushing ptr onto the stack: 0x{a:0>2X}{b:0>2X}");
+                self.sp -= 1;
                 mem[self.sp.0] = a;
                 self.sp -= 1;
                 mem[self.sp.0] = b;
-                self.sp -= 1;
             }
             LoadOp::LoadHigh(val) => self.a = Wrapping(mem[u16::from_le_bytes([0xFF, val])]),
             LoadOp::StoreHigh(val) => mem[u16::from_le_bytes([0xFF, val])] = self.a.0,
             LoadOp::LoadHighCarry => {
-                self.a = Wrapping(mem[u16::from_le_bytes([0xFF, self.carry_flag() as u8])]);
+                mem[u16::from_be_bytes([0xFF, self.carry_flag() as u8])] = self.a.0
             }
             LoadOp::StoreHighCarry => {
-                mem[u16::from_le_bytes([0xFF, self.carry_flag() as u8])] = self.a.0
+                self.a = Wrapping(mem[u16::from_be_bytes([0xFF, self.carry_flag() as u8])]);
             }
             LoadOp::LoadA { ptr } => mem[ptr] = self.a.0,
             LoadOp::StoreA { ptr } => self.a = Wrapping(mem[ptr]),

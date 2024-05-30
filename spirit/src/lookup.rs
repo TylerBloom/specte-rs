@@ -6,7 +6,9 @@ use derive_more::{From, IsVariant};
 
 pub fn parse_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
     println!("Loading instruction with OP code: 0x{:0>2X}", mem[pc]);
-    OP_LOOKUP[mem[pc] as usize](mem, pc)
+    let op = OP_LOOKUP[mem[pc] as usize](mem, pc);
+    println!("Next op: {op:0>2X?}");
+    op
 }
 
 fn parse_prefixed_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
@@ -15,7 +17,7 @@ fn parse_prefixed_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
 
 type OpArray<const N: usize> = [fn(&MemoryMap, u16) -> Instruction; N];
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Instruction {
     Load(LoadOp),
     BitShift(BitShiftOp),
@@ -77,13 +79,13 @@ impl Instruction {
 }
 
 // TODO: Name this better
-#[derive(Debug, Clone, Copy, PartialEq, derive_more::From)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::From)]
 pub enum SomeByte {
     Referenced(RegOrPointer),
     Direct(u8),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum ArithmeticOp {
     Add16(WideReg),
     Add(SomeByte),
@@ -159,7 +161,7 @@ impl ArithmeticOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum JumpOp {
     ConditionalRelative(Condition, i8),
     Relative(i8),
@@ -232,7 +234,7 @@ impl JumpOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum ControlOp {
     Halt,
     Noop,
@@ -259,7 +261,7 @@ impl ControlOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum WideReg {
     BC,
     DE,
@@ -267,7 +269,7 @@ pub enum WideReg {
     SP,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum WideRegWithoutSP {
     BC,
     DE,
@@ -275,7 +277,7 @@ pub enum WideRegWithoutSP {
     AF,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum LoadOp {
     /// Used for opcodes in 0x40..0x80
     Basic {
@@ -371,7 +373,7 @@ impl LoadOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Condition {
     Zero,
     NotZero,
@@ -392,7 +394,7 @@ impl Condition {
 
 /// There are special operations for loading into the A register, so it is easier to have a special
 /// enum for the unique types of pointers they use.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum LoadAPointer {
     /// Use the BC register
     BC,
@@ -404,7 +406,7 @@ pub enum LoadAPointer {
     Hld,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum BitShiftOp {
     Rlc(RegOrPointer),
     Rrc(RegOrPointer),
@@ -462,7 +464,7 @@ impl BitShiftOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum HalfRegister {
     A,
     B,
@@ -473,7 +475,7 @@ pub enum HalfRegister {
     L,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, From, IsVariant)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From, IsVariant)]
 pub enum RegOrPointer {
     Reg(HalfRegister),
     Pointer,
@@ -505,14 +507,14 @@ impl InnerRegOrPointer {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BitOp {
     pub bit: u8,
     pub reg: RegOrPointer,
     pub op: BitOpInner,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum BitOpInner {
     Bit,
     Res,
@@ -703,7 +705,7 @@ macro_rules! define_op {
         |_, _| {
             Instruction::Load(LoadOp::Basic {
                 dest: InnerRegOrPointer::$r1.convert(),
-                src: InnerRegOrPointer::$r1.convert(),
+                src: InnerRegOrPointer::$r2.convert(),
             })
         }
     };
