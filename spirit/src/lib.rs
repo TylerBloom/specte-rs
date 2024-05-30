@@ -124,7 +124,7 @@ impl<'a> StartUpSequence<'a> {
         let remap_mem = gb.mem.start_up_remap();
         println!("-- Start up Gameboy");
         let op = gb.start_up_read_op();
-        println!("First start up op: {op:?}");
+        // println!("First start up op: {op:?}");
         Self {
             gb,
             op,

@@ -30,6 +30,12 @@ static NINTENDO_LOGO: &[u8] = &[
 pub struct MemoryMap {
     // The MBC
     mbc: MemoryBankController,
+    // The video RAM
+    vram: [u8; 0x2000],
+    // The working RAM
+    wram: ([u8; 0x1000], [u8; 0x1000]),
+    // The Object attribute map
+    oam: [u8; 0x100],
     // IO registers
     io: [u8; 0x80],
     // High RAM
@@ -42,6 +48,9 @@ impl MemoryMap {
     pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
         Self {
             mbc: MemoryBankController::new(cart),
+            vram: [0; 0x2000],
+            wram: ([0; 0x1000], [0; 0x1000]),
+            oam: [0; 0x100],
             io: [0; 0x80],
             hr: [0; 0x7F],
             interrupt: 0,
@@ -82,20 +91,18 @@ impl Index<u16> for MemoryMap {
     type Output = u8;
 
     fn index(&self, index: u16) -> &Self::Output {
+        // println!("Attempting to index into memory map: {index:X}");
         match index {
             0x0000..=0x7FFF => &self.mbc[index],
-            0x8000..=0x9FFF => todo!(),
+            n @ 0x8000..=0x9FFF => &self.vram[n as usize - 0x8000],
             0xA000..=0xBFFF => todo!(),
-            0xC000..=0xCFFF => todo!(),
-            0xD000..=0xDFFF => todo!(),
+            n @ 0xC000..=0xCFFF => &self.wram.0[n as usize - 0xC000],
+            n @ 0xD000..=0xDFFF => &self.wram.1[n as usize - 0xD000],
             0xE000..=0xFDFF => todo!(),
-            0xFE00..=0xFE9F => todo!(),
+            n @ 0xFE00..=0xFE9F => &self.oam[n as usize - 0xFE00],
             0xFEA0..=0xFEFF => unreachable!("No ROM should attempt to access this region"),
             index @ 0xFF00..=0xFF7F => &self.io[(index & !0xFF00) as usize],
-            index @ 0xFF80..=0xFFFE => {
-                println!("Index is: {index:X}, masked: {:X}", index - 0xFF80);
-                &self.hr[(index & !0xFF80) as usize]
-            }
+            index @ 0xFF80..=0xFFFE => &self.hr[(index & !0xFF80) as usize],
             0xFFFF => &self.interrupt,
         }
     }
@@ -103,14 +110,15 @@ impl Index<u16> for MemoryMap {
 
 impl IndexMut<u16> for MemoryMap {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
+        // println!("Attempting to mutably index into memory map: {index:X}");
         match index {
             0x0000..=0x7FFF => &mut self.mbc[index],
-            0x8000..=0x9FFF => todo!(),
+            n @ 0x8000..=0x9FFF => &mut self.vram[n as usize - 0x8000],
             0xA000..=0xBFFF => todo!(),
-            0xC000..=0xCFFF => todo!(),
-            0xD000..=0xDFFF => todo!(),
+            n @ 0xC000..=0xCFFF => &mut self.wram.0[n as usize - 0xC000],
+            n @ 0xD000..=0xDFFF => &mut self.wram.1[n as usize - 0xD000],
             0xE000..=0xFDFF => todo!(),
-            0xFE00..=0xFE9F => todo!(),
+            n @ 0xFE00..=0xFE9F => &mut self.oam[n as usize - 0xFE00],
             0xFEA0..=0xFEFF => unreachable!("No ROM should attempt to access this region"),
             0xFF00..=0xFF7F => &mut self.io[(index - 0xFF00) as usize],
             0xFF80..=0xFFFE => &mut self.hr[(index - 0xFF80) as usize],
@@ -272,7 +280,10 @@ impl MemoryBankController {
         match self {
             // TODO: This should probably panic (or something) if index < rom.len(), i.e. they are
             // trying to write to ROM.
-            MemoryBankController::Direct { rom, ram } => &mut ram[index + 1 - rom.len()..],
+            MemoryBankController::Direct { rom, ram } => {
+                debug_assert!(index + 1 >= rom.len(), "Could not index into {index:X} because ROM ends as {:?}", rom.len());
+                &mut ram[index + 1 - rom.len()..]
+            },
             MemoryBankController::MBC1(_) => todo!(),
             MemoryBankController::MBC2 => todo!(),
             MemoryBankController::MBC3 => todo!(),

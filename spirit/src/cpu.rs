@@ -191,12 +191,12 @@ impl Cpu {
     /// A method similar to `Self::read_op`, but is ran during start up, when the ROM that is
     /// burned-into the CPU is mapped over normal memory.
     pub(crate) fn start_up_read_op(&self, mem: &MemoryMap) -> Instruction {
-        println!("Reading start up op from: {:X}", self.pc);
+        println!("Reading start up op from: 0x{:0>4X}", self.pc);
         mem.read_op(self.pc.0)
     }
 
     pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
-        println!("Next op: {instr:X?}");
+        // println!("Next op: {instr:X?}");
         let len = instr.size();
         self.pc += (!self.done as u16) * (len as u16);
         match instr {
@@ -644,9 +644,9 @@ impl Cpu {
             LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),
             LoadOp::Direct(reg, val) => self.write_byte(reg, mem, val),
             LoadOp::LoadIntoA(ptr) => {
-                self.a = Wrapping(*self.deref_ptr(mem, ptr));
+                self.a = Wrapping(*self.deref_mut_ptr(mem, ptr));
             }
-            LoadOp::StoreFromA(ptr) => *self.deref_ptr(mem, ptr) = self.a.0,
+            LoadOp::StoreFromA(ptr) => *self.deref_mut_ptr(mem, ptr) = self.a.0,
             LoadOp::StoreSP(val) => {
                 let [lw, hi] = self.sp.0.to_le_bytes();
                 mem[val] = lw;
@@ -736,12 +736,28 @@ impl Cpu {
         self.l = l;
     }
 
-    fn deref_ptr<'a, 'b>(&'a mut self, mem: &'b mut MemoryMap, ptr: LoadAPointer) -> &'b mut u8 {
+    fn deref_ptr<'a, 'b>(&'a mut self, mem: &'b mut MemoryMap, ptr: LoadAPointer) -> &'b u8 {
+        match ptr {
+            LoadAPointer::BC => &mem[self.bc()],
+            LoadAPointer::DE => &mem[self.de()],
+            LoadAPointer::Hli => {
+                let digest = &mem[self.ptr()];
+                self.inc_ptr(1);
+                digest
+            }
+            LoadAPointer::Hld => {
+                let digest = &mem[self.ptr()];
+                self.inc_ptr(1);
+                digest
+            }
+        }
+    }
+
+    fn deref_mut_ptr<'a, 'b>(&'a mut self, mem: &'b mut MemoryMap, ptr: LoadAPointer) -> &'b mut u8 {
         match ptr {
             LoadAPointer::BC => &mut mem[self.bc()],
             LoadAPointer::DE => &mut mem[self.de()],
             LoadAPointer::Hli => {
-                println!("I'm here!!!");
                 let digest = &mut mem[self.ptr()];
                 self.inc_ptr(1);
                 digest
@@ -764,7 +780,7 @@ impl Cpu {
         mem: &mut MemoryMap,
     ) -> Option<Instruction> {
         self.execute(instr, mem);
-        println!("Applied startup op: {:?}", self);
+        // println!("Applied startup op: {:?}", self);
         (self.sp.0 != 0x0100).then(|| self.start_up_read_op(mem))
     }
 }

@@ -39,7 +39,7 @@ fn run_test_roms() {
     for (name, cart) in TEST_ROMS {
         println!("Running ROM from file '{name}'");
         let mut gb = Gameboy::new(*cart);
-        println!("Init GB state: {gb:?}");
+        // println!("Init GB state: {gb:?}");
         gb.start_up().complete();
     }
 }
