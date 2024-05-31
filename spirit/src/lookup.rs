@@ -409,9 +409,13 @@ pub enum LoadAPointer {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum BitShiftOp {
     Rlc(RegOrPointer),
+    Rlca,
     Rrc(RegOrPointer),
+    Rrca,
     Rl(RegOrPointer),
+    Rla,
     Rr(RegOrPointer),
+    Rra,
     Sla(RegOrPointer),
     Sra(RegOrPointer),
     Swap(RegOrPointer),
@@ -422,18 +426,18 @@ impl BitShiftOp {
     /// Returns the number of ticks to will take to complete this instruction.
     pub fn length(&self) -> u8 {
         match self {
-            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 4,
+            BitShiftOp::Rlca => 4,
             BitShiftOp::Rlc(RegOrPointer::Pointer) => 16,
             BitShiftOp::Rlc(_) => 8,
-            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 4,
+            BitShiftOp::Rrca => 4,
             BitShiftOp::Rrc(RegOrPointer::Pointer) => 16,
             BitShiftOp::Rrc(_) => 8,
-            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 4,
             BitShiftOp::Rl(RegOrPointer::Pointer) => 16,
             BitShiftOp::Rl(_) => 8,
-            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 4,
+            BitShiftOp::Rla => 4,
             BitShiftOp::Rr(RegOrPointer::Pointer) => 16,
             BitShiftOp::Rr(_) => 8,
+            BitShiftOp::Rra => 4,
             BitShiftOp::Sla(RegOrPointer::Pointer) => 16,
             BitShiftOp::Sla(_) => 8,
             BitShiftOp::Sra(RegOrPointer::Pointer) => 16,
@@ -448,13 +452,13 @@ impl BitShiftOp {
     /// Returns the size of the bytes to took to construct this instruction
     pub const fn size(&self) -> u8 {
         match self {
-            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 1,
+            BitShiftOp::Rlca => 1,
             BitShiftOp::Rlc(_) => 2,
-            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 1,
+            BitShiftOp::Rrca => 1,
             BitShiftOp::Rrc(_) => 2,
-            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 1,
+            BitShiftOp::Rla => 1,
             BitShiftOp::Rl(_) => 2,
-            BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::A)) => 1,
+            BitShiftOp::Rra => 1,
             BitShiftOp::Rr(_) => 2,
             BitShiftOp::Sla(_) => 2,
             BitShiftOp::Sra(_) => 2,
@@ -670,7 +674,7 @@ macro_rules! define_op {
     (LoadA) => {
         |data, pc| {
             Instruction::Load(LoadOp::LoadA {
-                ptr: u16::from_le_bytes([data[pc + 1], data[pc + 1]]),
+                ptr: u16::from_le_bytes([data[pc + 1], data[pc + 2]]),
             })
         }
     };
@@ -789,11 +793,23 @@ macro_rules! define_op {
         |_, _| Instruction::Load(LoadOp::StoreHighCarry)
     };
     /* --- Prefixed op definitions --- */
+    (RLCA) => {
+        |_, _| Instruction::BitShift(BitShiftOp::Rlca)
+    };
+    (RLA) => {
+        |_, _| Instruction::BitShift(BitShiftOp::Rla)
+    };
     (RL, $r: ident) => {
         |_, _| Instruction::BitShift(BitShiftOp::Rl(InnerRegOrPointer::$r.convert()))
     };
     (RLC, $r: ident) => {
         |_, _| Instruction::BitShift(BitShiftOp::Rlc(InnerRegOrPointer::$r.convert()))
+    };
+    (RRCA) => {
+        |_, _| Instruction::BitShift(BitShiftOp::Rrca)
+    };
+    (RRA) => {
+        |_, _| Instruction::BitShift(BitShiftOp::Rra)
     };
     (RRC, $r: ident) => {
         |_, _| Instruction::BitShift(BitShiftOp::Rrc(InnerRegOrPointer::$r.convert()))
@@ -964,8 +980,8 @@ macro_rules! define_op_lookup_table {
                 define_op!(LD, Pointer),
             ],
             [
-                define_op!(RLC, A),
-                define_op!(RL, A),
+                define_op!(RLCA),
+                define_op!(RLA),
                 define_op!(DAA),
                 define_op!(SCF),
             ],
@@ -1012,8 +1028,8 @@ macro_rules! define_op_lookup_table {
                 define_op!(LD, A),
             ],
             [
-                define_op!(RRC, A),
-                define_op!(RR, A),
+                define_op!(RRCA),
+                define_op!(RRA),
                 define_op!(CPL),
                 define_op!(CCF),
             ],

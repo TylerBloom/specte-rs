@@ -1,4 +1,12 @@
-use std::{borrow::BorrowMut, cell::RefCell, collections::HashSet, hash::{Hash, Hasher}, num::Wrapping, ops::{Add, Index, IndexMut}, sync::{Mutex, OnceLock}};
+use std::{
+    borrow::BorrowMut,
+    cell::RefCell,
+    collections::HashSet,
+    hash::{Hash, Hasher},
+    num::Wrapping,
+    ops::{Add, Index, IndexMut},
+    sync::{Mutex, OnceLock},
+};
 
 use once_cell::sync::{Lazy, OnceCell};
 
@@ -210,7 +218,10 @@ impl Cpu {
             panic!("Reached an identical state, which means the GB will loop forever!!");
         }
         // println!("Next op: {instr:X?}");
-        println!("Starting execution: PC=0x{:0>4X} SP=0x{:0>4X}", self.pc.0, self.sp.0);
+        println!(
+            "Starting execution: PC=0x{:0>4X} SP=0x{:0>4X}",
+            self.pc.0, self.sp.0
+        );
         let len = instr.size();
         self.pc += (!self.done as u16) * (len as u16);
         match instr {
@@ -239,7 +250,10 @@ impl Cpu {
             Instruction::Di => self.disable_interupts(),
             Instruction::Ei => self.enable_interupts(),
         }
-        println!("Ending execution: PC=0x{:0>4X} SP=0x{:0>4X}", self.pc.0, self.sp.0);
+        println!(
+            "Ending execution: PC=0x{:0>4X} SP=0x{:0>4X}",
+            self.pc.0, self.sp.0
+        );
         println!("");
     }
 
@@ -304,7 +318,7 @@ impl Cpu {
     fn execute_arithmetic_op(&mut self, op: ArithmeticOp, mem: &mut MemoryMap) {
         match op {
             ArithmeticOp::AddSP(val) => {
-                let (sp, carry)  = self.sp.0.overflowing_add_signed(val as i16);
+                let (sp, carry) = self.sp.0.overflowing_add_signed(val as i16);
                 let h = if val < 0 {
                     (sp & 0x0F) < (val.abs() as u16 & 0x0F)
                 } else {
@@ -579,53 +593,84 @@ impl Cpu {
             BitShiftOp::Rlc(reg) => {
                 let mut carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
-                    // TODO: This is incorrect. Call .rotate_left
-                    let [c, new] = (u16::from_be_bytes([0, *byte]) << 1).to_be_bytes();
+                    let [c, new] = u16::from_be_bytes([0, *byte]).rotate_left(1).to_be_bytes();
                     *byte = c | new;
                     carry = c == 1;
                 });
                 self.f.set_for_byte_shift_op(byte != 0, carry)
             }
+            BitShiftOp::Rlca => {
+                let byte = self.a.0;
+                let [c, new] = u16::from_be_bytes([0, byte]).rotate_left(1).to_be_bytes();
+                self.a = Wrapping(c | new);
+                self.f.set_for_byte_shift_op(byte != 0, c == 1)
+            }
             BitShiftOp::Rrc(reg) => {
                 let mut carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
-                    // TODO: This is incorrect. Call .rotate_right
-                    let [c, new] = (u16::from_be_bytes([*byte, 0]) >> 1).to_be_bytes();
+                    let [c, new] = u16::from_be_bytes([*byte, 0]).rotate_right(1).to_be_bytes();
                     *byte = c | new;
                     carry = c == 0b1000_0000;
                 });
                 self.f.set_for_byte_shift_op(byte != 0, carry)
             }
+            BitShiftOp::Rrca => {
+                let mut carry = false;
+                let byte = self.a.0;
+                let [c, new] = u16::from_be_bytes([byte, 0]).rotate_right(1).to_be_bytes();
+                carry = c == 0b1000_0000;
+                self.a = Wrapping(c | new);
+                self.f.set_for_byte_shift_op(byte != 0, carry)
+            }
             BitShiftOp::Rl(reg) => {
                 let byte = self.copy_byte(mem, reg);
                 let carry = self.f.c as u8;
-                println!("Performing rotate left: carry={} byte=0b{byte:0>8b}", self.f.c);
                 let mask = carry | (carry << 7);
-                println!("Carry mask: 0b{mask:0>8b}");
+                println!("Starting rotate left operation: mask=0x{mask:0>2X} byte=0x{byte:0>2X}");
                 let mut new_carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
                     let [c, new] = (u16::from_be_bytes([mask, *byte]).rotate_left(1)).to_be_bytes();
                     new_carry = c & 1 != 0;
                 });
                 self.f.set_for_byte_shift_op(byte != 0, new_carry);
-                println!("Done performing rotate left: carry={} byte=0b{byte:0>8b}", self.f.c);
+                println!("Ending rotate left operation: carry={} byte=0x{byte:0>2X}", self.f.c);
+            }
+            BitShiftOp::Rla => {
+                let byte = self.a.0;
+                let carry = self.f.c as u8;
+                let mask = carry | (carry << 7);
+                println!("Starting rotate left operation on A: mask=0x{mask:0>2X} byte=0x{byte:0>2X}");
+                let [c, new] = (u16::from_be_bytes([mask, byte]).rotate_left(1)).to_be_bytes();
+                self.a = Wrapping(new);
+                self.f.set_for_byte_shift_op(new != 0, c & 1 != 0);
+                println!("Ending rotate left operation on A: carry={} byte=0x{byte:0>2X}", self.f.c);
             }
             BitShiftOp::Rr(reg) => {
                 let carry = self.f.c as u8;
                 let mask = carry | (carry << 7);
                 let mut new_carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
-                    // TODO: This is incorrect. Call .rotate_right
-                    let [c, new] = (u16::from_be_bytes([*byte, mask]) >> 1).to_be_bytes();
+                    let [c, new] = u16::from_be_bytes([*byte, mask])
+                        .rotate_right(1)
+                        .to_be_bytes();
                     new_carry = c >> 7 != 0;
                 });
                 self.f.set_for_byte_shift_op(byte != 0, new_carry)
             }
+            BitShiftOp::Rra => {
+                let carry = self.f.c as u8;
+                let mask = carry | (carry << 7);
+                let byte = self.a.0;
+                let [c, new] = u16::from_be_bytes([byte, mask])
+                    .rotate_right(1)
+                    .to_be_bytes();
+                self.a = Wrapping(new);
+                self.f.set_for_byte_shift_op(new != 0, c >> 7 != 0)
+            }
             BitShiftOp::Sla(reg) => {
                 let mut new_carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
-                    // TODO: This is incorrect. Call .rotate_left
-                    let [c, new] = (u16::from_be_bytes([0, *byte]) << 1).to_be_bytes();
+                    let [c, new] = u16::from_be_bytes([0, *byte]).rotate_left(1).to_be_bytes();
                     new_carry = c != 0;
                 });
                 self.f.set_for_byte_shift_op(byte != 0, new_carry)
@@ -634,8 +679,7 @@ impl Cpu {
                 let mut carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
                     let bit = select_bit::<7>(*byte);
-                    // TODO: This is incorrect. Call .rotate_right
-                    let [c, new] = (u16::from_be_bytes([*byte, 0]) >> 1).to_be_bytes();
+                    let [c, new] = u16::from_be_bytes([*byte, 0]).rotate_right(1).to_be_bytes();
                     carry = c >> 7 != 0;
                     *byte = new | bit;
                 });
@@ -652,8 +696,7 @@ impl Cpu {
             BitShiftOp::Srl(reg) => {
                 let mut carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
-                    // TODO: This is incorrect. Call .rotate_right
-                    let [c, new] = (u16::from_be_bytes([*byte, 0]) >> 1).to_be_bytes();
+                    let [c, new] = u16::from_be_bytes([*byte, 0]).rotate_right(1).to_be_bytes();
                     carry = c >> 7 != 0;
                     *byte = new;
                 });
@@ -691,8 +734,7 @@ impl Cpu {
                 }
                 .0
                 .to_be_bytes()
-                .map(Wrapping)
-                ;
+                .map(Wrapping);
                 self.h = h;
                 self.l = l;
             }
@@ -784,7 +826,11 @@ impl Cpu {
         }
     }
 
-    fn deref_mut_ptr<'a, 'b>(&'a mut self, mem: &'b mut MemoryMap, ptr: LoadAPointer) -> &'b mut u8 {
+    fn deref_mut_ptr<'a, 'b>(
+        &'a mut self,
+        mem: &'b mut MemoryMap,
+        ptr: LoadAPointer,
+    ) -> &'b mut u8 {
         match ptr {
             LoadAPointer::BC => &mut mem[self.bc()],
             LoadAPointer::DE => &mut mem[self.de()],
