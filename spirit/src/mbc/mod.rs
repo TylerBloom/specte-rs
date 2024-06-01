@@ -86,11 +86,9 @@ impl MemoryMap {
     pub fn read_op(&self, index: u16) -> Instruction {
         parse_instruction(self, index)
     }
-}
 
-#[cfg(test)]
-impl MemoryMap {
     /// Creates a dummy memory map that should only be used for testing.
+    /// Notably, this will not have a ROM header, so it is not bootable.
     pub fn construct() -> Self {
         let rom = vec![0; 32000];
         let ram = vec![0; 4000];
@@ -105,7 +103,10 @@ impl MemoryMap {
             interrupt: 0,
         }
     }
+}
 
+#[cfg(test)]
+impl MemoryMap {
     pub fn rom_mut(&mut self) -> &mut [u8] {
         let MemoryBankController::Direct { rom, .. } = &mut self.mbc else {
             panic!("Do not call MemoryMap::rom unless you called MemoryMap::construct");

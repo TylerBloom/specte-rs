@@ -40,13 +40,13 @@ pub enum RegisterFlags {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct Flags {
     /// The zero flag
-    z: bool,
+    pub z: bool,
     /// The substraction flag
-    n: bool,
+    pub n: bool,
     /// The half-carry flag
-    h: bool,
+    pub h: bool,
     /// The full carry flag
-    c: bool,
+    pub c: bool,
 }
 
 impl Flags {
@@ -169,9 +169,12 @@ impl Cpu {
     }
 
     /// Get the top four bits of the F register
-    #[inline]
     pub fn flags(&self) -> &Flags {
         &self.f
+    }
+
+    pub fn flags_mut(&mut self) -> &mut Flags {
+        &mut self.f
     }
 
     /// Returns the value of the Z flag
