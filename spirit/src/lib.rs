@@ -143,7 +143,7 @@ impl<'a> StartUpSequence<'a> {
         }
     }
 
-    fn step(&mut self) {
+    pub fn step(&mut self) {
         self.counter = 0;
         if let Some(op) = self.gb.start_up_apply_op(self.op) {
             self.op = op;
