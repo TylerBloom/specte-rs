@@ -1,4 +1,4 @@
-use spirit::{mbc::START_UP_HEADER, Gameboy};
+use spirit::{mbc::{MemoryMap, START_UP_HEADER}, Gameboy};
 
 macro_rules! include_roms {
     ($($file:literal),+) => {{
@@ -35,6 +35,17 @@ pub const TEST_ROMS: &[(&str, &[u8])] = include_roms!(
 
 #[test]
 fn run_test_roms() {
+    let mut gb = Gameboy::new(TEST_ROMS[0].1);
+    let mut header = Vec::new();
+    for i in 0x100..=0x14F {
+        header.push(gb.mem[i]);
+    }
+    gb.mem = MemoryMap::construct();
+    let rom = gb.mem.rom_mut();
+    for (i, byte) in header.into_iter().enumerate() {
+        rom[i + 0x100] = byte;
+    }
+    gb.start_up().complete();
     println!("{:X?}", START_UP_HEADER);
     for (name, cart) in TEST_ROMS {
         println!("Running ROM from file '{name}'");

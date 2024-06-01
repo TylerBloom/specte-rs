@@ -309,9 +309,9 @@ pub enum LoadOp {
     /// Used for opcode 0xF0
     StoreHigh(u8),
     /// Used for opcode 0xE2
-    LoadHighCarry,
+    Ldhca,
     /// Used for opcode 0xF2
-    StoreHighCarry,
+    Ldhac,
     /// Used for opcode 0xEA
     LoadA { ptr: u16 },
     /// Used for opcode 0xFA
@@ -343,8 +343,8 @@ impl LoadOp {
             LoadOp::Push(_) => 16,
             LoadOp::LoadHigh(_) => 12,
             LoadOp::StoreHigh(_) => 12,
-            LoadOp::LoadHighCarry => 8,
-            LoadOp::StoreHighCarry => 8,
+            LoadOp::Ldhca => 8,
+            LoadOp::Ldhac => 8,
             LoadOp::LoadA { .. } => 16,
             LoadOp::StoreA { .. } => 16,
         }
@@ -365,8 +365,8 @@ impl LoadOp {
             LoadOp::Push(_) => 1,
             LoadOp::LoadHigh(_) => 2,
             LoadOp::StoreHigh(_) => 2,
-            LoadOp::LoadHighCarry => 1,
-            LoadOp::StoreHighCarry => 1,
+            LoadOp::Ldhca => 1,
+            LoadOp::Ldhac => 1,
             LoadOp::LoadA { .. } => 3,
             LoadOp::StoreA { .. } => 3,
         }
@@ -786,11 +786,11 @@ macro_rules! define_op {
     (StoreHigh) => {
         |data, pc| Instruction::Load(LoadOp::StoreHigh(data[pc + 1]))
     };
-    (LoadHighCarry) => {
-        |_, _| Instruction::Load(LoadOp::LoadHighCarry)
+    (LDHCA) => {
+        |_, _| Instruction::Load(LoadOp::Ldhca)
     };
-    (StoreHighCarry) => {
-        |_, _| Instruction::Load(LoadOp::StoreHighCarry)
+    (LDHAC) => {
+        |_, _| Instruction::Load(LoadOp::Ldhac)
     };
     /* --- Prefixed op definitions --- */
     (RLCA) => {
@@ -1072,8 +1072,8 @@ macro_rules! define_op_lookup_table {
             [
                 define_op!(JP, NotZero),
                 define_op!(JP, NotCarry),
-                define_op!(LoadHighCarry),
-                define_op!(StoreHighCarry),
+                define_op!(LDHCA),
+                define_op!(LDHAC),
             ],
             [
                 define_op!(JP),

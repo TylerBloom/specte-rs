@@ -39,7 +39,7 @@ pub struct MemoryMap {
     // IO registers
     io: [u8; 0x80],
     // High RAM
-    hr: [u8; 0x7F],
+    pub(crate) hr: [u8; 0x7F],
     // Interrupt reg
     interrupt: u8,
 }
@@ -87,8 +87,8 @@ impl MemoryMap {
         parse_instruction(self, index)
     }
 
-    /// Creates a dummy memory map that should only be used for testing.
-    /// Notably, this will not have a ROM header, so it is not bootable.
+    /// Creates a dummy memory map that should only be used for testing. Notably, this will not
+    /// have a ROM header, so it is not bootable.
     pub fn construct() -> Self {
         let rom = vec![0; 32000];
         let ram = vec![0; 4000];
@@ -105,7 +105,7 @@ impl MemoryMap {
     }
 }
 
-#[cfg(test)]
+// #[cfg(test)]
 impl MemoryMap {
     pub fn rom_mut(&mut self) -> &mut [u8] {
         let MemoryBankController::Direct { rom, .. } = &mut self.mbc else {
