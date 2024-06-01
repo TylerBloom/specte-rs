@@ -1199,37 +1199,39 @@ const PREFIXED_OP_LOOKUP: OpArray<0x100> = define_op_lookup_table!(PREFIXED);
 
 #[cfg(test)]
 mod test {
+    use crate::mbc::MemoryMap;
+
     use super::{parse_instruction, parse_prefixed_instruction};
 
     #[test]
     fn dedupped_op_lookup_tables() {
-        // TODO: This test was created when the lookup table only took a byte slice. It needs to be
-        // updated to use a MemMap before any changes to the lookup logic can happen.
-        /*
-        let mut data = [0; 10];
+        let mut data = MemoryMap::construct();
         // Test standard ops
         let mut ops: Vec<_> = (0..=u8::MAX)
             .filter_map(|i| {
-                data[0] = i;
-                std::panic::catch_unwind(|| parse_instruction(data.as_slice())).ok()
+                data.rom_mut()[0] = i;
+                std::panic::catch_unwind(|| parse_instruction(&data, 0)).ok()
             })
             .collect();
         // Ensure (almost) all of the operations are actually returning unique values
-        assert_eq!((u8::MAX - 10) as usize, ops.len());
+        let len = (u8::MAX - 10) as usize;
+        assert_eq!(len, ops.len());
         ops.dedup();
-        assert_eq!((u8::MAX - 10) as usize, ops.len());
+        assert_eq!(len, ops.len());
 
         // Test prefixed ops
-        let mut ops: Vec<_> = (0..=u8::MAX)
+        let mut more_ops: Vec<_> = (0..=u8::MAX)
             .filter_map(|i| {
-                data[0] = i;
-                std::panic::catch_unwind(|| parse_prefixed_instruction(data.as_slice())).ok()
+                data.rom_mut()[0] = i;
+                std::panic::catch_unwind(|| parse_prefixed_instruction(&data, 0)).ok()
             })
             .collect();
         // Ensure all of the operations are actually returning unique values
-        assert_eq!(0x100, ops.len());
+        assert_eq!(0x100, more_ops.len());
+        more_ops.dedup();
+        assert_eq!(0x100, more_ops.len());
+        ops.extend(more_ops.into_iter());
         ops.dedup();
-        assert_eq!(0x100, ops.len());
-        */
+        assert_eq!(len + 0x100, ops.len());
     }
 }

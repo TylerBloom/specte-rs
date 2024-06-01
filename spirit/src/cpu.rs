@@ -206,6 +206,8 @@ impl Cpu {
     }
 
     pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
+        // TODO: Remove this! This is onlhy for testing before we impl interrupt handling and IO.
+        mem[0xFF0F] = 0b1;
         static LOOP_CHECKER: OnceCell<Mutex<HashSet<u64>>> = OnceCell::new();
         let mut hasher = std::hash::DefaultHasher::new();
         self.hash(&mut hasher);
@@ -594,8 +596,8 @@ impl Cpu {
                 let mut carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
                     let [c, new] = u16::from_be_bytes([0, *byte]).rotate_left(1).to_be_bytes();
-                    *byte = c | new;
                     carry = c == 1;
+                    *byte = c | new;
                 });
                 self.f.set_for_byte_shift_op(byte != 0, carry)
             }
@@ -608,17 +610,17 @@ impl Cpu {
             BitShiftOp::Rrc(reg) => {
                 let mut carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
-                    let [c, new] = u16::from_be_bytes([*byte, 0]).rotate_right(1).to_be_bytes();
-                    *byte = c | new;
+                    let [new, c] = u16::from_be_bytes([*byte, 0]).rotate_right(1).to_be_bytes();
                     carry = c == 0b1000_0000;
+                    *byte = c | new;
                 });
                 self.f.set_for_byte_shift_op(byte != 0, carry)
             }
             BitShiftOp::Rrca => {
                 let mut carry = false;
                 let byte = self.a.0;
-                let [c, new] = u16::from_be_bytes([byte, 0]).rotate_right(1).to_be_bytes();
-                carry = c == 0b1000_0000;
+                let [new, c] = u16::from_be_bytes([byte, 0]).rotate_right(1).to_be_bytes();
+                carry = c == 0x80;
                 self.a = Wrapping(c | new);
                 self.f.set_for_byte_shift_op(byte != 0, carry)
             }
@@ -631,47 +633,56 @@ impl Cpu {
                 let byte = self.update_byte(reg, mem, |byte| {
                     let [c, new] = (u16::from_be_bytes([mask, *byte]).rotate_left(1)).to_be_bytes();
                     new_carry = c & 1 != 0;
+                    *byte = new;
                 });
                 self.f.set_for_byte_shift_op(byte != 0, new_carry);
-                println!("Ending rotate left operation: carry={} byte=0x{byte:0>2X}", self.f.c);
+                println!(
+                    "Ending rotate left operation: carry={} byte=0x{byte:0>2X}",
+                    self.f.c
+                );
             }
             BitShiftOp::Rla => {
                 let byte = self.a.0;
                 let carry = self.f.c as u8;
                 let mask = carry | (carry << 7);
-                println!("Starting rotate left operation on A: mask=0x{mask:0>2X} byte=0x{byte:0>2X}");
+                println!(
+                    "Starting rotate left operation on A: mask=0x{mask:0>2X} byte=0x{byte:0>2X}"
+                );
                 let [c, new] = (u16::from_be_bytes([mask, byte]).rotate_left(1)).to_be_bytes();
                 self.a = Wrapping(new);
                 self.f.set_for_byte_shift_op(new != 0, c & 1 != 0);
-                println!("Ending rotate left operation on A: carry={} byte=0x{byte:0>2X}", self.f.c);
+                println!(
+                    "Ending rotate left operation on A: carry={} byte=0x{new:0>2X}",
+                    self.f.c
+                );
             }
             BitShiftOp::Rr(reg) => {
-                let carry = self.f.c as u8;
-                let mask = carry | (carry << 7);
+                let mask = self.f.c as u8;
                 let mut new_carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
-                    let [c, new] = u16::from_be_bytes([*byte, mask])
+                    let [new, c] = u16::from_be_bytes([*byte, mask])
                         .rotate_right(1)
                         .to_be_bytes();
-                    new_carry = c >> 7 != 0;
+                    new_carry = c == 0x80;
+                    *byte = new;
                 });
                 self.f.set_for_byte_shift_op(byte != 0, new_carry)
             }
             BitShiftOp::Rra => {
-                let carry = self.f.c as u8;
-                let mask = carry | (carry << 7);
+                let mask = self.f.c as u8;
                 let byte = self.a.0;
-                let [c, new] = u16::from_be_bytes([byte, mask])
+                let [new, c] = u16::from_be_bytes([byte, mask])
                     .rotate_right(1)
                     .to_be_bytes();
                 self.a = Wrapping(new);
-                self.f.set_for_byte_shift_op(new != 0, c >> 7 != 0)
+                self.f.set_for_byte_shift_op(new != 0, c == 0x80)
             }
             BitShiftOp::Sla(reg) => {
                 let mut new_carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
                     let [c, new] = u16::from_be_bytes([0, *byte]).rotate_left(1).to_be_bytes();
                     new_carry = c != 0;
+                    *byte = new;
                 });
                 self.f.set_for_byte_shift_op(byte != 0, new_carry)
             }
@@ -679,16 +690,16 @@ impl Cpu {
                 let mut carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
                     let bit = select_bit::<7>(*byte);
-                    let [c, new] = u16::from_be_bytes([*byte, 0]).rotate_right(1).to_be_bytes();
-                    carry = c >> 7 != 0;
+                    let [new, c] = u16::from_be_bytes([*byte, 0]).rotate_right(1).to_be_bytes();
+                    carry = c == 0x80;
                     *byte = new | bit;
                 });
                 self.f.set_for_byte_shift_op(byte != 0, carry)
             }
             BitShiftOp::Swap(reg) => {
                 let byte = self.update_byte(reg, mem, |byte| {
-                    let lw = *byte & 0xF0 >> 4;
-                    let hi = *byte & 0x0F << 4;
+                    let lw = (*byte & 0xF0) >> 4;
+                    let hi = (*byte & 0x0F) << 4;
                     *byte = hi | lw;
                 });
                 self.f.set_for_byte_shift_op(byte != 0, false)
@@ -696,8 +707,8 @@ impl Cpu {
             BitShiftOp::Srl(reg) => {
                 let mut carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
-                    let [c, new] = u16::from_be_bytes([*byte, 0]).rotate_right(1).to_be_bytes();
-                    carry = c >> 7 != 0;
+                    let [new, c] = u16::from_be_bytes([*byte, 0]).rotate_right(1).to_be_bytes();
+                    carry = c == 0x80;
                     *byte = new;
                 });
                 self.f.set_for_byte_shift_op(byte != 0, carry)
@@ -760,11 +771,9 @@ impl Cpu {
             }
             LoadOp::LoadHigh(val) => self.a = Wrapping(mem[u16::from_le_bytes([0xFF, val])]),
             LoadOp::StoreHigh(val) => mem[u16::from_le_bytes([0xFF, val])] = self.a.0,
-            LoadOp::LoadHighCarry => {
-                mem[u16::from_be_bytes([0xFF, self.carry_flag() as u8])] = self.a.0
-            }
+            LoadOp::LoadHighCarry => mem[u16::from_be_bytes([0xFF, self.c.0])] = self.a.0,
             LoadOp::StoreHighCarry => {
-                self.a = Wrapping(mem[u16::from_be_bytes([0xFF, self.carry_flag() as u8])]);
+                self.a = Wrapping(mem[u16::from_be_bytes([0xFF, self.c.0])]);
             }
             LoadOp::LoadA { ptr } => mem[ptr] = self.a.0,
             LoadOp::StoreA { ptr } => self.a = Wrapping(mem[ptr]),
@@ -897,7 +906,7 @@ mod tests {
     use std::num::Wrapping;
 
     use crate::{
-        lookup::{HalfRegister, Instruction, LoadOp, RegOrPointer},
+        lookup::{BitShiftOp, HalfRegister, Instruction, LoadOp, RegOrPointer},
         mbc::MemoryMap,
     };
 
@@ -985,6 +994,125 @@ mod tests {
         {
             let op = Instruction::Load(LoadOp::Basic { dest, src });
             cpu.execute(op, &mut mem);
+        }
+    }
+
+    #[test]
+    fn test_bit_shift_ops() {
+        let mut cpu = Cpu::default();
+        let mut mem = MemoryMap::construct();
+        let mem = &mut mem;
+        // Testing RL* ops
+        for (i, b) in [false, true]
+            .into_iter()
+            .flat_map(|b| (0u8..=u8::MAX).map(move |i| (i, b)))
+        {
+            // RLA section
+            cpu.f.c = b;
+            cpu.a = Wrapping(i);
+            let instr = Instruction::BitShift(BitShiftOp::Rla);
+            cpu.execute(instr, mem);
+            let a = (i << 1) | b as u8;
+            let carry = (i & 0x80) == 0x80;
+            assert_eq!(cpu.a.0, a);
+            assert_eq!(cpu.f.c, carry);
+            // RL section
+            cpu.b = Wrapping(i);
+            cpu.f.c = b;
+            let instr = Instruction::BitShift(BitShiftOp::Rl(RegOrPointer::Reg(HalfRegister::B)));
+            cpu.execute(instr, mem);
+            assert_eq!(cpu.b.0, a);
+            assert_eq!(cpu.f.c, carry);
+            // RLCA section
+            cpu.a = Wrapping(i);
+            cpu.f.c = b;
+            let instr = Instruction::BitShift(BitShiftOp::Rlca);
+            cpu.execute(instr, mem);
+            let a = i.rotate_left(1);
+            let carry = (i & 0x80) == 0x80;
+            assert_eq!(cpu.a.0, a);
+            assert_eq!(cpu.f.c, carry);
+            // RLC section
+            cpu.b = Wrapping(i);
+            cpu.f.c = b;
+            let instr = Instruction::BitShift(BitShiftOp::Rlc(RegOrPointer::Reg(HalfRegister::B)));
+            cpu.execute(instr, mem);
+            assert_eq!(cpu.b.0, a);
+            assert_eq!(cpu.f.c, carry);
+        }
+        // Testing RR* ops
+        for (i, b) in [false, true]
+            .into_iter()
+            .flat_map(|b| (0u8..=u8::MAX).map(move |i| (i, b)))
+        {
+            // Rra section
+            cpu.f.c = b;
+            cpu.a = Wrapping(i);
+            let instr = Instruction::BitShift(BitShiftOp::Rra);
+            cpu.execute(instr, mem);
+            let a = (i >> 1) | (0x80 * (b as u8));
+            let carry = (i & 0x01) == 0x01;
+            assert_eq!(cpu.a.0, a);
+            assert_eq!(cpu.f.c, carry);
+            // Rr section
+            cpu.b = Wrapping(i);
+            cpu.f.c = b;
+            let instr = Instruction::BitShift(BitShiftOp::Rr(RegOrPointer::Reg(HalfRegister::B)));
+            cpu.execute(instr, mem);
+            assert_eq!(cpu.b.0, a);
+            assert_eq!(cpu.f.c, carry);
+            // RRCA section
+            cpu.a = Wrapping(i);
+            cpu.f.c = b;
+            let instr = Instruction::BitShift(BitShiftOp::Rrca);
+            cpu.execute(instr, mem);
+            let a = i.rotate_right(1);
+            let carry = (i & 0x01) == 1;
+            assert_eq!(cpu.a.0, a);
+            assert_eq!(cpu.f.c, carry);
+            // RRC section
+            cpu.b = Wrapping(i);
+            cpu.f.c = b;
+            let instr = Instruction::BitShift(BitShiftOp::Rrc(RegOrPointer::Reg(HalfRegister::B)));
+            cpu.execute(instr, mem);
+            assert_eq!(cpu.b.0, a);
+            assert_eq!(cpu.f.c, carry);
+        }
+        // Testing Shift ops
+        for i in 0u8..=u8::MAX {
+            // SLA section
+            cpu.a = Wrapping(i);
+            let instr = Instruction::BitShift(BitShiftOp::Sla(RegOrPointer::Reg(HalfRegister::A)));
+            cpu.execute(instr, mem);
+            let a = i << 1;
+            let carry = (i & 0x80) == 0x80;
+            assert_eq!(cpu.a.0, a);
+            assert_eq!(cpu.f.c, carry);
+            // SRA section
+            cpu.a = Wrapping(i);
+            let instr = Instruction::BitShift(BitShiftOp::Sra(RegOrPointer::Reg(HalfRegister::A)));
+            cpu.execute(instr, mem);
+            let a = (i & 0x80) | (i >> 1);
+            let carry = (i & 0x01) == 0x01;
+            assert_eq!(cpu.a.0, a);
+            assert_eq!(cpu.f.c, carry);
+            // SRL section
+            cpu.a = Wrapping(i);
+            let instr = Instruction::BitShift(BitShiftOp::Srl(RegOrPointer::Reg(HalfRegister::A)));
+            cpu.execute(instr, mem);
+            let a = i >> 1;
+            let carry = (i & 0x01) == 0x01;
+            assert_eq!(cpu.a.0, a);
+            assert_eq!(cpu.f.c, carry);
+        }
+        // Testing SWAP op
+        for i in 0u8..=u8::MAX {
+            cpu.a = Wrapping(i);
+            let instr = Instruction::BitShift(BitShiftOp::Swap(RegOrPointer::Reg(HalfRegister::A)));
+            cpu.execute(instr, mem);
+            let a = ((i & 0x0F) << 4) | ((i & 0xF0) >> 4);
+            assert_eq!(cpu.a.0, a);
+            assert!(!cpu.f.c);
         }
     }
 }

@@ -44,6 +44,7 @@ pub struct MemoryMap {
     interrupt: u8,
 }
 
+
 impl MemoryMap {
     pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
         Self {
@@ -84,6 +85,32 @@ impl MemoryMap {
 
     pub fn read_op(&self, index: u16) -> Instruction {
         parse_instruction(self, index)
+    }
+}
+
+#[cfg(test)]
+impl MemoryMap {
+    /// Creates a dummy memory map that should only be used for testing.
+    pub fn construct() -> Self {
+        let rom = vec![0; 32000];
+        let ram = vec![0; 4000];
+        let mbc = MemoryBankController::Direct { rom, ram };
+        Self {
+            mbc,
+            vram: [0; 0x2000],
+            wram: ([0; 0x1000], [0; 0x1000]),
+            oam: [0; 0x100],
+            io: [0; 0x80],
+            hr: [0; 0x7F],
+            interrupt: 0,
+        }
+    }
+
+    pub fn rom_mut(&mut self) -> &mut [u8] {
+        let MemoryBankController::Direct { rom, .. } = &mut self.mbc else {
+            panic!("Do not call MemoryMap::rom unless you called MemoryMap::construct");
+        };
+        rom.as_mut_slice()
     }
 }
 
