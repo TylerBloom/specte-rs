@@ -127,8 +127,8 @@ impl Index<u16> for MemoryMap {
             0xE000..=0xFDFF => todo!(),
             n @ 0xFE00..=0xFE9F => &self.oam[n as usize - 0xFE00],
             0xFEA0..=0xFEFF => unreachable!("No ROM should attempt to access this region"),
-            index @ 0xFF00..=0xFF7F => &self.io[(index & !0xFF00) as usize],
-            index @ 0xFF80..=0xFFFE => &self.hr[(index & !0xFF80) as usize],
+            n @ 0xFF00..=0xFF7F => &self.io[(n - 0xFF00) as usize],
+            n @ 0xFF80..=0xFFFE => &self.hr[(n - 0xFF80) as usize],
             0xFFFF => &self.interrupt,
         }
     }
@@ -136,6 +136,9 @@ impl Index<u16> for MemoryMap {
 
 impl IndexMut<u16> for MemoryMap {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
+        if index == 0xFF50 {
+            println!("Writing to BOOT lock reg");
+        }
         match index {
             0x0000..=0x7FFF => &mut self.mbc[index],
             n @ 0x8000..=0x9FFF => &mut self.vram[n as usize - 0x8000],
@@ -145,8 +148,8 @@ impl IndexMut<u16> for MemoryMap {
             0xE000..=0xFDFF => todo!(),
             n @ 0xFE00..=0xFE9F => &mut self.oam[n as usize - 0xFE00],
             0xFEA0..=0xFEFF => unreachable!("No ROM should attempt to access this region"),
-            0xFF00..=0xFF7F => &mut self.io[(index - 0xFF00) as usize],
-            0xFF80..=0xFFFE => &mut self.hr[(index - 0xFF80) as usize],
+            n @ 0xFF00..=0xFF7F => &mut self.io[(n - 0xFF00) as usize],
+            n @ 0xFF80..=0xFFFE => &mut self.hr[(n - 0xFF80) as usize],
             0xFFFF => &mut self.interrupt,
         }
     }

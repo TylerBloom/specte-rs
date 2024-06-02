@@ -205,7 +205,7 @@ pub enum JumpOp {
     Absolute(u16),
     #[display(fmt = "JumpToHL")]
     JumpToHL,
-    #[display(fmt = "Call(0X{:0>4X})", "_0")]
+    #[display(fmt = "Call(0x{:0>4X})", "_0")]
     Call(u16),
     #[display(fmt = "ConditionalCall({}, 0x{:0>4X})", "_0", "_1")]
     ConditionalCall(Condition, u16),
@@ -391,10 +391,10 @@ pub enum LoadOp {
     #[display(fmt = "LDHAC")]
     Ldhac,
     /// Used for opcode 0xEA
-    #[display(fmt = "LoadA(0X{:0>4X})", ptr)]
+    #[display(fmt = "LoadA(0x{:0>4X})", ptr)]
     LoadA { ptr: u16 },
     /// Used for opcode 0xFA
-    #[display(fmt = "StoreA(0X{:0>4X})", ptr)]
+    #[display(fmt = "StoreA(0x{:0>4X})", ptr)]
     StoreA { ptr: u16 },
 }
 

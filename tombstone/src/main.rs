@@ -39,7 +39,7 @@ fn process_init(mut seq: StartUpSequence<'_>) {
         print!("init $ ");
         std::io::stdout().flush().unwrap();
         match get_input() {
-            Some(Command::Info) => println!("{:?}", seq.gb().cpu()),
+            Some(Command::Info) => println!("{}", seq.gb().cpu()),
             Some(Command::Step(n)) => {
                 for _ in 0..n {
                     seq.step();

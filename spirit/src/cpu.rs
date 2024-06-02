@@ -38,7 +38,13 @@ pub enum RegisterFlags {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, derive_more::Display)]
-#[display(fmt = "Flags(Z={} N={} H={} C={})", "*z as u8", "*n as u8", "*h as u8", "*c as u8")]
+#[display(
+    fmt = "Flags(Z={} N={} H={} C={})",
+    "*z as u8",
+    "*n as u8",
+    "*h as u8",
+    "*c as u8"
+)]
 pub struct Flags {
     /// The zero flag
     pub z: bool,
@@ -74,7 +80,21 @@ impl Flags {
 }
 
 #[derive(Debug, Default, Hash, Clone, PartialEq, Eq, derive_more::Display)]
-#[display(fmt = "CPU {{ A=0x{:0>2X} F={} B=0x{:0>2X} C=0x{:0>2X} D=0x{:0>2X} E=0x{:0>2X} H=0x{:0>2X} L=0x{:0>2X} SP=0x{:0>2X} PC=0x{:0>2X} AI={} Done={} }}", a, f, b, c, d, e, h, l, sp, pc, allow_interupts, done)]
+#[display(
+    fmt = "CPU {{ A=0x{:0>2X} F={} B=0x{:0>2X} C=0x{:0>2X} D=0x{:0>2X} E=0x{:0>2X} H=0x{:0>2X} L=0x{:0>2X} SP=0x{:0>2X} PC=0x{:0>2X} AI={} Done={} }}",
+    a,
+    f,
+    b,
+    c,
+    d,
+    e,
+    h,
+    l,
+    sp,
+    pc,
+    allow_interupts,
+    done
+)]
 pub struct Cpu {
     pub a: Wrapping<u8>,
     pub f: Flags,
@@ -211,10 +231,7 @@ impl Cpu {
     }
 
     pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
-        println!(
-            "Starting execution: PC=0x{:0>4X} SP=0x{:0>4X}",
-            self.pc.0, self.sp.0
-        );
+        println!("Starting execution: {instr}",);
         println!("CPU={self}");
         // TODO: Remove this! This is onlhy for testing before we impl interrupt handling and IO.
         mem[0xFF0F] = 0b1;
@@ -775,8 +792,8 @@ impl Cpu {
                 self.sp -= 1;
                 mem[self.sp.0] = b;
             }
-            LoadOp::LoadHigh(val) => self.a = Wrapping(mem[u16::from_be_bytes([0xFF, val])]),
-            LoadOp::StoreHigh(val) => mem[u16::from_be_bytes([0xFF, val])] = self.a.0,
+            LoadOp::LoadHigh(val) => mem[u16::from_be_bytes([0xFF, val])] = self.a.0,
+            LoadOp::StoreHigh(val) => self.a = Wrapping(mem[u16::from_be_bytes([0xFF, val])]),
             LoadOp::Ldhca => mem[u16::from_be_bytes([0xFF, self.c.0])] = self.a.0,
             LoadOp::Ldhac => self.a = Wrapping(mem[u16::from_be_bytes([0xFF, self.c.0])]),
             LoadOp::LoadA { ptr } => mem[ptr] = self.a.0,
