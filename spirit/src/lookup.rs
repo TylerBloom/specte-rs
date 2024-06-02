@@ -5,9 +5,9 @@ use crate::{cpu::Cpu, mbc::MemoryMap};
 use derive_more::{From, IsVariant};
 
 pub fn parse_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
-    // println!("Loading instruction with OP code: 0x{:0>2X}", mem[pc]);
+    println!("Loading instruction with OP code: 0x{:0>2X}", mem[pc]);
     let op = OP_LOOKUP[mem[pc] as usize](mem, pc);
-    // println!("Next op: {op:0>2X?}");
+    println!("Next op: {op}");
     op
 }
 
@@ -17,24 +17,37 @@ fn parse_prefixed_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
 
 type OpArray<const N: usize> = [fn(&MemoryMap, u16) -> Instruction; N];
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display(fmt = "Instruction({})")]
 pub enum Instruction {
+    #[display(fmt = "{}", "_0")]
     Load(LoadOp),
+    #[display(fmt = "{}", "_0")]
     BitShift(BitShiftOp),
+    #[display(fmt = "{}", "_0")]
     ControlOp(ControlOp),
+    #[display(fmt = "{}", "_0")]
     Bit(BitOp),
+    #[display(fmt = "{}", "_0")]
     Jump(JumpOp),
+    #[display(fmt = "{}", "_0")]
     Arithmetic(ArithmeticOp),
+    #[display(fmt = "DAA")]
     Daa,
     /// Set Carry.
+    #[display(fmt = "SCF")]
     Scf,
     /// ComPLement accumulator.
+    #[display(fmt = "CPL")]
     Cpl,
     /// CompLement carry flag.
+    #[display(fmt = "CCF")]
     Ccf,
     /// Disable interupts
+    #[display(fmt = "DI")]
     Di,
     /// Enable interupts
+    #[display(fmt = "EI")]
     Ei,
 }
 
@@ -79,27 +92,45 @@ impl Instruction {
 }
 
 // TODO: Name this better
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::From)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::From, derive_more::Display)]
+#[display(fmt = "{}")]
 pub enum SomeByte {
+    #[display(fmt = "{}", "_0")]
     Referenced(RegOrPointer),
+    #[display(fmt = "0x{:0>2X}", "_0")]
     Direct(u8),
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display(fmt = "Arithmetic({})")]
 pub enum ArithmeticOp {
+    #[display(fmt = "Add16({})", "_0")]
     Add16(WideReg),
+    #[display(fmt = "ADD({})", "_0")]
     Add(SomeByte),
+    #[display(fmt = "ADC({})", "_0")]
     Adc(SomeByte),
+    #[display(fmt = "SUB({})", "_0")]
     Sub(SomeByte),
+    #[display(fmt = "SBC({})", "_0")]
     Sbc(SomeByte),
+    #[display(fmt = "AND({})", "_0")]
     And(SomeByte),
+    #[display(fmt = "XOR({})", "_0")]
     Xor(SomeByte),
+    #[display(fmt = "OR({})", "_0")]
     Or(SomeByte),
+    #[display(fmt = "CP({})", "_0")]
     Cp(SomeByte),
+    #[display(fmt = "INC({})", "_0")]
     Inc(RegOrPointer),
+    #[display(fmt = "DEC({})", "_0")]
     Dec(RegOrPointer),
+    #[display(fmt = "INC16({})", "_0")]
     Inc16(WideReg),
+    #[display(fmt = "DEC16({})", "_0")]
     Dec16(WideReg),
+    #[display(fmt = "ADDSP(0x{:0>2X})", "_0")]
     AddSP(i8),
 }
 
@@ -161,26 +192,44 @@ impl ArithmeticOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display(fmt = "Jump({})")]
 pub enum JumpOp {
+    #[display(fmt = "ConditionalRelative({}, 0x{:0>2X})", "_0", "_1")]
     ConditionalRelative(Condition, i8),
+    #[display(fmt = "Relative(0x{:0>2X})", "_0")]
     Relative(i8),
+    #[display(fmt = "ConditionalAbsolute({}, 0x{:0>4X})", "_0", "_1")]
     ConditionalAbsolute(Condition, u16),
+    #[display(fmt = "Absolute(0x{:0>4X})", "_0")]
     Absolute(u16),
+    #[display(fmt = "JumpToHL")]
     JumpToHL,
+    #[display(fmt = "Call(0X{:0>4X})", "_0")]
     Call(u16),
+    #[display(fmt = "ConditionalCall({}, 0x{:0>4X})", "_0", "_1")]
     ConditionalCall(Condition, u16),
+    #[display(fmt = "Return")]
     Return,
     ConditionalReturn(Condition),
     /// Return from the subroutine and enable intrupts
+    #[display(fmt = "ReturnAndEnable")]
     ReturnAndEnable,
+    #[display(fmt = "RST(0x00)")]
     RST00,
+    #[display(fmt = "RST(0x08)")]
     RST08,
+    #[display(fmt = "RST(0x10)")]
     RST10,
+    #[display(fmt = "RST(0x18)")]
     RST18,
+    #[display(fmt = "RST(0x20)")]
     RST20,
+    #[display(fmt = "RST(0x28)")]
     RST28,
+    #[display(fmt = "RST(0x30)")]
     RST30,
+    #[display(fmt = "RST(0x38)")]
     RST38,
 }
 
@@ -234,10 +283,14 @@ impl JumpOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display(fmt = "Control({})")]
 pub enum ControlOp {
+    #[display(fmt = "HALT")]
     Halt,
+    #[display(fmt = "NOOP")]
     Noop,
+    #[display(fmt = "Stop(0x{:0>2X})", "_0")]
     Stop(u8),
 }
 
@@ -261,60 +314,87 @@ impl ControlOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display(fmt = "Reg::{}")]
 pub enum WideReg {
+    #[display(fmt = "BC")]
     BC,
+    #[display(fmt = "DE")]
     DE,
+    #[display(fmt = "HL")]
     HL,
+    #[display(fmt = "SP")]
     SP,
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display(fmt = "Reg::{}")]
 pub enum WideRegWithoutSP {
+    #[display(fmt = "BC")]
     BC,
+    #[display(fmt = "DE")]
     DE,
+    #[display(fmt = "HL")]
     HL,
+    #[display(fmt = "AF")]
     AF,
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display(fmt = "Load({})")]
 pub enum LoadOp {
     /// Used for opcodes in 0x40..0x80
+    #[display(fmt = "Basic(dest={}, src={})", dest, src)]
     Basic {
         dest: RegOrPointer,
         src: RegOrPointer,
     },
     /// Used for opcodes 0xX1
+    #[display(fmt = "Direct16(dest={}, src=0x{:0>4X})", "_0", "_1")]
     Direct16(WideReg, u16),
     /// Used for opcodes 0x_6 and 0x_E
+    #[display(fmt = "Direct(dest={}, src=0x{:0>2X})", "_0", "_1")]
     Direct(RegOrPointer, u8),
     /// Used for opcodes 0x_A
+    #[display(fmt = "LoadIntoA({})", "_0")]
     LoadIntoA(LoadAPointer),
     /// Used for opcodes 0x_2
+    #[display(fmt = "StoreFromA({})", "_0")]
     StoreFromA(LoadAPointer),
     /// Opcode: 0x08
     /// Store SP & $FF at address n16 and SP >> 8 at address n16 + 1.
+    #[display(fmt = "StoreSP(0x{:0>4X})", "_0")]
     StoreSP(u16),
     /// Opcode: 0xF9
+    #[display(fmt = "HLIntoSP")]
     HLIntoSP,
     /// Opcode: 0xF8
     /// Add the signed value e8 to SP and store the result in HL.
+    #[display(fmt = "SPIntoHL(0x{:0>2X})", "_0")]
     SPIntoHL(i8),
     /// Used for opcodes 0x_1
+    #[display(fmt = "Pop({})", "_0")]
     Pop(WideRegWithoutSP),
     /// Used for opcodes 0x_5
+    #[display(fmt = "Push({})", "_0")]
     Push(WideRegWithoutSP),
     /// Used for opcode 0xE0
+    #[display(fmt = "LoadHigh(0x{:0>2X})", "_0")]
     LoadHigh(u8),
     /// Used for opcode 0xF0
+    #[display(fmt = "StoreHigh(0x{:0>2X})", "_0")]
     StoreHigh(u8),
     /// Used for opcode 0xE2
+    #[display(fmt = "LDHCA")]
     Ldhca,
     /// Used for opcode 0xF2
+    #[display(fmt = "LDHAC")]
     Ldhac,
     /// Used for opcode 0xEA
+    #[display(fmt = "LoadA(0X{:0>4X})", ptr)]
     LoadA { ptr: u16 },
     /// Used for opcode 0xFA
+    #[display(fmt = "StoreA(0X{:0>4X})", ptr)]
     StoreA { ptr: u16 },
 }
 
@@ -373,11 +453,16 @@ impl LoadOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display(fmt = "{}")]
 pub enum Condition {
+    #[display(fmt = "Zero")]
     Zero,
+    #[display(fmt = "NotZero")]
     NotZero,
+    #[display(fmt = "Carry")]
     Carry,
+    #[display(fmt = "NotCarry")]
     NotCarry,
 }
 
@@ -394,31 +479,49 @@ impl Condition {
 
 /// There are special operations for loading into the A register, so it is easier to have a special
 /// enum for the unique types of pointers they use.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display(fmt = "{}")]
 pub enum LoadAPointer {
     /// Use the BC register
+    #[display(fmt = "BC")]
     BC,
     /// Use the DE register
+    #[display(fmt = "DE")]
     DE,
     /// Use the HL register and increment after performing the operation
+    #[display(fmt = "HL+")]
     Hli,
     /// Use the HL register and decrement after performing the operation
+    #[display(fmt = "HL-")]
     Hld,
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display(fmt = "BitShift({})")]
 pub enum BitShiftOp {
+    #[display(fmt = "RLC({})", "_0")]
     Rlc(RegOrPointer),
+    #[display(fmt = "RLCA")]
     Rlca,
+    #[display(fmt = "RRC({})", "_0")]
     Rrc(RegOrPointer),
+    #[display(fmt = "RRCA")]
     Rrca,
+    #[display(fmt = "RL({})", "_0")]
     Rl(RegOrPointer),
+    #[display(fmt = "RLA")]
     Rla,
+    #[display(fmt = "RR({})", "_0")]
     Rr(RegOrPointer),
+    #[display(fmt = "RRA")]
     Rra,
+    #[display(fmt = "SLA({})", "_0")]
     Sla(RegOrPointer),
+    #[display(fmt = "SRA({})", "_0")]
     Sra(RegOrPointer),
+    #[display(fmt = "SWAP({})", "_0")]
     Swap(RegOrPointer),
+    #[display(fmt = "SRL({})", "_0")]
     Srl(RegOrPointer),
 }
 
@@ -468,20 +571,31 @@ impl BitShiftOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display(fmt = "Reg::{}")]
 pub enum HalfRegister {
+    #[display(fmt = "A")]
     A,
+    #[display(fmt = "B")]
     B,
+    #[display(fmt = "C")]
     C,
+    #[display(fmt = "D")]
     D,
+    #[display(fmt = "E")]
     E,
+    #[display(fmt = "H")]
     H,
+    #[display(fmt = "L")]
     L,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From, IsVariant)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From, IsVariant, derive_more::Display)]
+#[display(fmt = "{}")]
 pub enum RegOrPointer {
+    #[display(fmt = "{}", "_0")]
     Reg(HalfRegister),
+    #[display(fmt = "Pointer")]
     Pointer,
 }
 
@@ -511,17 +625,22 @@ impl InnerRegOrPointer {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display(fmt = "Bit {{ bit={} reg={} op={} }}", bit, reg, op)]
 pub struct BitOp {
     pub bit: u8,
     pub reg: RegOrPointer,
     pub op: BitOpInner,
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display(fmt = "BitOp::{}")]
 pub enum BitOpInner {
+    #[display(fmt = "BIT")]
     Bit,
+    #[display(fmt = "RES")]
     Res,
+    #[display(fmt = "SET")]
     Set,
 }
 
@@ -686,7 +805,12 @@ macro_rules! define_op {
         }
     };
     (LD, $r: ident) => {
-        |data, pc| Instruction::Load(LoadOp::Direct(InnerRegOrPointer::$r.convert(), data[pc + 1]))
+        |data, pc| {
+            Instruction::Load(LoadOp::Direct(
+                InnerRegOrPointer::$r.convert(),
+                data[pc + 1],
+            ))
+        }
     };
     (LD16, $r: ident) => {
         |data, pc| {
@@ -830,13 +954,31 @@ macro_rules! define_op {
         |_, _| Instruction::BitShift(BitShiftOp::Srl(InnerRegOrPointer::$r.convert()))
     };
     (BIT, $b: literal, $r: ident) => {
-        |data, pc| Instruction::Bit(BitOp { bit: (data[pc] - 0x40)/8, reg: InnerRegOrPointer::$r.convert() , op: BitOpInner::Bit  })
+        |data, pc| {
+            Instruction::Bit(BitOp {
+                bit: (data[pc] - 0x40) / 8,
+                reg: InnerRegOrPointer::$r.convert(),
+                op: BitOpInner::Bit,
+            })
+        }
     };
     (RES, $b: literal, $r: ident) => {
-        |data, pc| Instruction::Bit(BitOp { bit: (data[pc] - 0x80)/8, reg: InnerRegOrPointer::$r.convert() , op: BitOpInner::Res  })
+        |data, pc| {
+            Instruction::Bit(BitOp {
+                bit: (data[pc] - 0x80) / 8,
+                reg: InnerRegOrPointer::$r.convert(),
+                op: BitOpInner::Res,
+            })
+        }
     };
     (SET, $b: literal, $r: ident) => {
-        |data, pc| Instruction::Bit(BitOp { bit: (data[pc] - 0xC0)/8, reg: InnerRegOrPointer::$r.convert() , op: BitOpInner::Set  })
+        |data, pc| {
+            Instruction::Bit(BitOp {
+                bit: (data[pc] - 0xC0) / 8,
+                reg: InnerRegOrPointer::$r.convert(),
+                op: BitOpInner::Set,
+            })
+        }
     };
 }
 
