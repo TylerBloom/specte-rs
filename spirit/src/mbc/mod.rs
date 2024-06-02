@@ -59,7 +59,6 @@ impl MemoryMap {
     }
 
     pub(crate) fn start_up_remap(&mut self) -> StartUpHeaders {
-        println!("Remapping ROM for start up...");
         let mut digest = ([0; 0x100], [0; 0x700]);
         for i in 0..=0xFF {
             digest.0[i] = START_UP_HEADER[i];
@@ -119,7 +118,6 @@ impl Index<u16> for MemoryMap {
     type Output = u8;
 
     fn index(&self, index: u16) -> &Self::Output {
-        // println!("Attempting to index into memory map: {index:X}");
         match index {
             0x0000..=0x7FFF => &self.mbc[index],
             n @ 0x8000..=0x9FFF => &self.vram[n as usize - 0x8000],
@@ -138,7 +136,6 @@ impl Index<u16> for MemoryMap {
 
 impl IndexMut<u16> for MemoryMap {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
-        // println!("Attempting to mutably index into memory map: {index:X}");
         match index {
             0x0000..=0x7FFF => &mut self.mbc[index],
             n @ 0x8000..=0x9FFF => &mut self.vram[n as usize - 0x8000],
@@ -201,7 +198,6 @@ impl MemoryBankController {
         let cart = cart.into();
         assert_eq!(&cart[0x0104..=0x133], NINTENDO_LOGO);
         let title: String = cart[0x0134..=0x0143].iter().map(|&b| b as char).collect();
-        println!("Cartridge title: {title}");
         let is_cgb = match cart[0x143] {
             0x80 => true,
             0xC0 => false,
@@ -226,7 +222,6 @@ impl MemoryBankController {
             0x54 => todo!(), // 1.5 * 1024 * 1024,
             n => panic!("Unknown ROM size: {n}"),
         } * 1024;
-        println!("Cartridge ROM size: {rom_size}");
         let ram_size: usize = match cart[0x0149] {
             0x00 => 0,
             0x02 => 8 * 1024,
@@ -235,7 +230,6 @@ impl MemoryBankController {
             0x05 => 64 * 1024,
             n => panic!("Unknown RAM size: {n}"),
         };
-        println!("Cartridge RAM size: {ram_size}");
         let head_check = cart[0x014D];
         assert_eq!(
             head_check,
@@ -247,7 +241,6 @@ impl MemoryBankController {
         // Check cartridge type
         match cart[0x0147] {
             0x00 => {
-                println!("ROM size: {rom_size:x}");
                 let rom = Vec::from(&cart[0x0000..=0x7FFF]);
                 assert_eq!(rom_size, rom.len());
                 let ram = vec![0; ram_size];
@@ -304,7 +297,6 @@ impl MemoryBankController {
     }
 
     pub fn read_mut_from(&mut self, index: u16) -> &mut [u8] {
-        println!("MBC is get a &mut at index: {index:X}");
         let index = index as usize;
         match self {
             // TODO: This should probably panic (or something) if index < rom.len(), i.e. they are

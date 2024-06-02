@@ -1,7 +1,16 @@
 #![allow(dead_code)]
-use std::{io::Write, ops::Range, str::FromStr};
+use std::{
+    collections::HashSet,
+    hash::{DefaultHasher, Hash, Hasher},
+    io::Write,
+    ops::Range,
+    str::FromStr,
+};
 
-use spirit::{Gameboy, StartUpSequence};
+use spirit::{
+    lookup::{Instruction, JumpOp},
+    Gameboy, StartUpSequence,
+};
 
 static TMP_ROM: &[u8] = include_bytes!("../../spirit/tests/roms/acid/which.gb");
 
@@ -18,7 +27,7 @@ fn process_init(mut seq: StartUpSequence<'_>) {
         print!("init $ ");
         std::io::stdout().flush().unwrap();
         match get_input() {
-            Some(Command::Info) => todo!(),
+            Some(Command::Info) => println!("{:?}", seq.gb().cpu()),
             Some(Command::Step(n)) => {
                 for _ in 0..n {
                     seq.step();
@@ -27,10 +36,36 @@ fn process_init(mut seq: StartUpSequence<'_>) {
                     }
                 }
             }
-            Some(Command::Index(_)) => todo!(),
-            Some(Command::Run(_until)) => {
-                todo!()
-            }
+            Some(Command::Index(opts)) => match opts {
+                IndexOptions::Single(i) => println!("ADDR=0x{i:0>4X} -> {:0>2X}", seq.gb().mem[i]),
+                IndexOptions::Range(rng) => {
+                    println!("ADDR=0x{:0>4X}..0x{:0>4X}", rng.start, rng.end);
+                    print!("[");
+                    for i in rng {
+                        print!("0x{:0>2}, ", seq.gb().mem[i]);
+                    }
+                    println!("]");
+                }
+            },
+            Some(Command::Run(until)) => match until {
+                RunUntil::Loop => {
+                    let mut set = HashSet::new();
+                    while {
+                        let mut hasher = DefaultHasher::new();
+                        seq.gb().hash(&mut hasher);
+                        set.insert(hasher.finish())
+                    } {
+                        seq.step()
+                    }
+                    println!("Infinite loop detected!");
+                }
+                RunUntil::Return => {
+                    while !matches!(seq.next_op(), Instruction::Jump(JumpOp::Return)) {
+                        seq.step()
+                    }
+                    println!("End of subroutine. Next operation is `ret`.");
+                }
+            },
             None => println!("unknown command!"),
         }
     }
@@ -70,7 +105,6 @@ impl FromStr for Command {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        println!("Got input: {s:?}");
         if let Some(s) = s.strip_prefix("step") {
             s.trim().parse().map(Self::Step).map_err(drop)
         } else if s.strip_prefix("info").is_some() {
@@ -88,8 +122,29 @@ impl FromStr for Command {
 impl FromStr for IndexOptions {
     type Err = ();
 
-    fn from_str(_s: &str) -> Result<Self, Self::Err> {
-        todo!()
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        fn parse_int(s: &str) -> Result<u16, ()> {
+            match s.parse() {
+                Ok(val) => Ok(val),
+                Err(_) => {
+                    if let Some(s) = s.strip_prefix("0x") {
+                        u16::from_str_radix(s, 16).map_err(drop)
+                    } else if let Some(s) = s.strip_prefix("0b") {
+                        u16::from_str_radix(s, 2).map_err(drop)
+                    } else {
+                        Err(())
+                    }
+                }
+            }
+        }
+        match s.split_once("..") {
+            Some((start, end)) => {
+                let start = parse_int(start)?;
+                let end = parse_int(end)?;
+                Ok(Self::Range(start..end))
+            }
+            None => parse_int(s).map(Self::Single),
+        }
     }
 }
 
@@ -98,8 +153,8 @@ impl FromStr for RunUntil {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "loop" => Ok(Self::Loop),
-            "return" => Ok(Self::Return),
+            "until loop" => Ok(Self::Loop),
+            "until return" => Ok(Self::Return),
             _ => Err(()),
         }
     }

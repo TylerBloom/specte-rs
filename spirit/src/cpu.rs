@@ -204,18 +204,19 @@ impl Cpu {
     /// A method similar to `Self::read_op`, but is ran during start up, when the ROM that is
     /// burned-into the CPU is mapped over normal memory.
     pub(crate) fn start_up_read_op(&self, mem: &MemoryMap) -> Instruction {
-        println!("Reading start up op from: 0x{:0>4X}", self.pc);
+        // println!("Reading start up op from: 0x{:0>4X}", self.pc);
         mem.read_op(self.pc.0)
     }
 
     pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
-        println!(
-            "Starting execution: PC=0x{:0>4X} SP=0x{:0>4X}",
-            self.pc.0, self.sp.0
-        );
-        println!("CPU={self:X?}");
+        // println!(
+            // "Starting execution: PC=0x{:0>4X} SP=0x{:0>4X}",
+            // self.pc.0, self.sp.0
+        // );
+        // println!("CPU={self:X?}");
         // TODO: Remove this! This is onlhy for testing before we impl interrupt handling and IO.
         mem[0xFF0F] = 0b1;
+        /*
         static LOOP_CHECKER: OnceCell<Mutex<HashSet<u64>>> = OnceCell::new();
         let mut hasher = std::hash::DefaultHasher::new();
         self.hash(&mut hasher);
@@ -234,12 +235,13 @@ impl Cpu {
             let mut input = String::new();
             std::io::stdin().read_line(&mut input).unwrap();
             if input.trim() == "" {
-                println!("Continuing...");
+                // println!("Continuing...");
             } else {
-                println!("Aborting");
+                // println!("Aborting");
                 std::process::exit(1);
             }
         }
+        */
         let len = instr.size();
         self.pc += (!self.done as u16) * (len as u16);
         match instr {
@@ -268,11 +270,11 @@ impl Cpu {
             Instruction::Di => self.disable_interupts(),
             Instruction::Ei => self.enable_interupts(),
         }
-        println!(
-            "Ending execution: PC=0x{:0>4X} SP=0x{:0>4X}",
-            self.pc.0, self.sp.0
-        );
-        println!("");
+        // println!(
+            // "Ending execution: PC=0x{:0>4X} SP=0x{:0>4X}",
+            // self.pc.0, self.sp.0
+        // );
+        // println!("");
     }
 
     fn enable_interupts(&mut self) {
@@ -405,7 +407,7 @@ impl Cpu {
             ArithmeticOp::Cp(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
                 let mut a = self.a;
-                println!("Comparing: A=0x{a:0>2X} byte=0x{byte:0>2X}");
+                // println!("Comparing: A=0x{a:0>2X} byte=0x{byte:0>2X}");
                 subtraction_operation(&mut a.0, byte, &mut self.f);
             }
             ArithmeticOp::Inc(reg) => {
@@ -525,7 +527,7 @@ impl Cpu {
             JumpOp::Absolute(dest) => self.pc = Wrapping(dest),
             JumpOp::JumpToHL => self.pc = Wrapping(self.ptr()),
             JumpOp::Call(ptr) => {
-                println!("Calling subroutine.. storing PC: 0x{:0>4X}", self.pc.0);
+                // println!("Calling subroutine.. storing PC: 0x{:0>4X}", self.pc.0);
                 let [hi, lo] = self.pc_bytes();
                 self.sp -= 1;
                 mem[self.sp.0] = hi;
@@ -549,7 +551,7 @@ impl Cpu {
                 let hi = mem[self.sp.0];
                 self.sp += 1;
                 let pc = u16::from_be_bytes([hi, lo]);
-                println!("Returning from subroutine.. loading PC: 0x{pc:0>4X}");
+                // println!("Returning from subroutine.. loading PC: 0x{pc:0>4X}");
                 self.pc = Wrapping(pc);
             }
             JumpOp::ConditionalReturn(cond) => {
@@ -765,7 +767,7 @@ impl Cpu {
                     WideRegWithoutSP::HL => [self.h.0, self.l.0],
                     WideRegWithoutSP::AF => [self.a.0, self.f.as_byte()],
                 };
-                println!("Pushing ptr onto the stack: 0x{a:0>2X}{b:0>2X}");
+                // println!("Pushing ptr onto the stack: 0x{a:0>2X}{b:0>2X}");
                 self.sp -= 1;
                 mem[self.sp.0] = a;
                 self.sp -= 1;

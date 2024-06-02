@@ -5,9 +5,9 @@ use crate::{cpu::Cpu, mbc::MemoryMap};
 use derive_more::{From, IsVariant};
 
 pub fn parse_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
-    println!("Loading instruction with OP code: 0x{:0>2X}", mem[pc]);
+    // println!("Loading instruction with OP code: 0x{:0>2X}", mem[pc]);
     let op = OP_LOOKUP[mem[pc] as usize](mem, pc);
-    println!("Next op: {op:0>2X?}");
+    // println!("Next op: {op:0>2X?}");
     op
 }
 

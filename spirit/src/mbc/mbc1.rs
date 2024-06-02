@@ -28,7 +28,7 @@ pub struct MBC1 {
 
 impl MBC1 {
     pub fn new(rom_size: usize, ram_size: usize, cart: &[u8]) -> Self {
-        println!("MBC1 ROM size: {rom_size} RAM size: {ram_size}");
+        // println!("MBC1 ROM size: {rom_size} RAM size: {ram_size}");
         // All MBC1 cartridges with 1 MiB of ROM or more use this alternate wiring
         let kind = if rom_size > 1024 * 1024 {
             MBC1Kind::Rewired

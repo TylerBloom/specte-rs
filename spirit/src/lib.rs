@@ -27,7 +27,7 @@ pub mod mbc;
 pub mod rom;
 
 /// Represents a Gameboy color with a cartridge inserted.
-#[derive(Debug)]
+#[derive(Debug, Hash)]
 pub struct Gameboy {
     pub mem: MemoryMap,
     cpu: Cpu,
@@ -40,6 +40,10 @@ impl Gameboy {
             mem: MemoryMap::new(cart),
             cpu: Cpu::new(),
         }
+    }
+
+    pub fn cpu(&self) -> &Cpu {
+        &self.cpu
     }
 
     /// Runs the power-up sequence for the gameboy. During this time, the Gameboy remaps part of
@@ -122,7 +126,7 @@ pub struct StartUpSequence<'a> {
 impl<'a> StartUpSequence<'a> {
     fn new(gb: &'a mut Gameboy) -> Self {
         let remap_mem = gb.mem.start_up_remap();
-        println!("-- Start up Gameboy");
+        // println!("-- Start up Gameboy");
         let op = gb.start_up_read_op();
         // println!("First start up op: {op:?}");
         Self {
@@ -132,6 +136,14 @@ impl<'a> StartUpSequence<'a> {
             done: false,
             remap_mem,
         }
+    }
+
+    pub fn next_op(&self) -> &Instruction {
+        &self.op
+    }
+
+    pub fn gb(&self) -> &Gameboy {
+        &self.gb
     }
 
     pub fn tick(&mut self) {
