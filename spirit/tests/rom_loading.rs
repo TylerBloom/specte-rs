@@ -1,4 +1,7 @@
-use spirit::{mbc::{MemoryMap, START_UP_HEADER}, Gameboy};
+use spirit::{
+    mbc::{MemoryMap, START_UP_HEADER},
+    Gameboy,
+};
 
 macro_rules! include_roms {
     ($($file:literal),+) => {{

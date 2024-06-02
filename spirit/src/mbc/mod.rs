@@ -44,7 +44,6 @@ pub struct MemoryMap {
     interrupt: u8,
 }
 
-
 impl MemoryMap {
     pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
         Self {
@@ -305,9 +304,13 @@ impl MemoryBankController {
             // TODO: This should probably panic (or something) if index < rom.len(), i.e. they are
             // trying to write to ROM.
             MemoryBankController::Direct { rom, ram } => {
-                debug_assert!(index + 1 >= rom.len(), "Could not index into {index:X} because ROM ends as {:?}", rom.len());
+                debug_assert!(
+                    index + 1 >= rom.len(),
+                    "Could not index into {index:X} because ROM ends as {:?}",
+                    rom.len()
+                );
                 &mut ram[index + 1 - rom.len()..]
-            },
+            }
             MemoryBankController::MBC1(_) => todo!(),
             MemoryBankController::MBC2 => todo!(),
             MemoryBankController::MBC3 => todo!(),

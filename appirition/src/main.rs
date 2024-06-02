@@ -2,9 +2,7 @@ use iced::alignment::{self, Alignment};
 use iced::mouse;
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path};
 use iced::widget::{column, row, text, Slider};
-use iced::{
-    Color, Element, Length, Point, Rectangle, Renderer, Sandbox, Settings, Size, Vector,
-};
+use iced::{Color, Element, Length, Point, Rectangle, Renderer, Sandbox, Settings, Size, Vector};
 use palette::{self, convert::FromColor, rgb::Rgb, Darken, Hsl, Lighten, ShiftHue};
 use std::marker::PhantomData;
 use std::ops::RangeInclusive;

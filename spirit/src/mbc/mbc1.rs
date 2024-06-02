@@ -1,6 +1,5 @@
 use std::ops::Range;
 
-
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct MBC1 {
     kind: MBC1Kind,
