@@ -9,7 +9,6 @@ use std::{
 
 use spirit::{
     lookup::{Instruction, JumpOp},
-    mbc::MemoryMap,
     Gameboy, StartUpSequence,
 };
 
@@ -19,15 +18,6 @@ static TMP_ROM: &[u8] = include_bytes!("../../spirit/tests/roms/acid/which.gb");
 
 fn main() {
     let mut gb = Gameboy::new(TMP_ROM);
-    let mut header = Vec::new();
-    for i in 0x100..=0x14F {
-        header.push(gb.mem[i]);
-    }
-    gb.mem = MemoryMap::construct();
-    let rom = gb.mem.rom_mut();
-    for (i, byte) in header.into_iter().enumerate() {
-        rom[i + 0x100] = byte;
-    }
     process_init(gb.start_up());
     loop {
         todo!()
@@ -66,8 +56,8 @@ fn process_init(mut seq: StartUpSequence<'_>) {
                 RunUntil::Loop => {
                     let mut ops = Vec::new();
                     let mut cpu_map: HashMap<_, HashMap<u64, usize>> = HashMap::new();
-                    let index;
-                    loop {
+                    let mut index = 0;
+                    while !seq.is_complete() {
                         match cpu_map.entry(seq.gb().cpu().clone()) {
                             std::collections::hash_map::Entry::Occupied(mut entry) => {
                                 let mut hasher = DefaultHasher::new();
@@ -91,10 +81,14 @@ fn process_init(mut seq: StartUpSequence<'_>) {
                         ops.push((cpu, ptr, *seq.next_op()));
                         seq.step()
                     }
-                    println!("Infinite loop detected! Here are the instructions and CPU states in the loop:");
-                    for (state, ptr, op) in &ops[index..] {
-                        println!("{state}");
-                        println!("0x{ptr:0>4X} -> {op}");
+                    if !seq.is_complete() {
+                        println!("Infinite loop detected! Here are the instructions and CPU states in the loop:");
+                        for (state, ptr, op) in &ops[index..] {
+                            println!("{state}");
+                            println!("0x{ptr:0>4X} -> {op}");
+                        }
+                    } else {
+                        println!("No loop detect during start up!");
                     }
                 }
                 RunUntil::Return => {
