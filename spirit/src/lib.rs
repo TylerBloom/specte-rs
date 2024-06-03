@@ -17,7 +17,7 @@
 
 use std::borrow::Cow;
 
-use cpu::Cpu;
+use cpu::{check_bit_const, Cpu};
 use lookup::Instruction;
 use mbc::{MemoryBankController, MemoryMap, StartUpHeaders};
 
@@ -66,10 +66,6 @@ impl Gameboy {
         self.cpu.read_op(&self.mem)
     }
 
-    fn start_up_read_op(&self) -> Instruction {
-        self.cpu.start_up_read_op(&self.mem)
-    }
-
     fn apply_op(&mut self, op: Instruction) {
         self.cpu.execute(op, &mut self.mem)
     }
@@ -77,6 +73,22 @@ impl Gameboy {
     fn start_up_apply_op(&mut self, op: Instruction) -> Option<Instruction> {
         self.cpu.start_up_execute(op, &mut self.mem)
     }
+}
+
+#[repr(u8)]
+pub enum JoypadInput {
+    Right = 0b0001_0001u8,
+    Left  = 0b0001_0010u8,
+    Up    = 0b0001_0100u8,
+    Down  = 0b0001_1000u8,
+}
+
+#[repr(u8)]
+pub enum ButtonInput {
+    A      = 0b0010_0001u8,
+    B      = 0b0010_0010u8,
+    Select = 0b0010_0100u8,
+    Start  = 0b0010_1000u8,
 }
 
 #[must_use = "Stepping returns a counter that must be ticked to perform the next operation. Dropping this object instantly completes the operation."]
@@ -96,6 +108,20 @@ impl<'a> StepProcess<'a> {
         self.counter += 1;
         if self.is_complete() {
             self.gb.apply_op(self.op);
+        }
+    }
+
+    pub fn press_joypad_button(&mut self, button: JoypadInput) {
+        let reg = &mut self.gb.mem[0xFF00];
+        if check_bit_const::<4>(*reg) {
+            *reg = button as u8;
+        }
+    }
+
+    pub fn press_button(&mut self, button: ButtonInput) {
+        let reg = &mut self.gb.mem[0xFF00];
+        if check_bit_const::<5>(*reg) {
+            *reg = button as u8;
         }
     }
 
@@ -126,9 +152,7 @@ pub struct StartUpSequence<'a> {
 impl<'a> StartUpSequence<'a> {
     fn new(gb: &'a mut Gameboy) -> Self {
         let remap_mem = gb.mem.start_up_remap();
-        // println!("-- Start up Gameboy");
-        let op = gb.start_up_read_op();
-        // println!("First start up op: {op:?}");
+        let op = gb.read_op();
         Self {
             gb,
             op,

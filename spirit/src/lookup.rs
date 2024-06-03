@@ -5,10 +5,7 @@ use crate::{cpu::Cpu, mbc::MemoryMap};
 use derive_more::{From, IsVariant};
 
 pub fn parse_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
-    println!("Loading instruction with OP code: 0x{:0>2X}", mem[pc]);
-    let op = OP_LOOKUP[mem[pc] as usize](mem, pc);
-    println!("Next op: {op}");
-    op
+    OP_LOOKUP[mem[pc] as usize](mem, pc)
 }
 
 fn parse_prefixed_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
@@ -32,6 +29,8 @@ pub enum Instruction {
     Jump(JumpOp),
     #[display(fmt = "{}", "_0")]
     Arithmetic(ArithmeticOp),
+    #[display(fmt = "{}", "_0")]
+    Interrupt(InterruptOp),
     #[display(fmt = "DAA")]
     Daa,
     /// Set Carry.
@@ -63,6 +62,7 @@ impl Instruction {
             Instruction::Bit(op) => op.length(),
             Instruction::Jump(op) => op.length(cpu),
             Instruction::Arithmetic(op) => op.length(),
+            Instruction::Interrupt(_) => 5, // Interrupts are, basically, calls but last 5 cycles
             Instruction::Daa => 4,
             Instruction::Scf => 4,
             Instruction::Cpl => 4,
@@ -81,6 +81,7 @@ impl Instruction {
             Instruction::Bit(op) => op.size(),
             Instruction::Jump(op) => op.size(),
             Instruction::Arithmetic(op) => op.size(),
+            Instruction::Interrupt(_) => 0, // Interrupts don't move the PC
             Instruction::Daa => 1,
             Instruction::Scf => 1,
             Instruction::Cpl => 1,
@@ -89,6 +90,21 @@ impl Instruction {
             Instruction::Ei => 1,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display(fmt = "Interrupt({})")]
+pub enum InterruptOp {
+    #[display(fmt = "VBlank")]
+    VBlank,
+    #[display(fmt = "LCD")]
+    LCD,
+    #[display(fmt = "Timer")]
+    Timer,
+    #[display(fmt = "Serial")]
+    Serial,
+    #[display(fmt = "Joypad")]
+    Joypad,
 }
 
 // TODO: Name this better

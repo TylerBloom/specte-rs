@@ -36,12 +36,33 @@ pub struct MemoryMap {
     wram: ([u8; 0x1000], [u8; 0x1000]),
     // The Object attribute map
     oam: [u8; 0x100],
-    // IO registers
+    /// The IO registers. Different bytes ranges in this segment correspond to different inputs.
+    /// When indexed into, this segement is mapped to the range 0xFF00 through 0xFF7F.
+    ///  - 0xFF00 contains the joypad input
+    ///  - 0xFF01 and 0xFF02 contains the serial transfer registers
+    ///  - 0xFF04 through 0xFF07 are for the timer and divider
+    ///  - 0xFF0F is the interrupt flag register
+    ///  - 0xFF10 through 0xFF26 are for audio
+    ///  - 0xFF30 through 0xFF3F are for the wave pattern
+    ///  - 0xFF40 through 0xFF48 are used for the LCD control, status, position, scrolling, and
+    ///  palettes
+    ///  - 0xFF4F controls the VRAM bank selection
+    ///  - 0xFF50 is set at the end of the start up sequence
+    ///  - 0xFF51 through 0xFF55 is for the VRAM DMA
+    ///  - 0xFF68 through 0xFF6B are for the BG/OBJ palettes
+    ///  - 0xFF70 controls the WRAM bank selection
     io: [u8; 0x80],
     // High RAM
     pub(crate) hr: [u8; 0x7F],
-    // Interrupt reg
-    interrupt: u8,
+    /// The interrupt enable register. Bits 0-4 flag where or not certain interrupt handlers can be
+    /// called.
+    ///  - Bit 0 corresponds to the VBlank interrupt
+    ///  - Bit 1 corresponds to the LCD interrupt
+    ///  - Bit 2 corresponds to the timer interrupt
+    ///  - Bit 3 corresponds to the serial interrupt
+    ///  - Bit 4 corresponds to the joypad interrupt
+    /// When intexed, this register is at 0xFFFF.
+    ie: u8,
 }
 
 impl MemoryMap {
@@ -53,7 +74,7 @@ impl MemoryMap {
             oam: [0; 0x100],
             io: [0; 0x80],
             hr: [0; 0x7F],
-            interrupt: 0,
+            ie: 0,
         }
     }
 
@@ -81,8 +102,18 @@ impl MemoryMap {
         }
     }
 
-    pub fn read_op(&self, index: u16) -> Instruction {
-        parse_instruction(self, index)
+    /// Reads the next operation to be performed. If the given IME flag is true, and an interrupts
+    /// has been requested, the returned instruction will be a `call` to the corresponding
+    /// interrupt handler. Otherwise, the given PC is used to decode the next instruction.
+    pub fn read_op(&self, index: u16, ime: bool) -> Instruction {
+        match self.check_interrupt() {
+            Some(op) if ime => op,
+            _ => parse_instruction(self, index),
+        }
+    }
+
+    fn check_interrupt(&self) -> Option<Instruction> {
+        todo!()
     }
 
     /// Creates a dummy memory map that should only be used for testing. Notably, this will not
@@ -98,7 +129,7 @@ impl MemoryMap {
             oam: [0; 0x100],
             io: [0; 0x80],
             hr: [0; 0x7F],
-            interrupt: 0,
+            ie: 0,
         }
     }
 }
@@ -128,16 +159,13 @@ impl Index<u16> for MemoryMap {
             0xFEA0..=0xFEFF => unreachable!("No ROM should attempt to access this region"),
             n @ 0xFF00..=0xFF7F => &self.io[(n - 0xFF00) as usize],
             n @ 0xFF80..=0xFFFE => &self.hr[(n - 0xFF80) as usize],
-            0xFFFF => &self.interrupt,
+            0xFFFF => &self.ie,
         }
     }
 }
 
 impl IndexMut<u16> for MemoryMap {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
-        if index == 0xFF50 {
-            println!("Writing to BOOT lock reg");
-        }
         match index {
             0x0000..=0x7FFF => &mut self.mbc[index],
             n @ 0x8000..=0x9FFF => &mut self.vram[n as usize - 0x8000],
@@ -149,7 +177,7 @@ impl IndexMut<u16> for MemoryMap {
             0xFEA0..=0xFEFF => unreachable!("No ROM should attempt to access this region"),
             n @ 0xFF00..=0xFF7F => &mut self.io[(n - 0xFF00) as usize],
             n @ 0xFF80..=0xFFFE => &mut self.hr[(n - 0xFF80) as usize],
-            0xFFFF => &mut self.interrupt,
+            0xFFFF => &mut self.ie,
         }
     }
 }

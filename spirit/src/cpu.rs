@@ -81,7 +81,7 @@ impl Flags {
 
 #[derive(Debug, Default, Hash, Clone, PartialEq, Eq, derive_more::Display)]
 #[display(
-    fmt = "CPU {{ A=0x{:0>2X} F={} B=0x{:0>2X} C=0x{:0>2X} D=0x{:0>2X} E=0x{:0>2X} H=0x{:0>2X} L=0x{:0>2X} SP=0x{:0>2X} PC=0x{:0>2X} AI={} Done={} }}",
+    fmt = "CPU {{ A=0x{:0>2X} F={} B=0x{:0>2X} C=0x{:0>2X} D=0x{:0>2X} E=0x{:0>2X} H=0x{:0>2X} L=0x{:0>2X} SP=0x{:0>2X} PC=0x{:0>2X} IME={} Done={} }}",
     a,
     f,
     b,
@@ -92,7 +92,7 @@ impl Flags {
     l,
     sp,
     pc,
-    allow_interupts,
+    ime,
     done
 )]
 pub struct Cpu {
@@ -108,7 +108,7 @@ pub struct Cpu {
     pub sp: Wrapping<u16>,
     /// The PC register
     pub pc: Wrapping<u16>,
-    pub allow_interupts: bool,
+    pub ime: bool,
     /// Once the gameboy has halted, this flag is set. Note that the gameboy can continue to be
     /// ticked, but the stack pointer is not moved, so it will continue to cycle without change.
     pub done: bool,
@@ -136,7 +136,7 @@ const fn select_bit<const B: u8>(src: u8) -> u8 {
     src & bit_select::<B>()
 }
 
-const fn check_bit_const<const B: u8>(src: u8) -> bool {
+pub(crate) const fn check_bit_const<const B: u8>(src: u8) -> bool {
     (src & bit_select::<B>()) == bit_select::<B>()
 }
 
@@ -219,15 +219,9 @@ impl Cpu {
         self.f.c
     }
 
+    /// Determines what the CPU should do next. Included in this, is a check for interrupts.
     pub fn read_op(&self, mem: &MemoryMap) -> Instruction {
-        mem.read_op(self.sp.0)
-    }
-
-    /// A method similar to `Self::read_op`, but is ran during start up, when the ROM that is
-    /// burned-into the CPU is mapped over normal memory.
-    pub(crate) fn start_up_read_op(&self, mem: &MemoryMap) -> Instruction {
-        // println!("Reading start up op from: 0x{:0>4X}", self.pc);
-        mem.read_op(self.pc.0)
+        mem.read_op(self.pc.0, self.ime)
     }
 
     pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
@@ -235,32 +229,6 @@ impl Cpu {
         println!("CPU={self}");
         // TODO: Remove this! This is onlhy for testing before we impl interrupt handling and IO.
         mem[0xFF0F] = 0b1;
-        /*
-        static LOOP_CHECKER: OnceCell<Mutex<HashSet<u64>>> = OnceCell::new();
-        let mut hasher = std::hash::DefaultHasher::new();
-        self.hash(&mut hasher);
-        instr.hash(&mut hasher);
-        mem.hash(&mut hasher);
-        let digest = hasher.finish();
-        let checker = LOOP_CHECKER.get_or_init(|| Mutex::new(HashSet::new()));
-        if !checker.lock().unwrap().insert(digest) {
-            eprintln!(
-                "Reached an identical state, which means the GB will loop forever!!
-            {self:X?}
-            {:X?}
-                ",
-                mem.hr
-            );
-            let mut input = String::new();
-            std::io::stdin().read_line(&mut input).unwrap();
-            if input.trim() == "" {
-                // println!("Continuing...");
-            } else {
-                // println!("Aborting");
-                std::process::exit(1);
-            }
-        }
-        */
         let len = instr.size();
         self.pc += (!self.done as u16) * (len as u16);
         match instr {
@@ -289,19 +257,16 @@ impl Cpu {
             Instruction::Di => self.disable_interupts(),
             Instruction::Ei => self.enable_interupts(),
         }
-        println!(
-            "Ending execution: PC=0x{:0>4X} SP=0x{:0>4X}",
-            self.pc.0, self.sp.0
-        );
+        println!("Ending execution: {self}",);
         println!("");
     }
 
     fn enable_interupts(&mut self) {
-        self.allow_interupts = true;
+        self.ime = true;
     }
 
     fn disable_interupts(&mut self) {
-        self.allow_interupts = false;
+        self.ime = false;
     }
 
     fn ptr(&self) -> u16 {
@@ -426,7 +391,6 @@ impl Cpu {
             ArithmeticOp::Cp(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
                 let mut a = self.a;
-                println!("Comparing: A=0x{a:0>2X} byte=0x{byte:0>2X}");
                 subtraction_operation(&mut a.0, byte, &mut self.f);
             }
             ArithmeticOp::Inc(reg) => {
@@ -546,7 +510,6 @@ impl Cpu {
             JumpOp::Absolute(dest) => self.pc = Wrapping(dest),
             JumpOp::JumpToHL => self.pc = Wrapping(self.ptr()),
             JumpOp::Call(ptr) => {
-                println!("Calling subroutine.. storing PC: 0x{:0>4X}", self.pc.0);
                 let [hi, lo] = self.pc_bytes();
                 self.sp -= 1;
                 mem[self.sp.0] = hi;
@@ -570,7 +533,6 @@ impl Cpu {
                 let hi = mem[self.sp.0];
                 self.sp += 1;
                 let pc = u16::from_be_bytes([hi, lo]);
-                println!("Returning from subroutine.. loading PC: 0x{pc:0>4X}");
                 self.pc = Wrapping(pc);
             }
             JumpOp::ConditionalReturn(cond) => {
@@ -786,7 +748,6 @@ impl Cpu {
                     WideRegWithoutSP::HL => [self.h.0, self.l.0],
                     WideRegWithoutSP::AF => [self.a.0, self.f.as_byte()],
                 };
-                println!("Pushing ptr onto the stack: 0x{a:0>2X}{b:0>2X}");
                 self.sp -= 1;
                 mem[self.sp.0] = a;
                 self.sp -= 1;
@@ -887,7 +848,7 @@ impl Cpu {
         mem: &mut MemoryMap,
     ) -> Option<Instruction> {
         self.execute(instr, mem);
-        (mem[0xFF50] == 0).then(|| self.start_up_read_op(mem))
+        (mem[0xFF50] == 0).then(|| self.read_op(mem))
     }
 }
 
