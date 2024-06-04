@@ -1,16 +1,10 @@
 #![allow(dead_code)]
-use std::{
-    collections::HashMap,
-    hash::{DefaultHasher, Hash, Hasher},
-    io::Write,
-    ops::Range,
-    str::FromStr,
-};
+use std::io::Write;
 
-use spirit::{
-    lookup::{Instruction, JumpOp},
-    Gameboy, StartUpSequence,
-};
+use spirit::{lookup::Instruction, Gameboy, StartUpSequence};
+
+mod command;
+use command::*;
 
 // TODO: handle ctrl-C and ctrl-d
 
@@ -18,206 +12,74 @@ static TMP_ROM: &[u8] = include_bytes!("../../spirit/tests/roms/acid/which.gb");
 
 fn main() {
     let mut gb = Gameboy::new(TMP_ROM);
-    process_init(gb.start_up());
-    loop {
-        todo!()
-    }
+    run_until_complete(gb.start_up());
+    println!("Startup sequence complete!");
+    run_until_complete(gb)
 }
 
-fn process_init(mut seq: StartUpSequence<'_>) {
-    while !seq.is_complete() {
-        print!("init $ ");
+/// This function abstracts over running the startup sequence and the gameboy itself.
+fn run_until_complete<GB>(mut gb: GB)
+where
+    GB: GameBoyLike,
+{
+    while !gb.is_complete() {
+        print!("{} $ ", GB::PROMPT);
         std::io::stdout().flush().unwrap();
         match get_input() {
-            Some(Command::Info) => println!("{}", seq.gb().cpu()),
-            Some(Command::Step(n)) => {
-                for _ in 0..n {
-                    seq.step();
-                    if seq.is_complete() {
-                        break;
-                    }
-                }
-            }
-            Some(Command::Index(opts)) => match opts {
-                IndexOptions::Single(i) => println!("ADDR=0x{i:0>4X} -> {:0>2X}", seq.gb().mem[i]),
-                IndexOptions::Range(mut rng) => {
-                    println!("ADDR=0x{:0>4X}..0x{:0>4X}", rng.start, rng.end);
-                    print!("[");
-                    if let Some(i) = rng.next() {
-                        print!("0x{:0>2}", seq.gb().mem[i]);
-                    }
-                    for i in rng {
-                        print!(", 0x{:0>2}", seq.gb().mem[i]);
-                    }
-                    println!("]");
-                }
-            },
-            Some(Command::Run(until)) => match until {
-                RunUntil::Loop => {
-                    let mut ops = Vec::new();
-                    let mut cpu_map: HashMap<_, HashMap<u64, usize>> = HashMap::new();
-                    let mut index = 0;
-                    while !seq.is_complete() {
-                        match cpu_map.entry(seq.gb().cpu().clone()) {
-                            std::collections::hash_map::Entry::Occupied(mut entry) => {
-                                let mut hasher = DefaultHasher::new();
-                                seq.gb().mem.hash(&mut hasher);
-                                match entry.get_mut().entry(hasher.finish()) {
-                                    std::collections::hash_map::Entry::Vacant(entry) => {
-                                        entry.insert(ops.len());
-                                    }
-                                    std::collections::hash_map::Entry::Occupied(entry) => {
-                                        index = *entry.get();
-                                        break;
-                                    }
-                                }
-                            }
-                            std::collections::hash_map::Entry::Vacant(entry) => {
-                                entry.insert(HashMap::new());
-                            }
-                        }
-                        let cpu = seq.gb().cpu().clone();
-                        let ptr = cpu.pc.0;
-                        ops.push((cpu, ptr, *seq.next_op()));
-                        seq.step()
-                    }
-                    if !seq.is_complete() {
-                        println!("Infinite loop detected! Here are the instructions and CPU states in the loop:");
-                        for (state, ptr, op) in &ops[index..] {
-                            println!("{state}");
-                            println!("0x{ptr:0>4X} -> {op}");
-                        }
-                    } else {
-                        println!("No loop detect during start up!");
-                    }
-                }
-                RunUntil::Return => {
-                    while !matches!(seq.next_op(), Instruction::Jump(JumpOp::Return)) {
-                        seq.step()
-                    }
-                    println!("End of subroutine. Next operation is `ret`.");
-                }
-            },
-            Some(Command::Interrupt(interrupt)) => match interrupt {
-                Interrupt::VBlank => {
-                    seq.set_vblank();
-                }
-            },
-            None => println!("unknown command!"),
+            Ok(cmd) => cmd.process(&mut gb),
+            Err(e) => println!("{e}"),
         }
     }
 }
 
-enum Command {
-    // TODO: Add a commands:
-    //  - help
-    //  - something to visualize the surrounding ops
-    //  - exit
-    // Index should be formatted more nicely, like hexdump
-    /// Steps the emulator forward N operations.
-    Step(usize),
-    /// Prints the current state of the CPU.
-    Info,
-    /// Prints a section of the MemoryMap.
-    Index(IndexOptions),
-    /// Runs the emulator until some condition is met.
-    Run(RunUntil),
-    /// Runs the emulator until some condition is met.
-    Interrupt(Interrupt),
+trait GameBoyLike {
+    const PROMPT: &'static str;
+
+    fn gb(&self) -> &Gameboy;
+
+    fn next_op(&self) -> Instruction;
+
+    fn step(&mut self);
+
+    fn is_complete(&self) -> bool;
 }
 
-enum Interrupt {
-    VBlank,
-}
+impl GameBoyLike for Gameboy {
+    const PROMPT: &'static str = "running";
 
-enum IndexOptions {
-    Single(u16),
-    Range(Range<u16>),
-}
+    fn gb(&self) -> &Gameboy {
+        self
+    }
 
-/// Encodes the conditions used by the run command
-enum RunUntil {
-    /// Runs the emulator until an infinite loop is detected.
-    Loop,
-    /// Runs the emulator until just before `ret` is ran
-    Return,
-}
+    fn next_op(&self) -> Instruction {
+        self.cpu().read_op(&self.mem)
+    }
 
-fn get_input() -> Option<Command> {
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input).ok()?;
-    input.trim().parse().ok()
-}
+    fn step(&mut self) {
+        self.step().complete()
+    }
 
-impl FromStr for Command {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some(s) = s.strip_prefix("step") {
-            s.trim().parse().map(Self::Step).map_err(drop)
-        } else if s.strip_prefix("info").is_some() {
-            Ok(Self::Info)
-        } else if let Some(s) = s.strip_prefix("index") {
-            s.trim().parse().map(Self::Index)
-        } else if let Some(s) = s.strip_prefix("run") {
-            s.trim().parse().map(Self::Run)
-        } else if let Some(s) = s.strip_prefix("interrupt") {
-            s.trim().parse().map(Self::Interrupt)
-        } else {
-            Err(())
-        }
+    fn is_complete(&self) -> bool {
+        self.cpu().done
     }
 }
 
-impl FromStr for IndexOptions {
-    type Err = ();
+impl<'a> GameBoyLike for StartUpSequence<'a> {
+    const PROMPT: &'static str = "init";
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        fn parse_int(s: &str) -> Result<u16, ()> {
-            match s.parse() {
-                Ok(val) => Ok(val),
-                Err(_) => {
-                    if let Some(s) = s.strip_prefix("0x") {
-                        u16::from_str_radix(s, 16).map_err(drop)
-                    } else if let Some(s) = s.strip_prefix("0b") {
-                        u16::from_str_radix(s, 2).map_err(drop)
-                    } else {
-                        Err(())
-                    }
-                }
-            }
-        }
-        match s.split_once("..") {
-            Some((start, end)) => {
-                let start = parse_int(start)?;
-                let end = parse_int(end)?;
-                Ok(Self::Range(start..end))
-            }
-            None => parse_int(s).map(Self::Single),
-        }
+    fn gb(&self) -> &Gameboy {
+        self.gb()
     }
-}
 
-impl FromStr for RunUntil {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "until loop" => Ok(Self::Loop),
-            "until return" => Ok(Self::Return),
-            _ => Err(()),
-        }
+    fn next_op(&self) -> Instruction {
+        *self.next_op()
     }
-}
 
-impl FromStr for Interrupt {
-    type Err = ();
+    fn step(&mut self) {
+        self.step()
+    }
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.trim() == "vblank" {
-            Ok(Interrupt::VBlank)
-        } else {
-            Err(())
-        }
+    fn is_complete(&self) -> bool {
+        self.is_complete()
     }
 }
