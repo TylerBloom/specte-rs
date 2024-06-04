@@ -13,8 +13,8 @@ use once_cell::sync::{Lazy, OnceCell};
 use crate::{
     lookup::{
         parse_instruction, ArithmeticOp, BitOp, BitOpInner, BitShiftOp, Condition, ControlOp,
-        HalfRegister, Instruction, JumpOp, LoadAPointer, LoadOp, RegOrPointer, SomeByte, WideReg,
-        WideRegWithoutSP,
+        HalfRegister, Instruction, InterruptOp, JumpOp, LoadAPointer, LoadOp, RegOrPointer,
+        SomeByte, WideReg, WideRegWithoutSP,
     },
     mbc::MemoryMap,
 };
@@ -238,6 +238,7 @@ impl Cpu {
             Instruction::Bit(op) => self.execute_bit_op(op, mem),
             Instruction::Jump(op) => self.execute_jump_op(op, mem),
             Instruction::Arithmetic(op) => self.execute_arithmetic_op(op, mem),
+            Instruction::Interrupt(op) => self.execute_interrupt(op, mem),
             Instruction::Daa => self.a = Wrapping(to_bcd(self.a.0, &mut self.f)),
             Instruction::Scf => {
                 self.f.n = false;
@@ -476,13 +477,32 @@ impl Cpu {
         }
     }
 
+    fn push_pc(&mut self, mem: &mut MemoryMap) {
+        let [hi, lo] = self.pc_bytes();
+        self.sp -= 1;
+        mem[self.sp.0] = hi;
+        self.sp -= 1;
+        mem[self.sp.0] = lo;
+    }
+
+    fn pop_pc(&mut self, mem: &mut MemoryMap) -> u16 {
+        let lo = mem[self.sp.0];
+        self.sp += 1;
+        let hi = mem[self.sp.0];
+        self.sp += 1;
+        u16::from_be_bytes([hi, lo])
+    }
+
+    fn execute_interrupt(&mut self, op: InterruptOp, mem: &mut MemoryMap) {
+        self.disable_interupts();
+        mem.clear_interrupt_req(op);
+        self.push_pc(mem);
+        self.pc = Wrapping(op as u16);
+    }
+
     fn execute_jump_op(&mut self, op: JumpOp, mem: &mut MemoryMap) {
         fn rst<const N: u16>(cpu: &mut Cpu, mem: &mut MemoryMap) {
-            cpu.sp -= 1;
-            let [p, c] = cpu.pc_bytes();
-            mem[cpu.sp.0] = p;
-            cpu.sp -= 1;
-            mem[cpu.sp.0] = c;
+            cpu.push_pc(mem);
             cpu.pc = Wrapping(N);
         }
         match op {
@@ -510,47 +530,24 @@ impl Cpu {
             JumpOp::Absolute(dest) => self.pc = Wrapping(dest),
             JumpOp::JumpToHL => self.pc = Wrapping(self.ptr()),
             JumpOp::Call(ptr) => {
-                let [hi, lo] = self.pc_bytes();
-                self.sp -= 1;
-                mem[self.sp.0] = hi;
-                self.sp -= 1;
-                mem[self.sp.0] = lo;
+                self.push_pc(mem);
                 self.pc = Wrapping(ptr);
             }
             JumpOp::ConditionalCall(cond, dest) => {
                 if self.matches(cond) {
-                    let [hi, lo] = self.pc_bytes();
-                    self.sp -= 1;
-                    mem[self.sp.0] = hi;
-                    self.sp -= 1;
-                    mem[self.sp.0] = lo;
+                    self.push_pc(mem);
                     self.pc = Wrapping(dest);
                 }
             }
-            JumpOp::Return => {
-                let lo = mem[self.sp.0];
-                self.sp += 1;
-                let hi = mem[self.sp.0];
-                self.sp += 1;
-                let pc = u16::from_be_bytes([hi, lo]);
-                self.pc = Wrapping(pc);
-            }
+            JumpOp::Return => self.pc = Wrapping(self.pop_pc(mem)),
             JumpOp::ConditionalReturn(cond) => {
                 if self.matches(cond) {
-                    let lo = mem[self.sp.0];
-                    self.sp += 1;
-                    let hi = mem[self.sp.0];
-                    self.sp += 1;
-                    self.pc = Wrapping(u16::from_be_bytes([hi, lo]));
+                    self.pc = Wrapping(self.pop_pc(mem));
                 }
             }
             JumpOp::ReturnAndEnable => {
                 self.enable_interupts();
-                let lo = mem[self.sp.0];
-                self.sp += 1;
-                let hi = mem[self.sp.0];
-                self.sp += 1;
-                self.pc = Wrapping(u16::from_be_bytes([hi, lo]));
+                self.pc = Wrapping(self.pop_pc(mem));
             }
             JumpOp::RST00 => rst::<0x00>(self, mem),
             JumpOp::RST08 => rst::<0x08>(self, mem),

@@ -14,7 +14,8 @@ pub use mbc3::*;
 mod mbc5;
 pub use mbc5::*;
 
-use crate::lookup::{parse_instruction, Instruction};
+use crate::cpu::check_bit_const;
+use crate::lookup::{parse_instruction, Instruction, InterruptOp};
 
 pub static START_UP_HEADER: &[u8; 0x900] = include_bytes!("../cgb.bin");
 
@@ -113,7 +114,40 @@ impl MemoryMap {
     }
 
     fn check_interrupt(&self) -> Option<Instruction> {
-        todo!()
+        match self.ie & self.io[0x0F] {
+            0 => None,
+            n => {
+                if check_bit_const::<0>(n) {
+                    Some(Instruction::Interrupt(InterruptOp::VBlank))
+                } else if check_bit_const::<1>(n) {
+                    Some(Instruction::Interrupt(InterruptOp::LCD))
+                } else if check_bit_const::<2>(n) {
+                    Some(Instruction::Interrupt(InterruptOp::Timer))
+                } else if check_bit_const::<3>(n) {
+                    Some(Instruction::Interrupt(InterruptOp::Serial))
+                } else if check_bit_const::<4>(n) {
+                    Some(Instruction::Interrupt(InterruptOp::Joypad))
+                } else {
+                    // Technically unreachable
+                    None
+                }
+            }
+        }
+    }
+
+    pub fn set_vblank_req(&mut self) {
+        self.io[0x0F] |= 0b1;
+    }
+
+    pub(crate) fn clear_interrupt_req(&mut self, op: InterruptOp) {
+        let mask = match op {
+            InterruptOp::VBlank => 0b1,
+            InterruptOp::LCD => 0b10,
+            InterruptOp::Timer => 0b100,
+            InterruptOp::Serial => 0b1000,
+            InterruptOp::Joypad => 0b1_0000,
+        };
+        self.io[0x0F] &= !mask;
     }
 
     /// Creates a dummy memory map that should only be used for testing. Notably, this will not

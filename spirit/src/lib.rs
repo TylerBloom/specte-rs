@@ -170,6 +170,11 @@ impl<'a> StartUpSequence<'a> {
         &self.gb
     }
 
+
+    pub fn set_vblank(&mut self) {
+        self.gb.mem.set_vblank_req()
+    }
+
     pub fn tick(&mut self) {
         if !self.is_complete() {
             self.counter += 1;

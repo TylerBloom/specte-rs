@@ -98,6 +98,11 @@ fn process_init(mut seq: StartUpSequence<'_>) {
                     println!("End of subroutine. Next operation is `ret`.");
                 }
             },
+            Some(Command::Interrupt(interrupt)) => match interrupt {
+                Interrupt::VBlank => {
+                    seq.set_vblank();
+                }
+            },
             None => println!("unknown command!"),
         }
     }
@@ -117,6 +122,12 @@ enum Command {
     Index(IndexOptions),
     /// Runs the emulator until some condition is met.
     Run(RunUntil),
+    /// Runs the emulator until some condition is met.
+    Interrupt(Interrupt),
+}
+
+enum Interrupt {
+    VBlank,
 }
 
 enum IndexOptions {
@@ -150,6 +161,8 @@ impl FromStr for Command {
             s.trim().parse().map(Self::Index)
         } else if let Some(s) = s.strip_prefix("run") {
             s.trim().parse().map(Self::Run)
+        } else if let Some(s) = s.strip_prefix("interrupt") {
+            s.trim().parse().map(Self::Interrupt)
         } else {
             Err(())
         }
@@ -193,6 +206,18 @@ impl FromStr for RunUntil {
             "until loop" => Ok(Self::Loop),
             "until return" => Ok(Self::Return),
             _ => Err(()),
+        }
+    }
+}
+
+impl FromStr for Interrupt {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.trim() == "vblank" {
+            Ok(Interrupt::VBlank)
+        } else {
+            Err(())
         }
     }
 }

@@ -94,17 +94,18 @@ impl Instruction {
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
 #[display(fmt = "Interrupt({})")]
+#[repr(u16)]
 pub enum InterruptOp {
     #[display(fmt = "VBlank")]
-    VBlank,
+    VBlank = 0x0040,
     #[display(fmt = "LCD")]
-    LCD,
+    LCD = 0x0048,
     #[display(fmt = "Timer")]
-    Timer,
+    Timer = 0x0050,
     #[display(fmt = "Serial")]
-    Serial,
+    Serial = 0x0058,
     #[display(fmt = "Joypad")]
-    Joypad,
+    Joypad = 0x0060,
 }
 
 // TODO: Name this better
