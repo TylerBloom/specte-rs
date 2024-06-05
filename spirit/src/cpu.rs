@@ -479,17 +479,17 @@ impl Cpu {
 
     fn push_pc(&mut self, mem: &mut MemoryMap) {
         let [hi, lo] = self.pc_bytes();
-        self.sp -= 1;
         mem[self.sp.0] = hi;
         self.sp -= 1;
         mem[self.sp.0] = lo;
+        self.sp -= 1;
     }
 
     fn pop_pc(&mut self, mem: &mut MemoryMap) -> u16 {
+        self.sp += 1;
         let lo = mem[self.sp.0];
         self.sp += 1;
         let hi = mem[self.sp.0];
-        self.sp += 1;
         u16::from_be_bytes([hi, lo])
     }
 
@@ -732,11 +732,8 @@ impl Cpu {
                 self.l = l;
             }
             LoadOp::Pop(reg) => {
-                let a = mem[self.sp.0];
-                self.sp += 1;
-                let b = mem[self.sp.0];
-                self.sp += 1;
-                self.write_wide_reg_without_sp(reg, u16::from_be_bytes([b, a]));
+                let ptr = self.pop_pc(mem);
+                self.write_wide_reg_without_sp(reg, ptr);
             }
             LoadOp::Push(reg) => {
                 let [a, b] = match reg {
@@ -745,10 +742,10 @@ impl Cpu {
                     WideRegWithoutSP::HL => [self.h.0, self.l.0],
                     WideRegWithoutSP::AF => [self.a.0, self.f.as_byte()],
                 };
-                self.sp -= 1;
                 mem[self.sp.0] = a;
                 self.sp -= 1;
                 mem[self.sp.0] = b;
+                self.sp -= 1;
             }
             LoadOp::LoadHigh(val) => mem[u16::from_be_bytes([0xFF, val])] = self.a.0,
             LoadOp::StoreHigh(val) => self.a = Wrapping(mem[u16::from_be_bytes([0xFF, val])]),

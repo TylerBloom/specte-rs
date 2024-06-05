@@ -10,12 +10,14 @@ use std::{
 
 use spirit::lookup::{Instruction, JumpOp};
 
-use crate::GameBoyLike;
+use crate::{AppState, GameBoyLike};
 
-pub(crate) fn get_input() -> Result<Command, Cow<'static, str>> {
+pub(crate) fn get_input(state: &mut AppState) -> Result<Command, Cow<'static, str>> {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).unwrap();
-    input.trim().parse()
+    let cmd = input.trim().parse();
+    state.cli_history.push(input);
+    cmd
 }
 
 pub(crate) enum Command {
