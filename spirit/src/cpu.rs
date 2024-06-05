@@ -225,8 +225,8 @@ impl Cpu {
     }
 
     pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
-        println!("Starting execution: {instr}",);
-        println!("CPU={self}");
+        // println!("Starting execution: {instr}",);
+        // println!("CPU={self}");
         // TODO: Remove this! This is onlhy for testing before we impl interrupt handling and IO.
         mem[0xFF0F] = 0b1;
         let len = instr.size();
@@ -258,8 +258,8 @@ impl Cpu {
             Instruction::Di => self.disable_interupts(),
             Instruction::Ei => self.enable_interupts(),
         }
-        println!("Ending execution: {self}",);
-        println!("");
+        // println!("Ending execution: {self}",);
+        // println!("");
     }
 
     fn enable_interupts(&mut self) {
@@ -270,7 +270,7 @@ impl Cpu {
         self.ime = false;
     }
 
-    fn ptr(&self) -> u16 {
+    pub fn ptr(&self) -> u16 {
         u16::from_be_bytes([self.h.0, self.l.0])
     }
 

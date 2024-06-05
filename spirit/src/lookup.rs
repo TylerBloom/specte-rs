@@ -14,6 +14,9 @@ fn parse_prefixed_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
 
 type OpArray<const N: usize> = [fn(&MemoryMap, u16) -> Instruction; N];
 
+// TODO: Most users will not understand this internal notation. Instead, the display impls should
+// use a more standard one. The disassembled start up sequence and the op tables are good places to
+// start with adopting a more universal notation.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
 #[display(fmt = "Instruction({})")]
 pub enum Instruction {

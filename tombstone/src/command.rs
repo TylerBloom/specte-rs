@@ -5,6 +5,7 @@ use std::{
     ops::Range,
     path::PathBuf,
     str::FromStr,
+    fmt::Write
 };
 
 use spirit::lookup::{Instruction, JumpOp};
@@ -38,27 +39,29 @@ pub(crate) enum Command {
 }
 
 impl Command {
-    pub(crate) fn process<GB: GameBoyLike>(self, gb: &mut GB) {
+    pub(crate) fn process<GB: GameBoyLike>(self, gb: &mut GB) -> String {
         match self {
-            Command::Info => println!("{}", gb.gb().cpu()),
+            Command::Info => gb.gb().cpu().to_string(),
             Command::Step(n) => {
                 (0..n).any(|_| {
                     gb.step();
                     gb.is_complete()
                 });
+                String::new()
             }
             Command::Index(opts) => match opts {
-                IndexOptions::Single(i) => println!("ADDR=0x{i:0>4X} -> {:0>2X}", gb.gb().mem[i]),
+                IndexOptions::Single(i) => format!("ADDR=0x{i:0>4X} -> {:0>2X}", gb.gb().mem[i]),
                 IndexOptions::Range(mut rng) => {
-                    println!("ADDR=0x{:0>4X}..0x{:0>4X}", rng.start, rng.end);
-                    print!("[");
+                    let mut digest = format!("ADDR=0x{:0>4X}..0x{:0>4X}", rng.start, rng.end);
+                    digest.push_str("[");
                     if let Some(i) = rng.next() {
-                        print!("0x{:0>2}", gb.gb().mem[i]);
+                        write!(digest, "0x{:0>2}", gb.gb().mem[i]).unwrap();
                     }
                     for i in rng {
-                        print!(", 0x{:0>2}", gb.gb().mem[i]);
+                        write!(digest, ", 0x{:0>2}", gb.gb().mem[i]);
                     }
-                    println!("]");
+                    digest.push_str("]");
+                    digest
                 }
             },
             Command::Run(until) => match until {
@@ -91,20 +94,21 @@ impl Command {
                         gb.step()
                     }
                     if !gb.is_complete() {
-                        println!("Infinite loop detected! Here are the instructions and CPU states in the loop:");
+                        let mut digest = format!("Infinite loop detected! Here are the instructions and CPU states in the loop:");
                         for (state, ptr, op) in &ops[index..] {
-                            println!("{state}");
-                            println!("0x{ptr:0>4X} -> {op}");
+                            writeln!(digest, "\n{state}");
+                            write!(digest, "0x{ptr:0>4X} -> {op}");
                         }
+                        digest
                     } else {
-                        println!("No loop detect during start up!");
+                        "No loop detect during start up!".to_owned()
                     }
                 }
                 RunUntil::Return => {
                     while !matches!(gb.next_op(), Instruction::Jump(JumpOp::Return)) {
                         gb.step()
                     }
-                    println!("End of subroutine. Next operation is `ret`.");
+                    "End of subroutine. Next operation is `ret`.".to_owned()
                 }
             },
             Command::Stash(_stash) => {

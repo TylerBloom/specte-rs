@@ -21,6 +21,8 @@ use cpu::{check_bit_const, Cpu};
 use lookup::Instruction;
 use mbc::{MemoryBankController, MemoryMap, StartUpHeaders};
 
+use crate::lookup::JumpOp;
+
 pub mod cpu;
 pub mod lookup;
 pub mod mbc;
@@ -44,6 +46,27 @@ impl Gameboy {
 
     pub fn cpu(&self) -> &Cpu {
         &self.cpu
+    }
+
+    /// This method returns an iterator over the current and upcoming instructions, based on the
+    /// location of the PC. This does not do any clever predictions, like trying to determine if a
+    /// conditional jump will execute. Rather, it is to be used for debugging by providing a window
+    /// into region around the PC.
+    pub fn op_iter<'b, 'a: 'b>(&'a self) -> impl 'b + Iterator<Item = (u16, Instruction)> {
+        let mut pc = self.cpu.pc.0;
+        std::iter::repeat(()).map(move |()| {
+            let op = self.mem.read_op(pc, self.cpu.ime);
+            let old_pc = pc;
+            // TODO: Either commit to this all of the way or don't. The core issue here is that
+            // some data might be read and is not meant to be an instruction. Panic catching is
+            // also an option here.
+            if let Instruction::Jump(JumpOp::Absolute(dest)) = op {
+                pc = dest;
+            } else {
+                pc += op.size() as u16;
+            }
+            (old_pc, op)
+        })
     }
 
     /// Runs the power-up sequence for the gameboy. During this time, the Gameboy remaps part of
@@ -78,17 +101,17 @@ impl Gameboy {
 #[repr(u8)]
 pub enum JoypadInput {
     Right = 0b0001_0001u8,
-    Left  = 0b0001_0010u8,
-    Up    = 0b0001_0100u8,
-    Down  = 0b0001_1000u8,
+    Left = 0b0001_0010u8,
+    Up = 0b0001_0100u8,
+    Down = 0b0001_1000u8,
 }
 
 #[repr(u8)]
 pub enum ButtonInput {
-    A      = 0b0010_0001u8,
-    B      = 0b0010_0010u8,
+    A = 0b0010_0001u8,
+    B = 0b0010_0010u8,
     Select = 0b0010_0100u8,
-    Start  = 0b0010_1000u8,
+    Start = 0b0010_1000u8,
 }
 
 #[must_use = "Stepping returns a counter that must be ticked to perform the next operation. Dropping this object instantly completes the operation."]
@@ -169,7 +192,6 @@ impl<'a> StartUpSequence<'a> {
     pub fn gb(&self) -> &Gameboy {
         &self.gb
     }
-
 
     pub fn set_vblank(&mut self) {
         self.gb.mem.set_vblank_req()
