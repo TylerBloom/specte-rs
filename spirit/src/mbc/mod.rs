@@ -37,22 +37,7 @@ pub struct MemoryMap {
     wram: ([u8; 0x1000], [u8; 0x1000]),
     // The Object attribute map
     oam: [u8; 0x100],
-    /// The IO registers. Different bytes ranges in this segment correspond to different inputs.
-    /// When indexed into, this segement is mapped to the range 0xFF00 through 0xFF7F.
-    ///  - 0xFF00 contains the joypad input
-    ///  - 0xFF01 and 0xFF02 contains the serial transfer registers
-    ///  - 0xFF04 through 0xFF07 are for the timer and divider
-    ///  - 0xFF0F is the interrupt flag register
-    ///  - 0xFF10 through 0xFF26 are for audio
-    ///  - 0xFF30 through 0xFF3F are for the wave pattern
-    ///  - 0xFF40 through 0xFF48 are used for the LCD control, status, position, scrolling, and
-    ///  palettes
-    ///  - 0xFF4F controls the VRAM bank selection
-    ///  - 0xFF50 is set at the end of the start up sequence
-    ///  - 0xFF51 through 0xFF55 is for the VRAM DMA
-    ///  - 0xFF68 through 0xFF6B are for the BG/OBJ palettes
-    ///  - 0xFF70 controls the WRAM bank selection
-    io: [u8; 0x80],
+    io: IoRegisters,
     // High RAM
     pub(crate) hr: [u8; 0x7F],
     /// The interrupt enable register. Bits 0-4 flag where or not certain interrupt handlers can be
@@ -66,6 +51,118 @@ pub struct MemoryMap {
     ie: u8,
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+struct IoRegisters {
+    /// ADDR FF00
+    joypad: u8,
+    /// ADDR FF01, FF02
+    serial: (u8, u8),
+    /// ADDR FF04, FF05, FF06, FF07
+    /// There are the (divider, timer, timer modulo, tac)
+    timer_div: [u8; 4],
+    /// The counter for the timer controller
+    tac: TimerControl,
+    /// ADDR FF0F
+    interrupt_flags: u8,
+    /// ADDR FF10-FF26
+    audio: [u8; 16],
+    /// ADDR FF30-FF3F
+    wave: [u8; 0x10],
+    /// ADDR FF40-FF4B
+    lcd: [u8; 0xC],
+    /// ADDR FF4F
+    vram_select: u8,
+    /// ADDR FF50
+    boot_status: u8,
+    /// ADDR FF51-FF55
+    vram_dma: [u8; 5],
+    /// ADDR FF68-FF6B
+    palettes: [u8; 4],
+    /// ADDR FF70
+    wram_select: u8,
+    /// There are gaps amount the memory mapped IO registers. Any index into this that hits one of
+    /// these gaps resets the value. Notably, this is also used when mutably indexing to the
+    /// divider register but not while immutably indexing.
+    /// ADDR FF03, FF08-FF0E, FF27-FF29, FF4C-FF4E, FF56-FF67, FF6C-FF6F
+    dead_byte: u8,
+}
+
+impl IoRegisters {
+    fn tick(&mut self) {
+        let byte = &mut self.timer_div[0];
+        *byte = byte.wrapping_add(1);
+        match self.timer_div[1].checked_add(1) {
+            Some(b) => self.timer_div[1] = b,
+            None => {
+                let b = self.timer_div[1];
+                self.timer_div[0] = b;
+                self.interrupt_flags |= 0b100;
+            }
+        }
+    }
+}
+
+impl Index<u16> for IoRegisters {
+    type Output = u8;
+
+    fn index(&self, index: u16) -> &Self::Output {
+        match index {
+            0xFF00 => &self.joypad,
+            0xFF01 => &self.serial.0,
+            0xFF02 => &self.serial.1,
+            n @ 0xFF04..=0xFF07 => &self.timer_div[(n - 0xFF04) as usize],
+            0xFF0F => &self.interrupt_flags,
+            n @ 0xFF10..=0xFF26 => &self.audio[(n - 0xFF10) as usize],
+            n @ 0xFF30..=0xFF3F => &self.wave[(n - 0xFF30) as usize],
+            n @ 0xFF40..=0xFF4B => &self.lcd[(n - 0xFF40) as usize],
+            0xFF4F => &self.vram_select,
+            0xFF50 => &self.boot_status,
+            n @ 0xFF51..=0xFF55 => &self.vram_dma[(n - 0xFF51) as usize],
+            n @ 0xFF68..=0xFF6B => &self.palettes[(n - 0xFF68) as usize],
+            0xFF70 => &self.wram_select,
+            0xFF03
+            | 0xFF08..=0xFF0E
+            | 0xFF27..=0xFF2F
+            | 0xFF4C..=0xFF4E
+            | 0xFF56..=0xFF67
+            | 0xFF6C..=0xFF6F => &self.dead_byte,
+            ..=0xFEFF | 0xFF71.. => unreachable!("The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"),
+        }
+    }
+}
+
+impl IndexMut<u16> for IoRegisters {
+    fn index_mut(&mut self, index: u16) -> &mut Self::Output {
+        match index {
+            0xFF00 => &mut self.joypad,
+            0xFF01 => &mut self.serial.0,
+            0xFF02 => &mut self.serial.1,
+            0xFF04 => {
+                self.timer_div[0] = 0;
+                self.dead_byte = 0;
+                &mut self.dead_byte
+            }
+            n @ 0xFF05..=0xFF07 => &mut self.timer_div[(n - 0xFF04) as usize],
+            0xFF0F => &mut self.interrupt_flags,
+            n @ 0xFF10..=0xFF26 => &mut self.audio[(n - 0xFF10) as usize],
+            n @ 0xFF30..=0xFF3F => &mut self.wave[(n - 0xFF30) as usize],
+            n @ 0xFF40..=0xFF4B => &mut self.lcd[(n - 0xFF40) as usize],
+            0xFF4F => &mut self.vram_select,
+            0xFF50 => &mut self.boot_status,
+            n @ 0xFF51..=0xFF55 => &mut self.vram_dma[(n - 0xFF51) as usize],
+            n @ 0xFF68..=0xFF6B => &mut self.palettes[(n - 0xFF68) as usize],
+            0xFF70 => &mut self.wram_select,
+            0xFF03
+            | 0xFF08..=0xFF0E
+            | 0xFF27..=0xFF2F
+            | 0xFF4C..=0xFF4E
+            | 0xFF56..=0xFF67
+            | 0xFF6C..=0xFF6F => &mut self.dead_byte,
+            ..=0xFEFF | 0xFF71.. => unreachable!("The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"),
+        }
+    }
+}
+
 impl MemoryMap {
     pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
         Self {
@@ -73,7 +170,7 @@ impl MemoryMap {
             vram: [0; 0x2000],
             wram: ([0; 0x1000], [0; 0x1000]),
             oam: [0; 0x100],
-            io: [0; 0x80],
+            io: IoRegisters::default(),
             hr: [0; 0x7F],
             ie: 0,
         }
@@ -135,6 +232,12 @@ impl MemoryMap {
         }
     }
 
+    /// This method ticks the memory. The only thing this affects is the divider and timer
+    /// registers.
+    pub fn tick(&mut self) {
+        self.io.tick();
+    }
+
     pub fn set_vblank_req(&mut self) {
         self.io[0x0F] |= 0b1;
     }
@@ -161,7 +264,7 @@ impl MemoryMap {
             vram: [0; 0x2000],
             wram: ([0; 0x1000], [0; 0x1000]),
             oam: [0; 0x100],
-            io: [0; 0x80],
+            io: IoRegisters::default(),
             hr: [0; 0x7F],
             ie: 0,
         }
@@ -191,7 +294,7 @@ impl Index<u16> for MemoryMap {
             0xE000..=0xFDFF => todo!(),
             n @ 0xFE00..=0xFE9F => &self.oam[n as usize - 0xFE00],
             0xFEA0..=0xFEFF => unreachable!("No ROM should attempt to access this region"),
-            n @ 0xFF00..=0xFF7F => &self.io[(n - 0xFF00) as usize],
+            n @ 0xFF00..=0xFF7F => &self.io[n],
             n @ 0xFF80..=0xFFFE => &self.hr[(n - 0xFF80) as usize],
             0xFFFF => &self.ie,
         }
@@ -209,10 +312,31 @@ impl IndexMut<u16> for MemoryMap {
             0xE000..=0xFDFF => todo!(),
             n @ 0xFE00..=0xFE9F => &mut self.oam[n as usize - 0xFE00],
             0xFEA0..=0xFEFF => unreachable!("No ROM should attempt to access this region"),
-            n @ 0xFF00..=0xFF7F => &mut self.io[(n - 0xFF00) as usize],
+            n @ 0xFF00..=0xFF7F => &mut self.io[n],
             n @ 0xFF80..=0xFFFE => &mut self.hr[(n - 0xFF80) as usize],
             0xFFFF => &mut self.ie,
         }
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+pub enum TimerControl {
+    #[default]
+    Disabled,
+    /// Ticks once per 256 M-cycles
+    Slowest(u8),
+    /// Ticks once per 64 M-cycles
+    Slow(u8),
+    /// Ticks once per 16 M-cycles
+    Fast(u8),
+    /// Ticks once per 4 M-cycles
+    Fastest(u8),
+}
+
+impl TimerControl {
+    /// Updates the
+    fn update_and_tick(&mut self) -> bool {
+        todo!()
     }
 }
 
@@ -343,43 +467,6 @@ impl MemoryBankController {
         }
     }
 
-    fn read_from(&self, index: u16) -> &[u8] {
-        let index = index as usize;
-        match self {
-            MemoryBankController::Direct { rom, ram } => {
-                if index < rom.len() {
-                    &rom[index..]
-                } else {
-                    &ram[index + 1 - rom.len()..]
-                }
-            }
-            MemoryBankController::MBC1(_) => todo!(),
-            MemoryBankController::MBC2 => todo!(),
-            MemoryBankController::MBC3 => todo!(),
-            MemoryBankController::MBC5 => todo!(),
-        }
-    }
-
-    pub fn read_mut_from(&mut self, index: u16) -> &mut [u8] {
-        let index = index as usize;
-        match self {
-            // TODO: This should probably panic (or something) if index < rom.len(), i.e. they are
-            // trying to write to ROM.
-            MemoryBankController::Direct { rom, ram } => {
-                debug_assert!(
-                    index + 1 >= rom.len(),
-                    "Could not index into {index:X} because ROM ends as {:?}",
-                    rom.len()
-                );
-                &mut ram[index + 1 - rom.len()..]
-            }
-            MemoryBankController::MBC1(_) => todo!(),
-            MemoryBankController::MBC2 => todo!(),
-            MemoryBankController::MBC3 => todo!(),
-            MemoryBankController::MBC5 => todo!(),
-        }
-    }
-
     fn direct_overwrite(&mut self, index: u16, val: &mut u8) {
         match self {
             MemoryBankController::Direct { rom, ram } => {
@@ -401,13 +488,42 @@ impl Index<u16> for MemoryBankController {
     type Output = u8;
 
     fn index(&self, index: u16) -> &Self::Output {
-        &self.read_from(index)[0]
+        let index = index as usize;
+        match self {
+            MemoryBankController::Direct { rom, ram } => {
+                if index < rom.len() {
+                    &rom[index]
+                } else {
+                    &ram[index + 1]
+                }
+            }
+            MemoryBankController::MBC1(_) => todo!(),
+            MemoryBankController::MBC2 => todo!(),
+            MemoryBankController::MBC3 => todo!(),
+            MemoryBankController::MBC5 => todo!(),
+        }
     }
 }
 
 impl IndexMut<u16> for MemoryBankController {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
-        &mut self.read_mut_from(index)[0]
+        let index = index as usize;
+        match self {
+            // TODO: This should probably panic (or something) if index < rom.len(), i.e. they are
+            // trying to write to ROM.
+            MemoryBankController::Direct { rom, ram } => {
+                debug_assert!(
+                    index + 1 >= rom.len(),
+                    "Could not index into {index:X} because ROM ends as {:?}",
+                    rom.len()
+                );
+                &mut ram[index - rom.len()]
+            }
+            MemoryBankController::MBC1(_) => todo!(),
+            MemoryBankController::MBC2 => todo!(),
+            MemoryBankController::MBC3 => todo!(),
+            MemoryBankController::MBC5 => todo!(),
+        }
     }
 }
 
