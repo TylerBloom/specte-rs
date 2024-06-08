@@ -19,14 +19,15 @@ use std::borrow::Cow;
 
 use cpu::{check_bit_const, Cpu};
 use lookup::Instruction;
-use mbc::{MemoryBankController, MemoryMap, StartUpHeaders};
+use mem::{MemoryBankController, MemoryMap, StartUpHeaders};
 
 use crate::lookup::JumpOp;
 
 pub mod cpu;
 pub mod lookup;
-pub mod mbc;
+pub mod mem;
 pub mod rom;
+pub mod ppu;
 
 /// Represents a Gameboy color with a cartridge inserted.
 #[derive(Debug, Hash)]

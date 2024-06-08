@@ -16,7 +16,7 @@ use crate::{
         HalfRegister, Instruction, InterruptOp, JumpOp, LoadAPointer, LoadOp, RegOrPointer,
         SomeByte, WideReg, WideRegWithoutSP,
     },
-    mbc::MemoryMap,
+    mem::MemoryMap,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

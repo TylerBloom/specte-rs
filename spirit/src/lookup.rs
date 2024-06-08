@@ -1,6 +1,6 @@
 use array_concat::concat_arrays;
 
-use crate::{cpu::Cpu, mbc::MemoryMap};
+use crate::{cpu::Cpu, mem::MemoryMap};
 
 use derive_more::{From, IsVariant};
 
@@ -1361,7 +1361,7 @@ const PREFIXED_OP_LOOKUP: OpArray<0x100> = define_op_lookup_table!(PREFIXED);
 
 #[cfg(test)]
 mod test {
-    use crate::mbc::MemoryMap;
+    use crate::mem::MemoryMap;
 
     use super::{parse_instruction, parse_prefixed_instruction};
 
