@@ -48,6 +48,11 @@ impl Gameboy {
         &self.cpu
     }
 
+    /// Registers a button press.
+    pub fn button_press(&mut self, input: ButtonInput) {
+        self.mem.request_button_int(input);
+    }
+
     /// This method returns an iterator over the current and upcoming instructions, based on the
     /// location of the PC. This does not do any clever predictions, like trying to determine if a
     /// conditional jump will execute. Rather, it is to be used for debugging by providing a window
@@ -98,20 +103,25 @@ impl Gameboy {
     }
 }
 
-#[repr(u8)]
-pub enum JoypadInput {
-    Right = 0b0001_0001u8,
-    Left = 0b0001_0010u8,
-    Up = 0b0001_0100u8,
-    Down = 0b0001_1000u8,
+pub enum ButtonInput {
+    Joypad(JoypadInput),
+    Ssab(SsabInput),
 }
 
 #[repr(u8)]
-pub enum ButtonInput {
-    A = 0b0010_0001u8,
-    B = 0b0010_0010u8,
-    Select = 0b0010_0100u8,
-    Start = 0b0010_1000u8,
+pub enum JoypadInput {
+    Right = 0x1,
+    Left  = 0x2,
+    Up    = 0x4,
+    Down  = 0x8,
+}
+
+#[repr(u8)]
+pub enum SsabInput {
+    A = 0x1,
+    B = 0x2,
+    Select = 0x4,
+    Start = 0x8,
 }
 
 #[must_use = "Stepping returns a counter that must be ticked to perform the next operation. Dropping this object instantly completes the operation."]
@@ -134,18 +144,8 @@ impl<'a> StepProcess<'a> {
         }
     }
 
-    pub fn press_joypad_button(&mut self, button: JoypadInput) {
-        let reg = &mut self.gb.mem[0xFF00];
-        if check_bit_const::<4>(*reg) {
-            *reg = button as u8;
-        }
-    }
-
-    pub fn press_button(&mut self, button: ButtonInput) {
-        let reg = &mut self.gb.mem[0xFF00];
-        if check_bit_const::<5>(*reg) {
-            *reg = button as u8;
-        }
+    pub fn press_joypad_button(&mut self, input: ButtonInput) {
+        self.gb.button_press(input)
     }
 
     pub fn is_complete(&self) -> bool {
@@ -194,7 +194,7 @@ impl<'a> StartUpSequence<'a> {
     }
 
     pub fn set_vblank(&mut self) {
-        self.gb.mem.set_vblank_req()
+        self.gb.mem.request_vblank_int()
     }
 
     pub fn tick(&mut self) {
