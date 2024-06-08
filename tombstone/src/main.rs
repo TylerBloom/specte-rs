@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Block, Paragraph},
     Frame, Terminal,
 };
-use spirit::{cpu::Cpu, lookup::Instruction, mbc::MemoryMap, Gameboy, StartUpSequence};
+use spirit::{cpu::Cpu, lookup::Instruction, mem::MemoryMap, Gameboy, StartUpSequence};
 
 mod command;
 mod state;

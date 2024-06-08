@@ -3,7 +3,7 @@ use std::num::Wrapping;
 use spirit::{
     cpu::Cpu,
     lookup::{BitShiftOp, HalfRegister, Instruction, LoadAPointer, LoadOp, RegOrPointer},
-    mbc::MemoryMap,
+    mem::MemoryMap,
 };
 
 const WRAM: u16 = 0xC000;

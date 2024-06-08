@@ -1,5 +1,5 @@
 use spirit::{
-    mbc::{MemoryMap, START_UP_HEADER},
+    mem::{MemoryMap, START_UP_HEADER},
     Gameboy,
 };
 
