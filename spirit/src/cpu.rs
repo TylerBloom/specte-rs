@@ -228,7 +228,7 @@ impl Cpu {
         // println!("Starting execution: {instr}",);
         // println!("CPU={self}");
         // TODO: Remove this! This is onlhy for testing before we impl interrupt handling and IO.
-        mem[0xFF0F] = 0b1;
+        // mem[0xFF0F] = 0b1;
         let len = instr.size();
         self.pc += (!self.done as u16) * (len as u16);
         match instr {

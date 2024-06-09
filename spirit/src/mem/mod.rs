@@ -11,7 +11,7 @@ use crate::{ButtonInput, JoypadInput, SsabInput};
 
 mod io;
 mod mbc;
-mod vram;
+pub(crate) mod vram;
 
 pub use mbc::MemoryBankController;
 use mbc::*;
@@ -29,7 +29,7 @@ pub struct MemoryMap {
     // The MBC
     mbc: MemoryBankController,
     // The video RAM and Object attribute map
-    vram: VRam,
+    pub(crate) vram: VRam,
     // The working RAM
     wram: ([u8; 0x1000], [u8; 0x1000]),
     // There is a region of memory that is marked as inaccessible (0xFEA0 through 0xFEFF). Instead
@@ -97,7 +97,7 @@ impl MemoryMap {
     }
 
     fn check_interrupt(&self) -> Option<Instruction> {
-        match self.ie & self.io[0x0F] {
+        match self.ie & self.io[0xFF0F] {
             0 => None,
             n => {
                 if check_bit_const::<0>(n) {
@@ -211,6 +211,7 @@ impl Index<u16> for MemoryMap {
 
 impl IndexMut<u16> for MemoryMap {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
+        println!("Mut index into MemMap: 0x{index:0>4X}");
         match index {
             0x0000..=0x7FFF => &mut self.mbc[index],
             n @ 0x8000..=0x9FFF => &mut self.vram[VramIndex(n)],

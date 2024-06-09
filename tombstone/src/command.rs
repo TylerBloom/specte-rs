@@ -1,11 +1,5 @@
 use std::{
-    borrow::Cow,
-    collections::HashMap,
-    hash::{DefaultHasher, Hash, Hasher},
-    ops::Range,
-    path::PathBuf,
-    str::FromStr,
-    fmt::Write
+    borrow::Cow, collections::{hash_map::Entry, HashMap}, fmt::Write, hash::{DefaultHasher, Hash, Hasher}, ops::Range, path::PathBuf, str::FromStr
 };
 
 use spirit::lookup::{Instruction, JumpOp};
@@ -55,48 +49,57 @@ impl Command {
                 IndexOptions::Single(i) => format!("ADDR=0x{i:0>4X} -> {:0>2X}", gb.gb().mem[i]),
                 IndexOptions::Range(mut rng) => {
                     let mut digest = format!("ADDR=0x{:0>4X}..0x{:0>4X}", rng.start, rng.end);
-                    digest.push_str("[");
+                    digest.push('[');
                     if let Some(i) = rng.next() {
                         write!(digest, "0x{:0>2}", gb.gb().mem[i]).unwrap();
                     }
                     for i in rng {
                         write!(digest, ", 0x{:0>2}", gb.gb().mem[i]);
                     }
-                    digest.push_str("]");
+                    digest.push(']');
                     digest
                 }
             },
             Command::Run(until) => match until {
                 RunUntil::Loop => {
                     let mut ops = Vec::new();
-                    let mut cpu_map: HashMap<_, HashMap<u64, usize>> = HashMap::new();
+                    let mut cpu_map: HashMap<_, HashMap<u64, HashMap<u64, usize>>> = HashMap::new();
                     let mut index = 0;
                     while !gb.is_complete() {
                         let cpu = gb.gb().cpu().clone();
                         let ptr = cpu.pc.0;
                         ops.push((cpu, ptr, gb.next_op()));
                         match cpu_map.entry(gb.gb().cpu().clone()) {
-                            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                            Entry::Occupied(mut entry) => {
                                 let mut hasher = DefaultHasher::new();
-                                gb.gb().mem.hash(&mut hasher);
+                                gb.gb().ppu.hash(&mut hasher);
                                 match entry.get_mut().entry(hasher.finish()) {
-                                    std::collections::hash_map::Entry::Vacant(entry) => {
-                                        entry.insert(ops.len());
+                                    Entry::Vacant(entry) => {
+                                        entry.insert(HashMap::new());
                                     }
-                                    std::collections::hash_map::Entry::Occupied(entry) => {
-                                        index = *entry.get();
-                                        break;
+                                    Entry::Occupied(mut entry) => {
+                                        let mut hasher = DefaultHasher::new();
+                                        gb.gb().mem.hash(&mut hasher);
+                                        match entry.get_mut().entry(hasher.finish()) {
+                                            Entry::Vacant(entry) => {
+                                                entry.insert(ops.len());
+                                            },
+                                            Entry::Occupied(entry) => {
+                                                index = *entry.get();
+                                                break;
+                                            }
+                                        }
                                     }
                                 }
                             }
-                            std::collections::hash_map::Entry::Vacant(entry) => {
+                            Entry::Vacant(entry) => {
                                 entry.insert(HashMap::new());
                             }
                         }
                         gb.step()
                     }
                     if !gb.is_complete() {
-                        let mut digest = format!("Infinite loop detected! Here are the instructions and CPU states in the loop:");
+                        let mut digest = "Infinite loop detected! Here are the instructions and CPU states in the loop:".to_string();
                         for (state, ptr, op) in &ops[index..] {
                             writeln!(digest, "\n{state}");
                             write!(digest, "0x{ptr:0>4X} -> {op}");

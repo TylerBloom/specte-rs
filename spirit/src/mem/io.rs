@@ -16,7 +16,7 @@ pub(super) struct IoRegisters {
     /// ADDR FF0F
     pub(super) interrupt_flags: u8,
     /// ADDR FF10-FF26
-    audio: [u8; 16],
+    audio: [u8; 0x17],
     /// ADDR FF30-FF3F
     wave: [u8; 0x10],
     /// ADDR FF40-FF4B
@@ -125,6 +125,7 @@ impl Index<u16> for IoRegisters {
 
 impl IndexMut<u16> for IoRegisters {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
+        println!("Index: 0x{index:0>4X}");
         match index {
             0xFF00 => &mut self.joypad[()],
             0xFF01 => &mut self.serial.0,

@@ -19,17 +19,20 @@ pub(super) struct VramIndex(pub u16);
 /// making the field `pub(crate)`/`pub(super)`.
 pub(super) struct OamIndex(pub u16);
 
-#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, derive_more::IsVariant)]
+#[repr(u8)]
+#[derive(
+    Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, derive_more::IsVariant,
+)]
 pub(crate) enum PpuMode {
     /// Also refered to as "Mode 2" in the pandocs.
     #[default]
-    OamScan,
+    OamScan = 0,
     /// Also refered to as "Mode 3" in the pandocs.
-    Drawing,
+    Drawing = 1,
     /// Also refered to as "Mode 0" in the pandocs.
-    HBlank,
+    HBlank = 2,
     /// Also refered to as "Mode 1" in the pandocs.
-    VBlank,
+    VBlank = 3,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -57,8 +60,12 @@ impl VRam {
         }
     }
 
-    pub(super) fn set_status(&mut self, status: PpuMode) {
-        self.status = status;
+    pub(crate) fn inc_status(&mut self, other: PpuMode) {
+        self.status = std::cmp::max(self.status, other);
+    }
+
+    pub(crate) fn reset_status(&mut self) {
+        self.status = PpuMode::default();
     }
 }
 

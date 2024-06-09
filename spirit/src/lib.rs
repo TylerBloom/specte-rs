@@ -20,19 +20,21 @@ use std::borrow::Cow;
 use cpu::{check_bit_const, Cpu};
 use lookup::Instruction;
 use mem::{MemoryBankController, MemoryMap, StartUpHeaders};
+use ppu::Ppu;
 
 use crate::lookup::JumpOp;
 
 pub mod cpu;
 pub mod lookup;
 pub mod mem;
-pub mod rom;
 pub mod ppu;
+pub mod rom;
 
 /// Represents a Gameboy color with a cartridge inserted.
 #[derive(Debug, Hash)]
 pub struct Gameboy {
     pub mem: MemoryMap,
+    pub ppu: Ppu,
     cpu: Cpu,
 }
 
@@ -42,6 +44,7 @@ impl Gameboy {
         Self {
             mem: MemoryMap::new(cart),
             cpu: Cpu::new(),
+            ppu: Ppu::new(),
         }
     }
 
@@ -91,6 +94,13 @@ impl Gameboy {
         StepProcess::new(self)
     }
 
+    /// This method is only called by the step sequence when it gets ticked. This represents a
+    /// clock cycle (not a machine cycle). This involves ticking the memory and PPU.
+    fn tick(&mut self) {
+        self.mem.tick();
+        self.ppu.tick(&mut self.mem);
+    }
+
     fn read_op(&self) -> Instruction {
         self.cpu.read_op(&self.mem)
     }
@@ -112,9 +122,9 @@ pub enum ButtonInput {
 #[repr(u8)]
 pub enum JoypadInput {
     Right = 0x1,
-    Left  = 0x2,
-    Up    = 0x4,
-    Down  = 0x8,
+    Left = 0x2,
+    Up = 0x4,
+    Down = 0x8,
 }
 
 #[repr(u8)]
@@ -140,6 +150,7 @@ impl<'a> StepProcess<'a> {
 
     pub fn tick(&mut self) {
         self.counter += 1;
+        self.gb.tick();
         if self.is_complete() {
             self.gb.apply_op(self.op);
         }
@@ -159,6 +170,7 @@ impl<'a> StepProcess<'a> {
 
 impl Drop for StepProcess<'_> {
     fn drop(&mut self) {
+        (self.counter..self.op.length(&self.gb.cpu)).for_each(|_| self.tick());
         self.gb.apply_op(self.op);
     }
 }
@@ -201,6 +213,7 @@ impl<'a> StartUpSequence<'a> {
     pub fn tick(&mut self) {
         if !self.is_complete() {
             self.counter += 1;
+            self.gb.tick();
             if self.is_step_complete() {
                 self.step()
             }
@@ -208,6 +221,7 @@ impl<'a> StartUpSequence<'a> {
     }
 
     pub fn step(&mut self) {
+        (self.counter..self.op.length(&self.gb.cpu)).for_each(|_| self.tick());
         self.counter = 0;
         if let Some(op) = self.gb.start_up_apply_op(self.op) {
             self.op = op;
@@ -231,7 +245,7 @@ impl<'a> StartUpSequence<'a> {
 impl Drop for StartUpSequence<'_> {
     fn drop(&mut self) {
         while !self.is_complete() {
-            self.step()
+            self.tick()
         }
         self.gb.mem.start_up_unmap(self.remap_mem)
     }
