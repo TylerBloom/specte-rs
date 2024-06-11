@@ -5,6 +5,23 @@ use std::{
 use spirit::lookup::{Instruction, JumpOp};
 
 use crate::{AppState, GameBoyLike};
+use untwine::ParserError;
+
+untwine::parser! {
+    [error = ParserError]
+    ws = #{char::is_ascii_whitespace}+;
+    number: <"0x" | "0b" | ""> rest=.* -> usize { todo!() }
+    range: start=number ".." end=number -> Range<usize> { start..end }
+    step: "step" ws count=number -> Command { Command::Step(count) }
+    info: "info" -> Command { Command::Info }
+    index: "index" -> Command { Command::Index(todo!()) }
+    run: "run" -> Command { Command::Run(todo!()) }
+    interrupt: "interrupt" -> Command { Command::Interrupt(todo!()) }
+    stash: "stash" -> Command { Command::Stash(todo!()) }
+    help: "help" -> Command { todo!() }
+    exit: "exit" -> Command { todo!() }
+    pub command = (step | info | index | run | interrupt | stash | help | exit) -> Command;
+}
 
 pub(crate) fn get_input(state: &mut AppState) -> Result<Command, Cow<'static, str>> {
     let mut input = String::new();

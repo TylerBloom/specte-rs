@@ -10,3 +10,4 @@ linker = "/usr/bin/aarch64-linux-gnu-gcc"
 crossterm = "0.27.0"
 ratatui = { version = "0.26.3", features = ["all-widgets"] }
 spirit = { path = "../spirit" }
+untwine = "0.8.0"
