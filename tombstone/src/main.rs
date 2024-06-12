@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Block, Paragraph},
     Frame, Terminal,
 };
-use spirit::{cpu::Cpu, lookup::Instruction, mem::MemoryMap, Gameboy, StartUpSequence};
+use spirit::{cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu, Gameboy, StartUpSequence};
 
 mod command;
 mod state;
@@ -46,10 +46,7 @@ where
         term.draw(|frame| render_frame(frame, state, gb.gb()))?;
         // print!("{} $ ", GB::PROMPT);
         // std::io::stdout().flush().unwrap();
-        let output = match get_input(state) {
-            Ok(cmd) => cmd.process(&mut gb),
-            Err(e) => e.to_string(),
-        };
+        get_input(state).process(&mut gb);
     }
     Ok(())
 }
@@ -68,16 +65,19 @@ fn render_frame(frame: &mut Frame, state: &mut AppState, gb: &Gameboy) {
     let right = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Fill(1),
-            Constraint::Fill(1),
+            Constraint::Length(10),
+            Constraint::Length(4),
+            Constraint::Length(4),
             Constraint::Fill(1),
         ])
         .split(right);
     render_cli(frame, state, left[0]);
     render_pc_area(frame, state, left[1], gb);
     render_cpu(frame, state, right[0], gb.cpu());
-    render_stack(frame, state, right[1], &gb.mem);
-    render_mem(frame, state, right[2]);
+    render_ppu(frame, state, right[1], &gb.ppu);
+    render_interrupts(frame, state, right[2], &gb.mem);
+    render_stack(frame, state, right[3], &gb.mem);
+    // render_mem(frame, state, right[2]);
 }
 
 fn render_cli(frame: &mut Frame, state: &mut AppState, area: Rect) {
@@ -100,7 +100,7 @@ fn render_cli(frame: &mut Frame, state: &mut AppState, area: Rect) {
 
 fn render_pc_area(frame: &mut Frame, state: &mut AppState, area: Rect, gb: &Gameboy) {
     let block = Block::bordered()
-        .title("PC Area")
+        .title(format!(" PC Area {} ", area.width))
         .title_alignment(ratatui::layout::Alignment::Center);
     let len = area.height - 2;
     let para = Paragraph::new(Text::from_iter(
@@ -111,6 +111,8 @@ fn render_pc_area(frame: &mut Frame, state: &mut AppState, area: Rect, gb: &Game
     .block(block);
     frame.render_widget(para, area);
 }
+
+/* This is the right column. In order, the CPU, PPU, Interrupts, and then the stack are rendered */
 
 fn render_cpu(frame: &mut Frame, state: &mut AppState, area: Rect, cpu: &Cpu) {
     let block = Block::bordered()
@@ -133,15 +135,44 @@ fn render_cpu(frame: &mut Frame, state: &mut AppState, area: Rect, cpu: &Cpu) {
     frame.render_widget(para, area);
 }
 
+fn render_ppu(frame: &mut Frame, state: &mut AppState, area: Rect, ppu: &Ppu) {
+    let block = Block::bordered()
+        .title("PPU")
+        .title_alignment(ratatui::layout::Alignment::Center);
+    let para = Paragraph::new(Text::from_iter([
+        format!("H Pos : {}", ppu.h_count),
+        format!("V Pos : {}", ppu.v_count),
+    ]))
+    .block(block);
+    frame.render_widget(para, area);
+}
+
+fn render_interrupts(frame: &mut Frame, state: &mut AppState, area: Rect, mem: &MemoryMap) {
+    let block = Block::bordered()
+        .title("Interrupts")
+        .title_alignment(ratatui::layout::Alignment::Center);
+    let para = Paragraph::new(Text::from_iter([
+        format!("Enabled   : 0b{:0>8b}", mem.ie),
+        format!("Requested : 0b{:0>8b}", mem.io.interrupt_flags),
+    ]))
+    .block(block);
+    frame.render_widget(para, area);
+}
+
 fn render_stack(frame: &mut Frame, state: &mut AppState, area: Rect, mem: &MemoryMap) {
     let block = Block::bordered()
         .title("Stack")
         .title_alignment(ratatui::layout::Alignment::Center);
     // let iter = [].into_iter();
-    let text = format!("0x{:0>2X}{:0>2X} 0x{:0>2X}{:0>2X}", mem[0xFFFE], mem[0xFFFD], mem[0xFFFC], mem[0xFFFB]);
+    let text = format!(
+        "0x{:0>2X}{:0>2X} 0x{:0>2X}{:0>2X}",
+        mem[0xFFFE], mem[0xFFFD], mem[0xFFFC], mem[0xFFFB]
+    );
     let para = Paragraph::new(Text::from(text)).block(block);
     frame.render_widget(para, area);
 }
+
+// TODO: Move mem
 
 fn render_mem(frame: &mut Frame, state: &mut AppState, area: Rect) {
     let block = Block::bordered()

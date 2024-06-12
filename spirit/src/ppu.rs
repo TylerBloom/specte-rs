@@ -6,8 +6,8 @@ use crate::mem::{
 /// The Pixel Processing Unit
 #[derive(Debug, Hash)]
 pub struct Ppu {
-    h_count: u16, // Max of 456
-    v_count: u8,  // Max of 153
+    pub h_count: u16, // Max of 456
+    pub v_count: u8,  // Max of 153
 }
 
 impl Ppu {

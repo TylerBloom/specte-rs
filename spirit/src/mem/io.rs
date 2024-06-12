@@ -3,7 +3,7 @@ use std::ops::{Index, IndexMut};
 use crate::{cpu::check_bit_const, ButtonInput};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
-pub(super) struct IoRegisters {
+pub struct IoRegisters {
     /// ADDR FF00
     pub(super) joypad: Joypad,
     /// ADDR FF01, FF02
@@ -14,7 +14,7 @@ pub(super) struct IoRegisters {
     /// The counter for the timer controller
     tac: TimerControl,
     /// ADDR FF0F
-    pub(super) interrupt_flags: u8,
+    pub interrupt_flags: u8,
     /// ADDR FF10-FF26
     audio: [u8; 0x17],
     /// ADDR FF30-FF3F
@@ -150,8 +150,8 @@ impl IndexMut<u16> for IoRegisters {
             | 0xFF27..=0xFF2F
             | 0xFF4C..=0xFF4E
             | 0xFF56..=0xFF67
-            | 0xFF6C..=0xFF6F => &mut self.dead_byte,
-            ..=0xFEFF | 0xFF71.. => unreachable!(
+            | 0xFF6C..=0xFF7F => &mut self.dead_byte,
+            ..=0xFEFF | 0xFF80.. => unreachable!(
                 "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
             ),
         }

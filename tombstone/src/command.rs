@@ -1,32 +1,83 @@
 use std::{
-    borrow::Cow, collections::{hash_map::Entry, HashMap}, fmt::Write, hash::{DefaultHasher, Hash, Hasher}, ops::Range, path::PathBuf, str::FromStr
+    borrow::Cow,
+    collections::{hash_map::Entry, HashMap},
+    fmt::Write,
+    hash::{DefaultHasher, Hash, Hasher},
+    num::ParseIntError,
+    ops::Range,
+    path::PathBuf,
+    str::FromStr,
 };
 
 use spirit::lookup::{Instruction, JumpOp};
 
 use crate::{AppState, GameBoyLike};
-use untwine::ParserError;
+use untwine::{parse, ParserError};
 
-untwine::parser! {
-    [error = ParserError]
-    ws = #{char::is_ascii_whitespace}+;
-    number: <"0x" | "0b" | ""> rest=.* -> usize { todo!() }
-    range: start=number ".." end=number -> Range<usize> { start..end }
-    step: "step" ws count=number -> Command { Command::Step(count) }
-    info: "info" -> Command { Command::Info }
-    index: "index" -> Command { Command::Index(todo!()) }
-    run: "run" -> Command { Command::Run(todo!()) }
-    interrupt: "interrupt" -> Command { Command::Interrupt(todo!()) }
-    stash: "stash" -> Command { Command::Stash(todo!()) }
-    help: "help" -> Command { todo!() }
-    exit: "exit" -> Command { todo!() }
-    pub command = (step | info | index | run | interrupt | stash | help | exit) -> Command;
+#[derive(Debug)]
+enum CommandParserError {
+    Number,
+    Command,
 }
 
-pub(crate) fn get_input(state: &mut AppState) -> Result<Command, Cow<'static, str>> {
+impl From<Vec<(Range<usize>, Self)>> for CommandParserError {
+    fn from(_: Vec<(Range<usize>, Self)>) -> Self {
+        Self::Command
+    }
+}
+
+impl From<ParserError> for CommandParserError {
+    fn from(value: ParserError) -> Self {
+        Self::Command
+    }
+}
+
+impl From<ParseIntError> for CommandParserError {
+    fn from(_: ParseIntError) -> Self {
+        Self::Number
+    }
+}
+
+untwine::parser! {
+    [error = CommandParserError]
+    ws = #{char::is_ascii_whitespace}+;
+    number: <"0x" | "0b">? rest=<.*> -> u16 { rest.parse()? }
+    range: start=number ".." end=number -> Range<u16> { start..end }
+    step: "step" ws count=number -> Command { Command::Step(count as usize) }
+    info: "info" -> Command { Command::Info }
+    index_number: "index" ws number=number -> Command { Command::Index(IndexOptions::Single(number)) }
+    index_range: "index" ws range=range -> Command { Command::Index(IndexOptions::Range(range)) }
+    top_run: "run" ws "until" ws rest=<.*> -> Command { Command::Run(parse(run, rest)?) }
+    interrupt: "interrupt" -> Command { Command::Interrupt(todo!()) }
+    top_stash: "stash" ws rest=<.*> -> Command { Command::Stash(parse(stash, rest)?) }
+    help: "help" -> Command { todo!() }
+    exit: "exit" -> Command { todo!() }
+    pub command = (step | info | index_number | index_range | top_run | interrupt | top_stash | help | exit) -> Command;
+}
+
+untwine::parser! {
+    [error=CommandParserError]
+    ws = #{char::is_ascii_whitespace}+;
+    load_direct: "load " ws rest=<.*> -> StashOptions { StashOptions::Load(rest.to_owned()) }
+    load_from: "load from" ws file=<.*> -> StashOptions { StashOptions::LoadFrom(file.parse().unwrap()) }
+    save: "save" ws file=<.*> -> StashOptions { StashOptions::Save((!file.is_empty()).then(|| file.parse().unwrap())) }
+    export: "export" ws file=<.*> ws rest=<.*> -> StashOptions { StashOptions::Export(file.parse().unwrap(), (!rest.is_empty()).then(|| rest.to_owned())) }
+    remove: "remove" ws rest=<.*> -> StashOptions { StashOptions::Remove((!rest.is_empty()).then(|| rest.to_owned())) }
+    pub stash = (save | load_from | load_direct | export | remove) -> StashOptions;
+}
+
+untwine::parser! {
+    [error=CommandParserError]
+    ws = #{char::is_ascii_whitespace}+;
+    until_loop: "loop" -> RunUntil { RunUntil::Loop }
+    until_return: "return" -> RunUntil { RunUntil::Return }
+    pub run = (until_loop | until_return) -> RunUntil;
+}
+
+pub(crate) fn get_input(state: &mut AppState) -> Command {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).unwrap();
-    let cmd = input.trim().parse();
+    let cmd = parse(command, input.trim()).unwrap();
     state.cli_history.push(input);
     cmd
 }
@@ -100,7 +151,7 @@ impl Command {
                                         match entry.get_mut().entry(hasher.finish()) {
                                             Entry::Vacant(entry) => {
                                                 entry.insert(ops.len());
-                                            },
+                                            }
                                             Entry::Occupied(entry) => {
                                                 index = *entry.get();
                                                 break;
@@ -151,7 +202,7 @@ pub(crate) enum StashOptions {
     /// exported with an assumed name.
     Export(PathBuf, Option<String>),
     /// Removes a snapshot held in memory.
-    Remove(String),
+    Remove(Option<String>),
     /// Load a state from a file and make it the current state.
     LoadFrom(PathBuf),
 }

@@ -9,7 +9,7 @@ use crate::cpu::check_bit_const;
 use crate::lookup::{parse_instruction, Instruction, InterruptOp};
 use crate::{ButtonInput, JoypadInput, SsabInput};
 
-mod io;
+pub mod io;
 mod mbc;
 pub(crate) mod vram;
 
@@ -35,7 +35,7 @@ pub struct MemoryMap {
     // There is a region of memory that is marked as inaccessible (0xFEA0 through 0xFEFF). Instead
     // of panicking when this area is accessed, a reference to this dead byte is used instead.
     dead_byte: u8,
-    io: IoRegisters,
+    pub io: IoRegisters,
     // High RAM
     pub(crate) hr: [u8; 0x7F],
     /// The interrupt enable register. Bits 0-4 flag where or not certain interrupt handlers can be
@@ -46,7 +46,7 @@ pub struct MemoryMap {
     ///  - Bit 3 corresponds to the serial interrupt
     ///  - Bit 4 corresponds to the joypad interrupt
     /// When intexed, this register is at 0xFFFF.
-    ie: u8,
+    pub ie: u8,
 }
 
 impl MemoryMap {
@@ -124,25 +124,33 @@ impl MemoryMap {
         self.io.tick();
     }
 
+    // TODO: It is somewhat unclear to me if the IE register acts like a barrier to interrupts or
+    // not. It would seems (from the start up sequence) the answer is "no".
+
     pub fn request_vblank_int(&mut self) {
-        self.io.interrupt_flags |= self.ie & 0b1;
+        // self.io.interrupt_flags |= self.ie & 0b1;
+        self.io.interrupt_flags |= 0b1;
     }
 
     pub fn request_lcd_int(&mut self) {
-        self.io.interrupt_flags |= self.ie & 0b10;
+        // self.io.interrupt_flags |= self.ie & 0b10;
+        self.io.interrupt_flags |= 0b10;
     }
 
     pub fn request_timer_int(&mut self) {
-        self.io.interrupt_flags |= self.ie & 0b100;
+        // self.io.interrupt_flags |= self.ie & 0b100;
+        self.io.interrupt_flags |= 0b100;
     }
 
     pub fn request_serial_int(&mut self) {
-        self.io.interrupt_flags |= self.ie & 0b1000;
+        // self.io.interrupt_flags |= self.ie & 0b1000;
+        self.io.interrupt_flags |= 0b1000;
     }
 
     pub fn request_button_int(&mut self, input: ButtonInput) {
         self.io.joypad.register_input(input);
-        self.io.interrupt_flags |= self.ie & 0b1_0000;
+        // self.io.interrupt_flags |= self.ie & 0b1_0000;
+        self.io.interrupt_flags |= 0b1_0000;
     }
 
     pub(crate) fn clear_interrupt_req(&mut self, op: InterruptOp) {
