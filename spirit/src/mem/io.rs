@@ -1,5 +1,7 @@
 use std::ops::{Index, IndexMut};
 
+use tracing::trace;
+
 use crate::{cpu::check_bit_const, ButtonInput};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
@@ -125,7 +127,7 @@ impl Index<u16> for IoRegisters {
 
 impl IndexMut<u16> for IoRegisters {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
-        println!("Index: 0x{index:0>4X}");
+        trace!("Index: 0x{index:0>4X}");
         match index {
             0xFF00 => &mut self.joypad[()],
             0xFF01 => &mut self.serial.0,

@@ -15,6 +15,7 @@ pub use mbc1::*;
 pub use mbc2::*;
 pub use mbc3::*;
 pub use mbc5::*;
+use tracing::error;
 
 static NINTENDO_LOGO: &[u8] = &[
     0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
@@ -73,7 +74,7 @@ impl MemoryBankController {
             0xC0 => false,
             // FIXME: Is this actually needed?
             b => {
-                eprintln!("Unknown CGB code: {b}");
+                error!("Unknown CGB code: {b}");
                 false
             }
         };

@@ -87,6 +87,7 @@ pub(crate) enum Command {
     //  - help
     //  - something to visualize the surrounding ops
     //  - exit
+    //  - to set verbosity level
     // Index should be formatted more nicely, like hexdump
     /// Steps the emulator forward N operations.
     Step(usize),
