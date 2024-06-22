@@ -25,7 +25,6 @@ pub static START_UP_HEADER: &[u8; 0x900] = include_bytes!("../cgb.bin");
 
 pub type StartUpHeaders = ([u8; 0x100], [u8; 0x700]);
 
-
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct MemoryMap {
     // The MBC

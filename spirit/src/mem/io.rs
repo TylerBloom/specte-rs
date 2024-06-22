@@ -22,15 +22,17 @@ pub struct IoRegisters {
     /// ADDR FF30-FF3F
     wave: [u8; 0x10],
     /// ADDR FF40-FF4B
-    lcd: [u8; 0xC],
+    lcd: LcdRegisters,
     /// ADDR FF4F
     vram_select: u8,
     /// ADDR FF50
     boot_status: u8,
     /// ADDR FF51-FF55
     vram_dma: [u8; 5],
-    /// ADDR FF68-FF6B
-    palettes: [u8; 4],
+    /// ADDR FF68 and FF69
+    background_palettes: ColorPalettes,
+    /// ADDR FF6A and FF6B
+    object_palettes: ColorPalettes,
     /// ADDR FF70
     wram_select: u8,
     /// There are gaps amount the memory mapped IO registers. Any index into this that hits one of
@@ -38,6 +40,147 @@ pub struct IoRegisters {
     /// divider register but not while immutably indexing.
     /// ADDR FF03, FF08-FF0E, FF27-FF29, FF4C-FF4E, FF56-FF67, FF6C-FF6F
     dead_byte: u8,
+}
+
+/// In GBC mode, there are extra palettes for the colors
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+pub struct ColorPalettes {
+    // TODO: When the palette is mutably indexed into, increment this value iff the top bit is set.
+    index: u8,
+    /// This array is indexed into by the index field.
+    data: [Palette; 8],
+}
+
+impl ColorPalettes {
+    fn tick(&mut self) {
+        self.index &= 0x9F;
+        let (a, b) = self.indices();
+        self.data[(a) as usize].tick(b);
+    }
+
+    fn indices(&self) -> (u8, u8) {
+        let index = self.index & 0x1F;
+        (index / 8, index % 8)
+    }
+}
+
+impl Index<u16> for ColorPalettes {
+    type Output = u8;
+
+    fn index(&self, index: u16) -> &Self::Output {
+        match index {
+            0 => &self.index,
+            1 => {
+                let (a, b) = self.indices();
+                &self.data[a as usize][b]
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl IndexMut<u16> for ColorPalettes {
+    fn index_mut(&mut self, index: u16) -> &mut Self::Output {
+        match index {
+            0 => &mut self.index,
+            1 => {
+                let (a, b) = self.indices();
+                self.index += self.index >> 7;
+                &mut self.data[a as usize][b]
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+/// All of the date for one of the 8 palettes that can be held in memory.
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+pub struct Palette {
+    colors: [PaletteColor; 4],
+}
+
+impl Palette {
+    fn tick(&mut self, index: u8) {
+        self.colors[index as usize].tick();
+    }
+}
+
+impl Index<u8> for Palette {
+    type Output = u8;
+
+    fn index(&self, index: u8) -> &Self::Output {
+        debug_assert!(index < 8);
+        &self.colors[(index / 2) as usize][index  % 2]
+    }
+}
+
+impl IndexMut<u8> for Palette {
+    fn index_mut(&mut self, index: u8) -> &mut Self::Output {
+        debug_assert!(index < 8);
+        &mut self.colors[(index / 2) as usize][index  % 2]
+    }
+}
+
+/// The colors inside a palette are a bit odd. Each color takes up two bytes and represents each
+/// color with 5 bits (in little-endian). The top bit is not used.
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+pub struct PaletteColor([u8; 2]);
+
+impl PaletteColor {
+    fn tick(&mut self) {
+        self.0[1] &= 0xEF;
+    }
+
+    fn r(&self) -> u8 {
+        todo!()
+    }
+
+    fn g(&self) -> u8 {
+        todo!()
+    }
+
+    fn b(&self) -> u8 {
+        todo!()
+    }
+}
+
+impl Index<u8> for PaletteColor {
+    type Output = u8;
+
+    fn index(&self, index: u8) -> &Self::Output {
+        debug_assert!(index < 2);
+        &self.0[index as usize]
+    }
+}
+
+impl IndexMut<u8> for PaletteColor {
+    fn index_mut(&mut self, index: u8) -> &mut Self::Output {
+        debug_assert!(index < 2);
+        &mut self.0[index as usize]
+    }
+}
+
+/// Addressed between 0xFF40 and FF4B, this type encapsulates
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+pub struct LcdRegisters {
+    /// Monochrome palettes: FF47
+    bgp: u8,
+    /// Monochrome palette data: FF48, FF49
+    obgp: [u8; 2],
+}
+
+impl Index<u16> for LcdRegisters {
+    type Output = u8;
+
+    fn index(&self, index: u16) -> &Self::Output {
+        todo!()
+    }
+}
+
+impl IndexMut<u16> for LcdRegisters {
+    fn index_mut(&mut self, index: u16) -> &mut Self::Output {
+        todo!()
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
@@ -106,11 +249,12 @@ impl Index<u16> for IoRegisters {
             0xFF0F => &self.interrupt_flags,
             n @ 0xFF10..=0xFF26 => &self.audio[(n - 0xFF10) as usize],
             n @ 0xFF30..=0xFF3F => &self.wave[(n - 0xFF30) as usize],
-            n @ 0xFF40..=0xFF4B => &self.lcd[(n - 0xFF40) as usize],
+            n @ 0xFF40..=0xFF4B => &self.lcd[n - 0xFF40],
             0xFF4F => &self.vram_select,
             0xFF50 => &self.boot_status,
             n @ 0xFF51..=0xFF55 => &self.vram_dma[(n - 0xFF51) as usize],
-            n @ 0xFF68..=0xFF6B => &self.palettes[(n - 0xFF68) as usize],
+            n @ 0xFF68..=0xFF69 => &self.background_palettes[n - 0xFF68],
+            n @ 0xFF6A..=0xFF6B => &self.object_palettes[n - 0xFF68],
             0xFF70 => &self.wram_select,
             0xFF03
             | 0xFF08..=0xFF0E
@@ -141,11 +285,12 @@ impl IndexMut<u16> for IoRegisters {
             0xFF0F => &mut self.interrupt_flags,
             n @ 0xFF10..=0xFF26 => &mut self.audio[(n - 0xFF10) as usize],
             n @ 0xFF30..=0xFF3F => &mut self.wave[(n - 0xFF30) as usize],
-            n @ 0xFF40..=0xFF4B => &mut self.lcd[(n - 0xFF40) as usize],
+            n @ 0xFF40..=0xFF4B => &mut self.lcd[n - 0xFF40],
             0xFF4F => &mut self.vram_select,
             0xFF50 => &mut self.boot_status,
             n @ 0xFF51..=0xFF55 => &mut self.vram_dma[(n - 0xFF51) as usize],
-            n @ 0xFF68..=0xFF6B => &mut self.palettes[(n - 0xFF68) as usize],
+            n @ 0xFF68..=0xFF69 => &mut self.background_palettes[n - 0xFF68],
+            n @ 0xFF6A..=0xFF6B => &mut self.object_palettes[n - 0xFF6A],
             0xFF70 => &mut self.wram_select,
             0xFF03
             | 0xFF08..=0xFF0E

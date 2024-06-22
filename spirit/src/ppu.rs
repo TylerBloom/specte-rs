@@ -5,7 +5,14 @@ use crate::mem::{
     MemoryMap,
 };
 
+// Notes:
+// A tile is 16 bytes, which means that each line is 2 bytes.
+// Every pixel has a color-depth of 2. The nth bit of the first byte holds the nth pixel's least
+// significant bit of the color depth. The most significant bit is in the corresponding bit of
+// second byte.
+
 // Plan of attack:
+//  - Implement indexing into VRAM
 //  - Disregard rendering everything except the background. Also ignore all scrolling effects
 //  - Make it possible to draw to a GUI (i.e. add the plumbing and signalling)!!
 //  - Add in sprite/object rendering
@@ -39,7 +46,8 @@ pub struct Ppu {
 #[derive(Debug, Hash)]
 struct PixelFiFo {
     fetcher: PixelFetcher,
-    oam: InlineVec<Pixel, 8>,
+    // This field is ignored until object pixels are impl-ed
+    // oam: InlineVec<Pixel, 8>,
     background: InlineVec<Pixel, 8>,
 }
 
