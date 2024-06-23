@@ -110,7 +110,7 @@ impl Palette {
     }
 
     fn get_color(&self, index: u8) -> PaletteColor {
-        debug_assert!(index < 4)
+        self.colors[index as usize]
     }
 }
 
@@ -132,7 +132,7 @@ impl IndexMut<u8> for Palette {
 
 /// The colors inside a palette are a bit odd. Each color takes up two bytes and represents each
 /// color with 5 bits (in little-endian). The top bit is not used.
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default)]
 pub struct PaletteColor([u8; 2]);
 
 impl PaletteColor {

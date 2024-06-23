@@ -1,8 +1,13 @@
+use std::array;
+
 use heapless::Vec as InlineVec;
 
-use crate::mem::{
-    vram::{PpuMode, VRam},
-    MemoryMap,
+use crate::{
+    cpu::{check_bit, check_bit_const},
+    mem::{
+        vram::{PpuMode, VRam},
+        MemoryMap,
+    },
 };
 
 // Notes:
@@ -34,17 +39,95 @@ use crate::mem::{
 /// The Pixel Processing Unit
 #[derive(Debug, Hash)]
 pub struct Ppu {
-    pub h_count: u16, // Max of 456
-    pub v_count: u8,  // Max of 153
     // This represents the LCD screen. This will always have a length of 144.
     // Pixels are pushed from the
+    inner: PpuInner,
     screen: Vec<[Pixel; 160]>,
-    fifo: PixelFiFo,
+}
+
+#[derive(Debug, Hash)]
+pub enum PpuInner {
+    OamScan {
+        dots: u8,
+        y: u8,
+    },
+    Drawing {
+        fifo: PixelFiFo,
+        dots: u16,
+        x: u8,
+        y: u8,
+    },
+    HBlank {
+        dots: u16,
+        y: u8,
+    },
+    VBlank {
+        dots: u16,
+        y: u8,
+    },
+}
+
+impl Default for PpuInner {
+    fn default() -> Self {
+        Self::OamScan { dots: 0, y: 0 }
+    }
+}
+
+impl PpuInner {
+    fn tick(&mut self, screen: &mut [[Pixel; 160]], mem: &MemoryMap) {
+        match self {
+            PpuInner::OamScan { dots, y } if *dots == 80 => {
+                *self = Self::Drawing {
+                    fifo: PixelFiFo::new(),
+                    y: *y,
+                    dots: 0,
+                    x: 0,
+                };
+            }
+            PpuInner::OamScan { dots, y } => *dots += 1,
+            PpuInner::Drawing { dots, y, .. } if *y == 20 => {
+                *self = Self::HBlank { dots: *dots, y: *y };
+            }
+            PpuInner::Drawing { fifo, dots, x, y } => {
+                *dots += 1;
+                if let Some(pixel) = fifo.pop_pixel() {
+                    screen[*y as usize][*x as usize] = pixel.to_pixel();
+                    *x += 1;
+                    if *x == 160 {
+                        *x = 0;
+                        *self = Self::HBlank { dots: *dots, y: *y + 1 }
+                    }
+                }
+            }
+            // This measures the number of ticks after mode 2 becasuse all modes added together is
+            // 456 and mode 2 is always 80 dots
+            PpuInner::HBlank { dots, y } if *dots == 376 => {
+                *self = Self::VBlank { dots: *dots, y: *y };
+            }
+            PpuInner::HBlank { dots, .. } => *dots += 1,
+            PpuInner::VBlank{ dots, y } if *dots == 4560 => {
+                *y %= 144;
+                *self = Self::OamScan { dots: 0, y: *y };
+            }
+            PpuInner::VBlank{ dots, .. } => *dots += 1,
+        }
+    }
+
+    fn state(&self) -> PpuMode {
+        match self {
+            PpuInner::OamScan { .. } => PpuMode::OamScan,
+            PpuInner::Drawing { .. } => PpuMode::Drawing,
+            PpuInner::HBlank { .. } => PpuMode::HBlank,
+            PpuInner::VBlank { .. } => PpuMode::VBlank,
+        }
+    }
 }
 
 // TODO: This needs to track what model it is in (not VBLANK, though) and pass that to the PPU
 #[derive(Debug, Hash)]
 struct PixelFiFo {
+    counter: u8,
+    tile_count: u8,
     fetcher: PixelFetcher,
     // This field is ignored until object pixels are impl-ed
     // oam: InlineVec<Pixel, 8>,
@@ -52,18 +135,29 @@ struct PixelFiFo {
 }
 
 impl PixelFiFo {
-    // TODO: Wrap the pixel into a new enum that also carries the PPU mode
-    fn tick(&mut self) -> (PpuMode, Option<FiFoPixel>) {
-        self.fetcher.tick();
-        let pixel = self.pop_pixel();
-        (todo!(), pixel)
+    fn new() -> Self {
+        Self {
+            counter: 0,
+            tile_count: 0,
+            fetcher: PixelFetcher::GetTile {
+                ticked: false,
+                x: 0,
+                y: 0,
+            },
+            background: InlineVec::new(),
+        }
+    }
+
+    fn tick(&mut self, mem: &MemoryMap) {
+        self.counter += 1;
+        let bg = self.background.is_empty().then(|| {
+            self.tile_count += 1;
+            &mut self.background
+        });
+        self.fetcher.tick(mem, bg);
     }
 
     fn pop_pixel(&mut self) -> Option<FiFoPixel> {
-        todo!()
-    }
-
-    fn push_pixels(&mut self, pixels: &[FiFoPixel; 8]) -> bool {
         todo!()
     }
 }
@@ -96,34 +190,20 @@ impl FiFoPixel {
 }
 
 /// The final pixel that is available to the end consumer.
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Clone, Copy)]
 pub struct Pixel {
     r: u8,
     g: u8,
     b: u8,
 }
 
-// TODO: There are 5 known states this can be in:
-//  - Get tile,
-//  - Get tile data low
-//  - Get title data high
-//  - Sleep
-//  - Push
-// I think it would make more sense to have this type be an enum that cycles between these states.
-// Or, at least, the fetcher should use it internally (like for tracking where to index tile data).
-/// Pulls data out of VRAM and OAM
-#[derive(Debug, Hash)]
-struct PixelFetcher {
-    x_coord: u8,
-    index: u16,
-    state: PixelFetchInner,
-}
-
-impl PixelFetcher {
-    fn tick(&mut self, mem: &MemoryMap) {
-        // TODO: Needs access to memory map and FIFO
-        // TODO: Inc the counter, pull data, and attempt to push pixels into the FIFO
-        todo!()
+impl Pixel {
+    const fn new() -> Self {
+        Self {
+            r: u8::MAX,
+            g: u8::MAX,
+            b: u8::MAX,
+        }
     }
 }
 
@@ -139,7 +219,7 @@ impl PixelFetcher {
 // tile data, etc. To get a debuggable build, this is all being ignored and will be impl-ed in the
 // future.
 #[derive(Debug, Hash)]
-enum PixelFetchInner {
+enum PixelFetcher {
     GetTile {
         ticked: bool,
         x: u8,
@@ -171,15 +251,15 @@ enum PixelFetchInner {
     Push {
         x: u8,
         y: u8,
-        pixels: [FiFoPixel; 8],
+        pixels: InlineVec<FiFoPixel, 8>,
     },
 }
 
-impl PixelFetchInner {
-    fn tick(&mut self, mem: &MemoryMap) {
+impl PixelFetcher {
+    fn tick(&mut self, mem: &MemoryMap, pixels_out: Option<&mut InlineVec<FiFoPixel, 8>>) {
         match self {
-            PixelFetchInner::GetTile { ticked, .. } if !*ticked => *ticked = true,
-            PixelFetchInner::GetTile { ticked, x, y } => {
+            PixelFetcher::GetTile { ticked, .. } if !*ticked => *ticked = true,
+            PixelFetcher::GetTile { ticked, x, y } => {
                 let addr = *y as usize * 32 + *x as usize;
                 // VRAM starts at 0x8000, and we want to access 0x9800..
                 // TODO: This needs to access VRAM bank 1, not 0
@@ -193,8 +273,8 @@ impl PixelFetchInner {
                     attr,
                 }
             }
-            PixelFetchInner::DataLow { ticked, .. } if !*ticked => *ticked = true,
-            PixelFetchInner::DataLow {
+            PixelFetcher::DataLow { ticked, .. } if !*ticked => *ticked = true,
+            PixelFetcher::DataLow {
                 ticked,
                 x,
                 y,
@@ -211,8 +291,8 @@ impl PixelFetchInner {
                     lo: mem.vram.vram.0[*index as usize],
                 }
             }
-            PixelFetchInner::DataHigh { ticked, .. } if !*ticked => *ticked = true,
-            PixelFetchInner::DataHigh {
+            PixelFetcher::DataHigh { ticked, .. } if !*ticked => *ticked = true,
+            PixelFetcher::DataHigh {
                 ticked,
                 x,
                 y,
@@ -230,8 +310,8 @@ impl PixelFetchInner {
                     hi: mem.vram.vram.0[*index as usize + 1],
                 }
             }
-            PixelFetchInner::Sleep { ticked, .. } if !*ticked => *ticked = true,
-            PixelFetchInner::Sleep {
+            PixelFetcher::Sleep { ticked, .. } if !*ticked => *ticked = true,
+            PixelFetcher::Sleep {
                 ticked,
                 x,
                 y,
@@ -243,13 +323,15 @@ impl PixelFetchInner {
                 *self = Self::Push {
                     x: *x,
                     y: *y,
-                    pixels: form_pixels(*attr, *lo, *hi, mem),
+                    pixels: form_pixels(*attr, *lo, *hi),
                 }
             }
-            PixelFetchInner::Push { x, y, pixels } => {
-                // TODO: Attempt to push the pixels somewhere, and, on success, reset
-                todo!();
-                if todo!() {
+            // TODO: Attempt to push the pixels somewhere, and, on success, reset
+            PixelFetcher::Push { x, y, pixels } => {
+                if let Some(out) = pixels_out {
+                    // TODO: Make this a copy out of pixels and into out, rather than a swap, which
+                    // is slower.
+                    std::mem::swap(out, pixels);
                     // Once the pixels are pushed, the coordinates need to be updated. The tile
                     // maps are 32x32 indices, so we need to reset x (and maybe y).
                     // Note that % 32 is the same as AND-ing with 0x0F, which might be faster.
@@ -267,34 +349,38 @@ impl PixelFetchInner {
     }
 }
 
-fn form_pixels(attr: u8, lo: u8, hi: u8, mem: &MemoryMap) -> [FiFoPixel; 8] {
-    let palette = mem.io.background_palettes.get_palette(attr & 0x7);
-    todo!()
+fn form_pixels(attr: u8, lo: u8, hi: u8) -> InlineVec<FiFoPixel, 8> {
+    zip_bits(hi, lo)
+        .map(|color| FiFoPixel {
+            color,
+            palette: attr & 0x7,
+            sprite_priority: false,
+            bg_priority: false,
+        })
+        .collect()
+}
+
+/// Used to generate pixel color indications, which have a color depth of 2.
+fn zip_bits(hi: u8, lo: u8) -> impl Iterator<Item = u8> {
+    (0..7)
+        .map(move |i| (check_bit(i, hi), check_bit(i, lo)))
+        .map(|(hi, lo)| (hi as u8) << 1 | lo as u8)
 }
 
 impl Ppu {
     pub(crate) fn new() -> Self {
-        todo!()
+        Self {
+            inner: PpuInner::default(),
+            screen: vec![[Pixel::new(); 160]; 144],
+        }
     }
 
     pub(crate) fn tick(&mut self, mem: &mut MemoryMap) {
-        let (state, pixel) = self.fifo.tick();
-        if let Some(pixel) = pixel {
-            // self.screen[todo!()][self.v_count] = pixel;
-            todo!()
-        }
-        mem.vram.inc_status(state);
-        self.h_count += 1;
-        if self.h_count == 456 {
-            self.h_count = 0;
-            self.v_count += 1;
-            if self.v_count == 144 {
-                mem.vram.inc_status(PpuMode::VBlank);
-                mem.request_vblank_int();
-            } else if self.v_count == 153 {
-                self.v_count = 0;
-                mem.vram.reset_status();
-            }
-        }
+        self.inner.tick(&mut self.screen, mem);
+        mem.vram.inc_status(self.inner.state());
+    }
+
+    pub(crate) fn state(&self) -> PpuMode {
+        self.inner.state()
     }
 }

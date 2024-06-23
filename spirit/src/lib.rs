@@ -3,9 +3,8 @@
 //! agnostic and free of the UI-specifics. Other projects will wrap this logic in their own ways.
 //! For example, the handheld device will have different IO than a desktop. Moreover, the syncing
 //! webservice will not need a UI per se.
-//!
-//! # Notes
-//! The Z80 CPU is big endian.
+
+// TODO: The `tick` methods on most of the processes is incorrect, but the step methods are fine.
 
 #![allow(
     dead_code,
@@ -19,7 +18,7 @@ use std::borrow::Cow;
 
 use cpu::{check_bit_const, Cpu};
 use lookup::Instruction;
-use mem::{MemoryBankController, MemoryMap, StartUpHeaders};
+use mem::{vram::PpuMode, MemoryBankController, MemoryMap, StartUpHeaders};
 use ppu::Ppu;
 
 use crate::lookup::JumpOp;
@@ -46,6 +45,10 @@ impl Gameboy {
             cpu: Cpu::new(),
             ppu: Ppu::new(),
         }
+    }
+
+    pub fn next_frame(&mut self) -> FrameSequence<'_> {
+        FrameSequence::new(self)
     }
 
     pub fn cpu(&self) -> &Cpu {
@@ -148,11 +151,20 @@ impl<'a> StepProcess<'a> {
         Self { gb, op, counter: 0 }
     }
 
+    /// Processes the current instructions, fetches the next instruction, and undates this process
+    /// in-place.
+    fn step_and_next(&mut self) {
+        self.gb.apply_op(self.op);
+        self.op = self.gb.read_op();
+        self.counter = 0;
+    }
+
     pub fn tick(&mut self) {
         self.counter += 1;
-        self.gb.tick();
         if self.is_complete() {
             self.gb.apply_op(self.op);
+        } else {
+            self.gb.tick();
         }
     }
 
@@ -160,8 +172,7 @@ impl<'a> StepProcess<'a> {
         self.gb.button_press(input)
     }
 
-    pub fn is_complete(&self) -> bool {
-        self.counter >= self.op.length(&self.gb.cpu)
+    pub fn is_complete(&self) -> bool { self.counter >= self.op.length(&self.gb.cpu)
     }
 
     /// Consumes the step processor, dropping it immediately.
@@ -196,6 +207,10 @@ impl<'a> StartUpSequence<'a> {
             done: false,
             remap_mem,
         }
+    }
+
+    pub fn frame_step(&'a mut self) -> StartUpFrame<'a> {
+        StartUpFrame::new(self)
     }
 
     pub fn next_op(&self) -> &Instruction {
@@ -248,6 +263,89 @@ impl Drop for StartUpSequence<'_> {
             self.tick()
         }
         self.gb.mem.start_up_unmap(self.remap_mem)
+    }
+}
+
+pub struct StartUpFrame<'a> {
+    seq: &'a mut StartUpSequence<'a>,
+    mode: PpuMode,
+}
+
+impl<'a> StartUpFrame<'a> {
+    fn new(seq: &'a mut StartUpSequence<'a>) -> Self {
+        let mode = seq.gb().ppu.state();
+        Self { seq, mode }
+    }
+
+    fn tick(&mut self) {
+        if !self.is_complete() {
+            self.seq.step();
+            self.mode = self.seq.gb.ppu.state();
+        }
+    }
+
+    fn is_complete(&self) -> bool {
+        self.mode == PpuMode::VBlank && self.seq.gb().ppu.state() == PpuMode::OamScan
+    }
+
+    fn complete(self) {}
+
+    fn step(&mut self) {
+        if !self.is_complete() {
+            self.seq.step();
+            self.mode = self.seq.gb().ppu.state();
+        }
+    }
+}
+
+impl<'a> Drop for StartUpFrame<'a> {
+    fn drop(&mut self) {
+        while !self.is_complete() {
+            self.step()
+        }
+    }
+}
+
+pub struct FrameSequence<'a> {
+    next: StepProcess<'a>,
+    mode: PpuMode,
+}
+
+impl<'a> FrameSequence<'a> {
+    fn new(gb: &'a mut Gameboy) -> Self {
+        let mode = gb.ppu.state();
+        Self {
+            mode,
+            next: StepProcess::new(gb),
+        }
+    }
+
+    fn tick(&mut self) {
+        self.next.tick();
+        if !self.is_complete() {
+            self.mode = self.next.gb.ppu.state();
+        }
+    }
+
+    fn is_complete(&self) -> bool {
+        self.mode == PpuMode::VBlank && self.next.gb.ppu.state() == PpuMode::OamScan
+    }
+
+    fn complete(self) {}
+
+    fn step(&mut self) {
+        if !self.is_complete() {
+            self.next.step_and_next();
+            self.mode = self.next.gb.ppu.state();
+        }
+    }
+}
+
+impl<'a> Drop for FrameSequence<'a> {
+    fn drop(&mut self) {
+        while !self.is_complete() {
+            self.step()
+        }
     }
 }
 

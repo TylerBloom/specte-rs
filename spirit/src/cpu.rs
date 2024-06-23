@@ -127,7 +127,7 @@ const fn bool_to_mask<const B: u8>(val: bool) -> u8 {
     (val as u8) << B
 }
 
-const fn check_bit(bit: u8, src: u8) -> bool {
+pub(crate) const fn check_bit(bit: u8, src: u8) -> bool {
     let bit = 0x1 << bit;
     (src & bit) == bit
 }
