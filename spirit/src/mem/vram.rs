@@ -39,7 +39,7 @@ pub(crate) enum PpuMode {
 pub(crate) struct VRam {
     // TODO: This is a GBC emulator, show it needs to support switching between banks 0 and 1.
     /// The main video RAM. Accessible through the address range 0x8000 through 0x9FFF.
-    vram: [u8; 0x2000],
+    pub(crate) vram: ([u8; 0x2000], [u8; 0x2000]),
     /// The Object Attribute Map. Accessible through the address range 0xFE00 through 0xFE9F
     oam: [u8; 0x100],
     /// The status that the PPU is currently in. This mode is set when the PPU is ticked and
@@ -53,7 +53,7 @@ pub(crate) struct VRam {
 impl VRam {
     pub(super) fn new() -> Self {
         Self {
-            vram: [0; 0x2000],
+            vram: ([0; 0x2000], [0; 0x2000]),
             oam: [0; 0x100],
             status: PpuMode::default(),
             dead_byte: 0xFF,
@@ -76,7 +76,7 @@ impl Index<VramIndex> for VRam {
         if self.status.is_drawing() {
             &DEAD_READ_ONLY_BYTE
         } else {
-            &self.vram[index as usize - 0x8000]
+            &self.vram.0[index as usize - 0x8000]
         }
     }
 }
@@ -87,7 +87,7 @@ impl IndexMut<VramIndex> for VRam {
             self.dead_byte = 0xFF;
             &mut self.dead_byte
         } else {
-            &mut self.vram[index as usize - 0x8000]
+            &mut self.vram.0[index as usize - 0x8000]
         }
     }
 }

@@ -48,28 +48,60 @@ struct PixelFiFo {
     fetcher: PixelFetcher,
     // This field is ignored until object pixels are impl-ed
     // oam: InlineVec<Pixel, 8>,
-    background: InlineVec<Pixel, 8>,
+    background: InlineVec<FiFoPixel, 8>,
 }
 
 impl PixelFiFo {
     // TODO: Wrap the pixel into a new enum that also carries the PPU mode
-    fn tick(&mut self) -> (PpuMode, Option<Pixel>) {
+    fn tick(&mut self) -> (PpuMode, Option<FiFoPixel>) {
         self.fetcher.tick();
         let pixel = self.pop_pixel();
         (todo!(), pixel)
     }
 
-    fn pop_pixel(&mut self) -> Option<Pixel> {
+    fn pop_pixel(&mut self) -> Option<FiFoPixel> {
         todo!()
     }
 
-    fn push_pixels(&mut self, pixels: &[Pixel; 8]) -> bool {
+    fn push_pixels(&mut self, pixels: &[FiFoPixel; 8]) -> bool {
         todo!()
     }
 }
 
 #[derive(Debug, Hash)]
-pub struct Pixel {}
+pub struct FiFoPixel {
+    /// Which color for the selected palette should be used. Ranges from 0 to 3.
+    color: u8,
+    /// Color palette to use. Ranges from 0 to 7.
+    palette: u8,
+    // TODO: For now, this is ignored
+    sprite_priority: bool,
+    // TODO: For now, this is ignored
+    bg_priority: bool,
+}
+
+impl FiFoPixel {
+    fn new(color: u8, palette: u8) -> Self {
+        Self {
+            color,
+            palette,
+            sprite_priority: false,
+            bg_priority: false,
+        }
+    }
+
+    fn to_pixel(self) -> Pixel {
+        todo!()
+    }
+}
+
+/// The final pixel that is available to the end consumer.
+#[derive(Debug, Hash)]
+pub struct Pixel {
+    r: u8,
+    g: u8,
+    b: u8,
+}
 
 // TODO: There are 5 known states this can be in:
 //  - Get tile,
@@ -87,30 +119,157 @@ struct PixelFetcher {
     state: PixelFetchInner,
 }
 
-#[derive(Debug, Hash)]
-enum PixelFetchInner {
-    GetTile,
-    DataLow,
-    DataHigh,
-    Sleep,
-    Push,
-}
-
-impl PixelFetchInner {
-    fn tick(&mut self) {
-    }
-
-    fn reset(&mut self) {
-        *self = Self::GetTile;
-    }
-}
-
 impl PixelFetcher {
-    fn tick(&mut self) {
+    fn tick(&mut self, mem: &MemoryMap) {
         // TODO: Needs access to memory map and FIFO
         // TODO: Inc the counter, pull data, and attempt to push pixels into the FIFO
         todo!()
     }
+}
+
+/// Each variant has an x and y value. These are the coordinates into the tile map. These values do
+/// not change until the fetcher is reset. Similarly, most variants have a "ticked" value. Very
+/// step but the last takes two ticks to complete. That bool tracks if it has been ticked or not.
+///
+/// Each variant represents the next step that is to be taken. For example, if the fetcher is the
+/// `DataLow` variant, that means that it has all of the data it needs to execute that step.
+/// Ticking it will move it will move it to the next state by fetching any additional data and
+/// performing any calculations.
+// TODO: There are various things that can affect how the fetcher indexes into the tile map, the
+// tile data, etc. To get a debuggable build, this is all being ignored and will be impl-ed in the
+// future.
+#[derive(Debug, Hash)]
+enum PixelFetchInner {
+    GetTile {
+        ticked: bool,
+        x: u8,
+        y: u8,
+    },
+    DataLow {
+        ticked: bool,
+        x: u8,
+        y: u8,
+        attr: u8,
+        index: u8,
+    },
+    DataHigh {
+        ticked: bool,
+        x: u8,
+        y: u8,
+        attr: u8,
+        index: u8,
+        lo: u8,
+    },
+    Sleep {
+        ticked: bool,
+        x: u8,
+        y: u8,
+        attr: u8,
+        lo: u8,
+        hi: u8,
+    },
+    Push {
+        x: u8,
+        y: u8,
+        pixels: [FiFoPixel; 8],
+    },
+}
+
+impl PixelFetchInner {
+    fn tick(&mut self, mem: &MemoryMap) {
+        match self {
+            PixelFetchInner::GetTile { ticked, .. } if !*ticked => *ticked = true,
+            PixelFetchInner::GetTile { ticked, x, y } => {
+                let addr = *y as usize * 32 + *x as usize;
+                // VRAM starts at 0x8000, and we want to access 0x9800..
+                // TODO: This needs to access VRAM bank 1, not 0
+                let index = mem.vram.vram.0[0x1800 + addr];
+                let attr = mem.vram.vram.1[0x1800 + addr];
+                *self = Self::DataLow {
+                    ticked: false,
+                    x: *x,
+                    y: *y,
+                    index,
+                    attr,
+                }
+            }
+            PixelFetchInner::DataLow { ticked, .. } if !*ticked => *ticked = true,
+            PixelFetchInner::DataLow {
+                ticked,
+                x,
+                y,
+                index,
+                attr,
+            } => {
+                *self = Self::DataHigh {
+                    ticked: false,
+                    x: *x,
+                    y: *y,
+                    attr: *attr,
+                    index: *index,
+                    // TODO: This ignores the variable indexing method used for tile data.
+                    lo: mem.vram.vram.0[*index as usize],
+                }
+            }
+            PixelFetchInner::DataHigh { ticked, .. } if !*ticked => *ticked = true,
+            PixelFetchInner::DataHigh {
+                ticked,
+                x,
+                y,
+                index,
+                lo,
+                attr,
+            } => {
+                *self = Self::Sleep {
+                    ticked: false,
+                    x: *x,
+                    y: *y,
+                    attr: *attr,
+                    lo: *lo,
+                    // TODO: This ignores the variable indexing method used for tile data.
+                    hi: mem.vram.vram.0[*index as usize + 1],
+                }
+            }
+            PixelFetchInner::Sleep { ticked, .. } if !*ticked => *ticked = true,
+            PixelFetchInner::Sleep {
+                ticked,
+                x,
+                y,
+                lo,
+                hi,
+                attr,
+            } => {
+                todo!("Generate pixels");
+                *self = Self::Push {
+                    x: *x,
+                    y: *y,
+                    pixels: form_pixels(*attr, *lo, *hi, mem),
+                }
+            }
+            PixelFetchInner::Push { x, y, pixels } => {
+                // TODO: Attempt to push the pixels somewhere, and, on success, reset
+                todo!();
+                if todo!() {
+                    // Once the pixels are pushed, the coordinates need to be updated. The tile
+                    // maps are 32x32 indices, so we need to reset x (and maybe y).
+                    // Note that % 32 is the same as AND-ing with 0x0F, which might be faster.
+                    *x += 1;
+                    let x = *x % 32;
+                    let y = (*y + ((x & 0x10) >> 4)) % 32;
+                    *self = Self::GetTile {
+                        ticked: false,
+                        x,
+                        y,
+                    };
+                }
+            }
+        }
+    }
+}
+
+fn form_pixels(attr: u8, lo: u8, hi: u8, mem: &MemoryMap) -> [FiFoPixel; 8] {
+    let palette = mem.io.background_palettes.get_palette(attr & 0x7);
+    todo!()
 }
 
 impl Ppu {

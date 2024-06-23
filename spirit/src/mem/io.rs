@@ -30,7 +30,7 @@ pub struct IoRegisters {
     /// ADDR FF51-FF55
     vram_dma: [u8; 5],
     /// ADDR FF68 and FF69
-    background_palettes: ColorPalettes,
+    pub(crate) background_palettes: ColorPalettes,
     /// ADDR FF6A and FF6B
     object_palettes: ColorPalettes,
     /// ADDR FF70
@@ -56,6 +56,11 @@ impl ColorPalettes {
         self.index &= 0x9F;
         let (a, b) = self.indices();
         self.data[(a) as usize].tick(b);
+    }
+
+    pub(crate) fn get_palette(&self, index: u8) -> &Palette {
+        debug_assert!(index < 8);
+        &self.data[index as usize]
     }
 
     fn indices(&self) -> (u8, u8) {
@@ -103,6 +108,10 @@ impl Palette {
     fn tick(&mut self, index: u8) {
         self.colors[index as usize].tick();
     }
+
+    fn get_color(&self, index: u8) -> PaletteColor {
+        debug_assert!(index < 4)
+    }
 }
 
 impl Index<u8> for Palette {
@@ -110,14 +119,14 @@ impl Index<u8> for Palette {
 
     fn index(&self, index: u8) -> &Self::Output {
         debug_assert!(index < 8);
-        &self.colors[(index / 2) as usize][index  % 2]
+        &self.colors[(index / 2) as usize][index % 2]
     }
 }
 
 impl IndexMut<u8> for Palette {
     fn index_mut(&mut self, index: u8) -> &mut Self::Output {
         debug_assert!(index < 8);
-        &mut self.colors[(index / 2) as usize][index  % 2]
+        &mut self.colors[(index / 2) as usize][index % 2]
     }
 }
 
