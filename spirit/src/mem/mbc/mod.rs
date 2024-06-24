@@ -159,10 +159,10 @@ impl MemoryBankController {
                     std::mem::swap(&mut rom[index as usize], val)
                 }
             }
-            MemoryBankController::MBC1(_) => todo!(),
-            MemoryBankController::MBC2 => todo!(),
-            MemoryBankController::MBC3 => todo!(),
-            MemoryBankController::MBC5 => todo!(),
+            MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
+            MemoryBankController::MBC2 => todo!("MBC2 not yet impl-ed"),
+            MemoryBankController::MBC3 => todo!("MBC3 not yet impl-ed"),
+            MemoryBankController::MBC5 => todo!("MBC5 not yet impl-ed"),
         }
     }
 }
@@ -180,10 +180,10 @@ impl Index<u16> for MemoryBankController {
                     &ram[index + 1]
                 }
             }
-            MemoryBankController::MBC1(_) => todo!(),
-            MemoryBankController::MBC2 => todo!(),
-            MemoryBankController::MBC3 => todo!(),
-            MemoryBankController::MBC5 => todo!(),
+            MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
+            MemoryBankController::MBC2 => todo!("MBC2 not yet impl-ed"),
+            MemoryBankController::MBC3 => todo!("MBC3 not yet impl-ed"),
+            MemoryBankController::MBC5 => todo!("MBC5 not yet impl-ed"),
         }
     }
 }
@@ -202,10 +202,10 @@ impl IndexMut<u16> for MemoryBankController {
                 );
                 &mut ram[index - rom.len()]
             }
-            MemoryBankController::MBC1(_) => todo!(),
-            MemoryBankController::MBC2 => todo!(),
-            MemoryBankController::MBC3 => todo!(),
-            MemoryBankController::MBC5 => todo!(),
+            MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
+            MemoryBankController::MBC2 => todo!("MBC2 not yet impl-ed"),
+            MemoryBankController::MBC3 => todo!("MBC3 not yet impl-ed"),
+            MemoryBankController::MBC5 => todo!("MBC5 not yet impl-ed"),
         }
     }
 }
@@ -219,10 +219,10 @@ impl Debug for MemoryBankController {
                 rom.len(),
                 ram.len()
             ),
-            MemoryBankController::MBC1(_) => todo!(),
-            MemoryBankController::MBC2 => todo!(),
-            MemoryBankController::MBC3 => todo!(),
-            MemoryBankController::MBC5 => todo!(),
+            MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
+            MemoryBankController::MBC2 => todo!("MBC2 not yet impl-ed"),
+            MemoryBankController::MBC3 => todo!("MBC3 not yet impl-ed"),
+            MemoryBankController::MBC5 => todo!("MBC5 not yet impl-ed"),
         }
     }
 }

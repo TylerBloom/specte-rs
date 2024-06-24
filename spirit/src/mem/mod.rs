@@ -197,11 +197,12 @@ impl Index<u16> for MemoryMap {
     type Output = u8;
 
     fn index(&self, index: u16) -> &Self::Output {
+        trace!("Mut index into MemMap: 0x{index:0>4X}");
         static DEAD_BYTE: u8 = 0;
         match index {
             0x0000..=0x7FFF => &self.mbc[index],
             n @ 0x8000..=0x9FFF => &self.vram[VramIndex(n)],
-            0xA000..=0xBFFF => todo!(),
+            n @ 0xA000..=0xBFFF => &self.mbc[n],
             n @ 0xC000..=0xCFFF => &self.wram.0[n as usize - 0xC000],
             n @ 0xD000..=0xDFFF => &self.wram.1[n as usize - 0xD000],
             // Echo RAM
@@ -220,11 +221,12 @@ impl Index<u16> for MemoryMap {
 
 impl IndexMut<u16> for MemoryMap {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
-        trace!("Mut index into MemMap: 0x{index:0>4X}");
+        println!("Mut index into MemMap: 0x{index:0>4X}");
+        // trace!("Mut index into MemMap: 0x{index:0>4X}");
         match index {
-            0x0000..=0x7FFF => &mut self.mbc[index],
+            n @ 0x0000..=0x7FFF => &mut self.mbc[n],
             n @ 0x8000..=0x9FFF => &mut self.vram[VramIndex(n)],
-            0xA000..=0xBFFF => todo!(),
+            n @ 0xA000..=0xBFFF => &mut self.mbc[n],
             n @ 0xC000..=0xCFFF => &mut self.wram.0[n as usize - 0xC000],
             n @ 0xD000..=0xDFFF => &mut self.wram.1[n as usize - 0xD000],
             // Echo RAM

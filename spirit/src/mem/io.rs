@@ -141,15 +141,15 @@ impl PaletteColor {
     }
 
     fn r(&self) -> u8 {
-        todo!()
+        self.0[0] & 0x1F
     }
 
     fn g(&self) -> u8 {
-        todo!()
+        ((self.0[0] & 0xD0) >> 5) | ((self.0[1] & 0x03) << 3)
     }
 
     fn b(&self) -> u8 {
-        todo!()
+        self.0[1] & 0x7C
     }
 }
 
@@ -182,13 +182,23 @@ impl Index<u16> for LcdRegisters {
     type Output = u8;
 
     fn index(&self, index: u16) -> &Self::Output {
-        todo!()
+        match index {
+            0xFF47 => &self.bgp,
+            0xFF48 => &self.obgp[0],
+            0xFF49 => &self.obgp[1],
+            _ => unreachable!(),
+        }
     }
 }
 
 impl IndexMut<u16> for LcdRegisters {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
-        todo!()
+        match index {
+            0xFF47 => &mut self.bgp,
+            0xFF48 => &mut self.obgp[0],
+            0xFF49 => &mut self.obgp[1],
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -258,7 +268,7 @@ impl Index<u16> for IoRegisters {
             0xFF0F => &self.interrupt_flags,
             n @ 0xFF10..=0xFF26 => &self.audio[(n - 0xFF10) as usize],
             n @ 0xFF30..=0xFF3F => &self.wave[(n - 0xFF30) as usize],
-            n @ 0xFF40..=0xFF4B => &self.lcd[n - 0xFF40],
+            n @ 0xFF40..=0xFF4B => &self.lcd[n],
             0xFF4F => &self.vram_select,
             0xFF50 => &self.boot_status,
             n @ 0xFF51..=0xFF55 => &self.vram_dma[(n - 0xFF51) as usize],
@@ -294,7 +304,7 @@ impl IndexMut<u16> for IoRegisters {
             0xFF0F => &mut self.interrupt_flags,
             n @ 0xFF10..=0xFF26 => &mut self.audio[(n - 0xFF10) as usize],
             n @ 0xFF30..=0xFF3F => &mut self.wave[(n - 0xFF30) as usize],
-            n @ 0xFF40..=0xFF4B => &mut self.lcd[n - 0xFF40],
+            n @ 0xFF40..=0xFF4B => &mut self.lcd[n],
             0xFF4F => &mut self.vram_select,
             0xFF50 => &mut self.boot_status,
             n @ 0xFF51..=0xFF55 => &mut self.vram_dma[(n - 0xFF51) as usize],

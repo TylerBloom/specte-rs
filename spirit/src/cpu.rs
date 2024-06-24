@@ -9,6 +9,7 @@ use std::{
 };
 
 use once_cell::sync::{Lazy, OnceCell};
+use tracing::trace;
 
 use crate::{
     lookup::{
@@ -746,7 +747,11 @@ impl Cpu {
                 mem[self.sp.0] = b;
                 self.sp -= 1;
             }
-            LoadOp::LoadHigh(val) => mem[u16::from_be_bytes([0xFF, val])] = self.a.0,
+            LoadOp::LoadHigh(val) => {
+                println!("LoadHigh(0x{val:0>2X})");
+                trace!("LoadHigh(0x{val:0>2X})");
+                mem[u16::from_be_bytes([0xFF, val])] = self.a.0
+            }
             LoadOp::StoreHigh(val) => self.a = Wrapping(mem[u16::from_be_bytes([0xFF, val])]),
             LoadOp::Ldhca => mem[u16::from_be_bytes([0xFF, self.c.0])] = self.a.0,
             LoadOp::Ldhac => self.a = Wrapping(mem[u16::from_be_bytes([0xFF, self.c.0])]),

@@ -196,6 +196,12 @@ pub struct StartUpSequence<'a> {
     remap_mem: StartUpHeaders,
 }
 
+impl<'b, 'a: 'b> StartUpSequence<'a> {
+    pub fn frame_step(&'b mut self) -> StartUpFrame<'b, 'a> {
+        StartUpFrame::new(self)
+    }
+}
+
 impl<'a> StartUpSequence<'a> {
     fn new(gb: &'a mut Gameboy) -> Self {
         let remap_mem = gb.mem.start_up_remap();
@@ -207,10 +213,6 @@ impl<'a> StartUpSequence<'a> {
             done: false,
             remap_mem,
         }
-    }
-
-    pub fn frame_step(&'a mut self) -> StartUpFrame<'a> {
-        StartUpFrame::new(self)
     }
 
     pub fn next_op(&self) -> &Instruction {
@@ -266,31 +268,31 @@ impl Drop for StartUpSequence<'_> {
     }
 }
 
-pub struct StartUpFrame<'a> {
-    seq: &'a mut StartUpSequence<'a>,
+pub struct StartUpFrame<'b, 'a: 'b> {
+    seq: &'b mut StartUpSequence<'a>,
     mode: PpuMode,
 }
 
-impl<'a> StartUpFrame<'a> {
-    fn new(seq: &'a mut StartUpSequence<'a>) -> Self {
+impl<'b, 'a: 'b> StartUpFrame<'b, 'a> {
+    fn new(seq: &'b mut StartUpSequence<'a>) -> Self {
         let mode = seq.gb().ppu.state();
         Self { seq, mode }
     }
 
-    fn tick(&mut self) {
+    pub fn tick(&mut self) {
         if !self.is_complete() {
             self.seq.step();
             self.mode = self.seq.gb.ppu.state();
         }
     }
 
-    fn is_complete(&self) -> bool {
+    pub fn is_complete(&self) -> bool {
         self.mode == PpuMode::VBlank && self.seq.gb().ppu.state() == PpuMode::OamScan
     }
 
-    fn complete(self) {}
+    pub fn complete(self) {}
 
-    fn step(&mut self) {
+    pub fn step(&mut self) {
         if !self.is_complete() {
             self.seq.step();
             self.mode = self.seq.gb().ppu.state();
@@ -298,7 +300,7 @@ impl<'a> StartUpFrame<'a> {
     }
 }
 
-impl<'a> Drop for StartUpFrame<'a> {
+impl<'b, 'a: 'b> Drop for StartUpFrame<'b, 'a> {
     fn drop(&mut self) {
         while !self.is_complete() {
             self.step()

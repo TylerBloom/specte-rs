@@ -140,8 +140,8 @@ fn render_ppu(frame: &mut Frame, state: &mut AppState, area: Rect, ppu: &Ppu) {
         .title("PPU")
         .title_alignment(ratatui::layout::Alignment::Center);
     let para = Paragraph::new(Text::from_iter([
-        format!("H Pos : {}", ppu.h_count),
-        format!("V Pos : {}", ppu.v_count),
+        format!("H Pos : {}", 0),
+        format!("V Pos : {}", 0),
     ]))
     .block(block);
     frame.render_widget(para, area);

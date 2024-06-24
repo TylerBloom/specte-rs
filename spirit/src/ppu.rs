@@ -42,7 +42,7 @@ pub struct Ppu {
     // This represents the LCD screen. This will always have a length of 144.
     // Pixels are pushed from the
     inner: PpuInner,
-    screen: Vec<[Pixel; 160]>,
+    pub screen: Vec<[Pixel; 160]>,
 }
 
 #[derive(Debug, Hash)]
@@ -94,7 +94,6 @@ impl PpuInner {
                     screen[*y as usize][*x as usize] = pixel.to_pixel();
                     *x += 1;
                     if *x == 160 {
-                        *x = 0;
                         *self = Self::HBlank { dots: *dots, y: *y + 1 }
                     }
                 }
@@ -158,7 +157,7 @@ impl PixelFiFo {
     }
 
     fn pop_pixel(&mut self) -> Option<FiFoPixel> {
-        todo!()
+        self.background.pop()
     }
 }
 
@@ -192,9 +191,9 @@ impl FiFoPixel {
 /// The final pixel that is available to the end consumer.
 #[derive(Debug, Hash, Clone, Copy)]
 pub struct Pixel {
-    r: u8,
-    g: u8,
-    b: u8,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
 }
 
 impl Pixel {
@@ -319,7 +318,6 @@ impl PixelFetcher {
                 hi,
                 attr,
             } => {
-                todo!("Generate pixels");
                 *self = Self::Push {
                     x: *x,
                     y: *y,
