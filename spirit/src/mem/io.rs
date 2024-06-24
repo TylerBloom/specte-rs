@@ -109,7 +109,7 @@ impl Palette {
         self.colors[index as usize].tick();
     }
 
-    fn get_color(&self, index: u8) -> PaletteColor {
+    pub(crate) fn get_color(&self, index: u8) -> PaletteColor {
         self.colors[index as usize]
     }
 }
@@ -133,7 +133,7 @@ impl IndexMut<u8> for Palette {
 /// The colors inside a palette are a bit odd. Each color takes up two bytes and represents each
 /// color with 5 bits (in little-endian). The top bit is not used.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default)]
-pub struct PaletteColor([u8; 2]);
+pub struct PaletteColor(pub [u8; 2]);
 
 impl PaletteColor {
     fn tick(&mut self) {
@@ -176,6 +176,7 @@ pub struct LcdRegisters {
     bgp: u8,
     /// Monochrome palette data: FF48, FF49
     obgp: [u8; 2],
+    dead_byte: u8,
 }
 
 impl Index<u16> for LcdRegisters {
@@ -186,7 +187,11 @@ impl Index<u16> for LcdRegisters {
             0xFF47 => &self.bgp,
             0xFF48 => &self.obgp[0],
             0xFF49 => &self.obgp[1],
-            _ => unreachable!(),
+            _ => {
+                &self.dead_byte
+                // TODO: This should be marked as unreachable in the future!
+                // unreachable!();
+            }
         }
     }
 }
@@ -197,7 +202,11 @@ impl IndexMut<u16> for LcdRegisters {
             0xFF47 => &mut self.bgp,
             0xFF48 => &mut self.obgp[0],
             0xFF49 => &mut self.obgp[1],
-            _ => unreachable!(),
+            _ => {
+                &mut self.dead_byte
+                // TODO: This should be marked as unreachable in the future!
+                // unreachable!();
+            }
         }
     }
 }

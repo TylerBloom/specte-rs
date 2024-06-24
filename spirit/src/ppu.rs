@@ -85,16 +85,20 @@ impl PpuInner {
                 };
             }
             PpuInner::OamScan { dots, y } => *dots += 1,
-            PpuInner::Drawing { dots, y, .. } if *y == 20 => {
+            PpuInner::Drawing { dots, x, y, .. } if *x == 20 => {
                 *self = Self::HBlank { dots: *dots, y: *y };
             }
             PpuInner::Drawing { fifo, dots, x, y } => {
                 *dots += 1;
+                fifo.tick(mem);
                 if let Some(pixel) = fifo.pop_pixel() {
-                    screen[*y as usize][*x as usize] = pixel.to_pixel();
+                    screen[*y as usize][*x as usize] = pixel.to_pixel(mem);
                     *x += 1;
                     if *x == 160 {
-                        *self = Self::HBlank { dots: *dots, y: *y + 1 }
+                        *self = Self::HBlank {
+                            dots: *dots,
+                            y: *y + 1,
+                        }
                     }
                 }
             }
@@ -104,11 +108,11 @@ impl PpuInner {
                 *self = Self::VBlank { dots: *dots, y: *y };
             }
             PpuInner::HBlank { dots, .. } => *dots += 1,
-            PpuInner::VBlank{ dots, y } if *dots == 4560 => {
+            PpuInner::VBlank { dots, y } if *dots == 4560 => {
                 *y %= 144;
                 *self = Self::OamScan { dots: 0, y: *y };
             }
-            PpuInner::VBlank{ dots, .. } => *dots += 1,
+            PpuInner::VBlank { dots, .. } => *dots += 1,
         }
     }
 
@@ -138,11 +142,7 @@ impl PixelFiFo {
         Self {
             counter: 0,
             tile_count: 0,
-            fetcher: PixelFetcher::GetTile {
-                ticked: false,
-                x: 0,
-                y: 0,
-            },
+            fetcher: PixelFetcher::default(),
             background: InlineVec::new(),
         }
     }
@@ -183,8 +183,17 @@ impl FiFoPixel {
         }
     }
 
-    fn to_pixel(self) -> Pixel {
-        todo!()
+    fn to_pixel(self, mem: &MemoryMap) -> Pixel {
+        let [a, b] = mem
+            .io
+            .background_palettes
+            .get_palette(self.palette)
+            .get_color(self.color)
+            .0;
+        let r = a & 0b0001_1111;
+        let g = ((a & 0b1110_0000) >> 5 ) | ((b & 0b0000_0011) << 3 );
+        let b = (b & 0b0111_1100) >> 2;
+        Pixel { r, g, b }
     }
 }
 
@@ -217,7 +226,7 @@ impl Pixel {
 // TODO: There are various things that can affect how the fetcher indexes into the tile map, the
 // tile data, etc. To get a debuggable build, this is all being ignored and will be impl-ed in the
 // future.
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Clone, Copy)]
 enum PixelFetcher {
     GetTile {
         ticked: bool,
@@ -250,8 +259,20 @@ enum PixelFetcher {
     Push {
         x: u8,
         y: u8,
-        pixels: InlineVec<FiFoPixel, 8>,
+        attr: u8,
+        lo: u8,
+        hi: u8,
     },
+}
+
+impl Default for PixelFetcher {
+    fn default() -> Self {
+        Self::GetTile {
+            ticked: false,
+            x: 0,
+            y: 0,
+        }
+    }
 }
 
 impl PixelFetcher {
@@ -261,7 +282,6 @@ impl PixelFetcher {
             PixelFetcher::GetTile { ticked, x, y } => {
                 let addr = *y as usize * 32 + *x as usize;
                 // VRAM starts at 0x8000, and we want to access 0x9800..
-                // TODO: This needs to access VRAM bank 1, not 0
                 let index = mem.vram.vram.0[0x1800 + addr];
                 let attr = mem.vram.vram.1[0x1800 + addr];
                 *self = Self::DataLow {
@@ -321,15 +341,15 @@ impl PixelFetcher {
                 *self = Self::Push {
                     x: *x,
                     y: *y,
-                    pixels: form_pixels(*attr, *lo, *hi),
+                    lo: *lo,
+                    hi: *hi,
+                    attr: *attr,
                 }
             }
             // TODO: Attempt to push the pixels somewhere, and, on success, reset
-            PixelFetcher::Push { x, y, pixels } => {
+            PixelFetcher::Push { x, y, lo, hi, attr } => {
                 if let Some(out) = pixels_out {
-                    // TODO: Make this a copy out of pixels and into out, rather than a swap, which
-                    // is slower.
-                    std::mem::swap(out, pixels);
+                    *out = form_pixels(*attr, *lo, *hi);
                     // Once the pixels are pushed, the coordinates need to be updated. The tile
                     // maps are 32x32 indices, so we need to reset x (and maybe y).
                     // Note that % 32 is the same as AND-ing with 0x0F, which might be faster.
@@ -380,5 +400,54 @@ impl Ppu {
 
     pub(crate) fn state(&self) -> PpuMode {
         self.inner.state()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::mem::MemoryMap;
+    use heapless::Vec as InlineVec;
+
+    use super::{FiFoPixel, PixelFetcher};
+
+    // Test that the fetcher can get the pixel data, populate the buffer at the right time, and
+    // reset itself.
+    #[test]
+    fn single_pass_fetcher() {
+        let mem = MemoryMap::construct();
+        let mut fetcher = PixelFetcher::default();
+        let mut counter = 0;
+        let mut buffer = InlineVec::new();
+        // The buffer should be empty until at least the 7th tick
+        for _ in 0..=7 {
+            println!("{fetcher:X?}");
+            fetcher.tick(&mem, Some(&mut buffer));
+            assert!(buffer.is_empty())
+        }
+        println!("{fetcher:X?}");
+        fetcher.tick(&mem, Some(&mut buffer));
+        assert!(!buffer.is_empty(), "{fetcher:?}");
+    }
+
+    #[test]
+    fn delayed_fetcher_push() {
+        println!("{}", std::mem::size_of::<PixelFetcher>());
+        println!("{}", std::mem::size_of::<FiFoPixel>());
+        let mem = MemoryMap::construct();
+        let mut fetcher = PixelFetcher::default();
+        let mut counter = 0;
+        let mut buffer = InlineVec::new();
+        // The buffer should be empty until at least the 7th tick
+        for _ in 0..=7 {
+            println!("{fetcher:X?}");
+            fetcher.tick(&mem, Some(&mut buffer));
+            assert!(buffer.is_empty())
+        }
+        println!("{fetcher:X?}");
+        fetcher.tick(&mem, None);
+        assert!(buffer.is_empty(), "{fetcher:?}");
+        println!("{fetcher:X?}");
+        fetcher.tick(&mem, Some(&mut buffer));
+        assert!(!buffer.is_empty(), "{fetcher:?}");
     }
 }
