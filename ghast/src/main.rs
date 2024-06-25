@@ -101,6 +101,7 @@ impl Sandbox for Example {
 
     fn update(&mut self, (): ()) {
         self.gb.frame_step().complete();
+        println!("Completed frame...");
         self.cache.clear();
     }
 

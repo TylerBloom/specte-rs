@@ -105,7 +105,7 @@ impl PpuInner {
             // This measures the number of ticks after mode 2 becasuse all modes added together is
             // 456 and mode 2 is always 80 dots
             PpuInner::HBlank { dots, y } if *dots == 376 => {
-                *self = Self::VBlank { dots: *dots, y: *y };
+                *self = Self::VBlank { dots: 0, y: *y };
             }
             PpuInner::HBlank { dots, .. } => *dots += 1,
             PpuInner::VBlank { dots, y } if *dots == 4560 => {

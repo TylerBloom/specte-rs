@@ -172,7 +172,8 @@ impl<'a> StepProcess<'a> {
         self.gb.button_press(input)
     }
 
-    pub fn is_complete(&self) -> bool { self.counter >= self.op.length(&self.gb.cpu)
+    pub fn is_complete(&self) -> bool {
+        self.counter >= self.op.length(&self.gb.cpu)
     }
 
     /// Consumes the step processor, dropping it immediately.
@@ -281,21 +282,23 @@ impl<'b, 'a: 'b> StartUpFrame<'b, 'a> {
 
     pub fn tick(&mut self) {
         if !self.is_complete() {
+            self.mode = self.seq.gb().ppu.state();
             self.seq.step();
-            self.mode = self.seq.gb.ppu.state();
         }
     }
 
     pub fn is_complete(&self) -> bool {
-        self.mode == PpuMode::VBlank && self.seq.gb().ppu.state() == PpuMode::OamScan
+        let state = self.seq.gb().ppu.state();
+        println!("Stored mode: {:?}, Current mode: {:?}", self.mode, state);
+        self.mode == PpuMode::VBlank && state == PpuMode::OamScan
     }
 
     pub fn complete(self) {}
 
     pub fn step(&mut self) {
         if !self.is_complete() {
-            self.seq.step();
             self.mode = self.seq.gb().ppu.state();
+            self.seq.step();
         }
     }
 }
@@ -323,9 +326,9 @@ impl<'a> FrameSequence<'a> {
     }
 
     fn tick(&mut self) {
-        self.next.tick();
         if !self.is_complete() {
             self.mode = self.next.gb.ppu.state();
+            self.next.tick();
         }
     }
 
@@ -337,8 +340,8 @@ impl<'a> FrameSequence<'a> {
 
     fn step(&mut self) {
         if !self.is_complete() {
-            self.next.step_and_next();
             self.mode = self.next.gb.ppu.state();
+            self.next.step_and_next();
         }
     }
 }
