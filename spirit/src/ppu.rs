@@ -63,7 +63,6 @@ pub enum PpuInner {
     },
     VBlank {
         dots: u16,
-        y: u8,
     },
 }
 
@@ -85,7 +84,7 @@ impl PpuInner {
                 };
             }
             PpuInner::OamScan { dots, y } => *dots += 1,
-            PpuInner::Drawing { dots, x, y, .. } if *x == 20 => {
+            PpuInner::Drawing { dots, x, y, .. } if *x == 160 => {
                 *self = Self::HBlank { dots: *dots, y: *y };
             }
             PpuInner::Drawing { fifo, dots, x, y } => {
@@ -94,23 +93,22 @@ impl PpuInner {
                 if let Some(pixel) = fifo.pop_pixel() {
                     screen[*y as usize][*x as usize] = pixel.to_pixel(mem);
                     *x += 1;
-                    if *x == 160 {
-                        *self = Self::HBlank {
-                            dots: *dots,
-                            y: *y + 1,
-                        }
-                    }
                 }
             }
             // This measures the number of ticks after mode 2 becasuse all modes added together is
             // 456 and mode 2 is always 80 dots
             PpuInner::HBlank { dots, y } if *dots == 376 => {
-                *self = Self::VBlank { dots: 0, y: *y };
+                let y = *y + 1;
+                *self = if y == 144 {
+                    // TODO: request vblank interuppt here
+                    Self::VBlank { dots: 0 }
+                } else {
+                    Self::OamScan { dots: 0, y }
+                };
             }
             PpuInner::HBlank { dots, .. } => *dots += 1,
-            PpuInner::VBlank { dots, y } if *dots == 4560 => {
-                *y %= 144;
-                *self = Self::OamScan { dots: 0, y: *y };
+            PpuInner::VBlank { dots } if *dots == 4560 => {
+                *self = Self::OamScan { dots: 0, y: 0 };
             }
             PpuInner::VBlank { dots, .. } => *dots += 1,
         }
@@ -190,8 +188,9 @@ impl FiFoPixel {
             .get_palette(self.palette)
             .get_color(self.color)
             .0;
+        println!("Pixel data: [{a:b}, {b:b}]");
         let r = a & 0b0001_1111;
-        let g = ((a & 0b1110_0000) >> 5 ) | ((b & 0b0000_0011) << 3 );
+        let g = ((a & 0b1110_0000) >> 5) | ((b & 0b0000_0011) << 3);
         let b = (b & 0b0111_1100) >> 2;
         Pixel { r, g, b }
     }
@@ -207,11 +206,7 @@ pub struct Pixel {
 
 impl Pixel {
     const fn new() -> Self {
-        Self {
-            r: u8::MAX,
-            g: u8::MAX,
-            b: u8::MAX,
-        }
+        Self { r: 0, g: 0, b: 0 }
     }
 }
 

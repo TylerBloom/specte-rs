@@ -50,8 +50,8 @@ impl Program<()> for &Example {
             .flat_map(|(i, line)| line.iter().enumerate().map(move |(j, pixel)| (i, j, pixel)))
             .map(|(x, y, pixel)| {
                 let point = Point {
-                    x: x as f32,
-                    y: y as f32,
+                    x: x as f32 * 10.0,
+                    y: y as f32 * 10.0,
                 };
                 let fill = Fill {
                     rule: Rule::NonZero,
@@ -63,8 +63,8 @@ impl Program<()> for &Example {
                 frame.fill_rectangle(
                     point,
                     Size {
-                        width: 1.0,
-                        height: 1.0,
+                        width: 10.0,
+                        height: 10.0,
                     },
                     fill,
                 )
@@ -78,7 +78,7 @@ fn pixel_to_color(Pixel { r, g, b }: Pixel) -> Color {
         r: r as f32 / 0x1Fu8 as f32,
         g: g as f32 / 0x1Fu8 as f32,
         b: b as f32 / 0x1Fu8 as f32,
-        a: 0.0,
+        a: 1.0,
     }
 }
 
