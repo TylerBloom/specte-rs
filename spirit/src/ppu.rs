@@ -75,7 +75,7 @@ impl Default for PpuInner {
 impl PpuInner {
     fn tick(&mut self, screen: &mut [[Pixel; 160]], mem: &MemoryMap) {
         match self {
-            PpuInner::OamScan { dots, y } if *dots == 80 => {
+            PpuInner::OamScan { dots, y } if *dots == 79 => {
                 *self = Self::Drawing {
                     fifo: PixelFiFo::new(),
                     y: *y,
@@ -93,11 +93,14 @@ impl PpuInner {
                 if let Some(pixel) = fifo.pop_pixel() {
                     screen[*y as usize][*x as usize] = pixel.to_pixel(mem);
                     *x += 1;
+                    if *x == 160 {
+                        *self = Self::HBlank { dots: *dots, y: *y };
+                    }
                 }
             }
             // This measures the number of ticks after mode 2 becasuse all modes added together is
             // 456 and mode 2 is always 80 dots
-            PpuInner::HBlank { dots, y } if *dots == 376 => {
+            PpuInner::HBlank { dots, y } if *dots == 375 => {
                 let y = *y + 1;
                 *self = if y == 144 {
                     // TODO: request vblank interuppt here
@@ -107,7 +110,7 @@ impl PpuInner {
                 };
             }
             PpuInner::HBlank { dots, .. } => *dots += 1,
-            PpuInner::VBlank { dots } if *dots == 4560 => {
+            PpuInner::VBlank { dots } if *dots == 4559 => {
                 *self = Self::OamScan { dots: 0, y: 0 };
             }
             PpuInner::VBlank { dots, .. } => *dots += 1,
@@ -188,7 +191,6 @@ impl FiFoPixel {
             .get_palette(self.palette)
             .get_color(self.color)
             .0;
-        println!("Pixel data: [{a:b}, {b:b}]");
         let r = a & 0b0001_1111;
         let g = ((a & 0b1110_0000) >> 5) | ((b & 0b0000_0011) << 3);
         let b = (b & 0b0111_1100) >> 2;
@@ -400,10 +402,10 @@ impl Ppu {
 
 #[cfg(test)]
 mod tests {
-    use crate::mem::MemoryMap;
+    use crate::{mem::{vram::PpuMode, MemoryMap}, ppu::Pixel};
     use heapless::Vec as InlineVec;
 
-    use super::{FiFoPixel, PixelFetcher};
+    use super::{FiFoPixel, PixelFetcher, PpuInner};
 
     // Test that the fetcher can get the pixel data, populate the buffer at the right time, and
     // reset itself.
@@ -444,5 +446,41 @@ mod tests {
         println!("{fetcher:X?}");
         fetcher.tick(&mem, Some(&mut buffer));
         assert!(!buffer.is_empty(), "{fetcher:?}");
+    }
+
+    #[test]
+    fn test_scan_line_timing() {
+        let mem = MemoryMap::construct();
+        let mut screen = vec![[Pixel::new(); 160]; 144];
+        let mut ppu = PpuInner::default();
+        let mut state = ppu.state();
+        let mut counter = 0;
+        while {
+            counter += 1;
+            ppu.tick(&mut screen, &mem);
+            let next_state = ppu.state();
+            let digest = !matches!((state, next_state), (PpuMode::HBlank, PpuMode::OamScan));
+            state = next_state;
+            digest
+        } {}
+        assert_eq!(counter, 456);
+    }
+
+    #[test]
+    fn test_frame_render_timing() {
+        let mem = MemoryMap::construct();
+        let mut screen = vec![[Pixel::new(); 160]; 144];
+        let mut ppu = PpuInner::default();
+        let mut state = ppu.state();
+        let mut counter = 0;
+        while {
+            counter += 1;
+            ppu.tick(&mut screen, &mem);
+            let next_state = ppu.state();
+            let digest = !matches!((state, next_state), (PpuMode::VBlank, PpuMode::OamScan));
+            state = next_state;
+            digest
+        } {}
+        assert_eq!(counter, 70224);
     }
 }
