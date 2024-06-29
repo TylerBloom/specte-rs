@@ -1,9 +1,12 @@
-//! This example showcases an interactive `Canvas` for drawing Bézier curves.
+#![allow(unused)]
+
 use iced::mouse::Cursor;
 use iced::widget::canvas::fill::Rule;
 use iced::widget::canvas::{Cache, Fill, Frame, Geometry, Program, Style};
 use iced::widget::{button, column, text, Canvas};
-use iced::{Alignment, Color, Element, Length, Point, Renderer, Sandbox, Settings, Size, Theme};
+use iced::{
+    executor, Alignment, Application, Color, Element, Length, Point, Renderer, Sandbox, Settings, Size, Subscription, Theme
+};
 use spirit::ppu::Pixel;
 use spirit::{Gameboy, StartUpSequence};
 
@@ -17,6 +20,7 @@ pub fn main() -> iced::Result {
 
 struct Example {
     gb: StartUpSequence<'static>,
+    count: usize,
     cache: Cache,
 }
 
@@ -69,7 +73,7 @@ impl Program<()> for &Example {
                     fill,
                 )
             });
-            vec![frame.into_geometry()]
+        vec![frame.into_geometry()]
     }
 }
 
@@ -82,32 +86,43 @@ fn pixel_to_color(Pixel { r, g, b }: Pixel) -> Color {
     }
 }
 
-impl Sandbox for Example {
+impl Application for Example {
     type Message = ();
+    type Executor = executor::Default;
+    type Theme = Theme;
+    type Flags = ();
 
-    fn new() -> Self {
+    fn new((): ()) -> (Self, iced::Command<()>) {
         let gb: &'static mut Gameboy = Box::leak(Box::new(Gameboy::new(include_bytes!(
             "../../spirit/tests/roms/acid/which.gb"
         ))));
-        Self {
-            gb: gb.start_up(),
-            cache: Cache::new(),
-        }
+        (
+            Self {
+                gb: gb.start_up(),
+                count: 0,
+                cache: Cache::new(),
+            },
+            iced::Command::none(),
+        )
     }
 
     fn title(&self) -> String {
         String::from("GameBoy!!!")
     }
 
-    fn update(&mut self, (): ()) {
+    fn update(&mut self, (): ()) -> iced::Command<()> {
+        self.count += 1;
         self.gb.frame_step().complete();
-        println!("Completed frame...");
+        if self.gb.is_complete() {
+            todo!()
+        }
         self.cache.clear();
+        iced::Command::none()
     }
 
     fn view(&self) -> Element<()> {
         column![
-            text("Bezier tool example").width(Length::Shrink).size(50),
+            text(format!("Gameboy start: Frame {}", self.count)).width(Length::Shrink).size(50),
             self.screen(),
             button("Clear").padding(8).on_press(()),
         ]
@@ -115,5 +130,9 @@ impl Sandbox for Example {
         .spacing(20)
         .align_items(Alignment::Center)
         .into()
+    }
+
+    fn subscription(&self) -> Subscription<()> {
+        iced::time::every(std::time::Duration::from_millis(33)).map(|_| ())
     }
 }

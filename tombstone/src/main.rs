@@ -66,7 +66,7 @@ fn render_frame(frame: &mut Frame, state: &mut AppState, gb: &Gameboy) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(10),
-            Constraint::Length(4),
+            Constraint::Length(20),
             Constraint::Length(4),
             Constraint::Fill(1),
         ])
@@ -139,10 +139,7 @@ fn render_ppu(frame: &mut Frame, state: &mut AppState, area: Rect, ppu: &Ppu) {
     let block = Block::bordered()
         .title("PPU")
         .title_alignment(ratatui::layout::Alignment::Center);
-    let para = Paragraph::new(Text::from_iter([
-        format!("H Pos : {}", 0),
-        format!("V Pos : {}", 0),
-    ]))
+    let para = Paragraph::new(format!("{:#?}", ppu.inner))
     .block(block);
     frame.render_widget(para, area);
 }

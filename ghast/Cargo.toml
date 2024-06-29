@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iced = { version = "0.12.1", features = ["canvas"] }
+iced = { version = "0.12.1", features = ["canvas", "tokio"] }
 spirit = { path = "../spirit" }
+time = { version = "0.3.36", features = ["local-offset"] }
 tracing-subscriber = "0.3.18"

@@ -41,7 +41,7 @@ use crate::{
 pub struct Ppu {
     // This represents the LCD screen. This will always have a length of 144.
     // Pixels are pushed from the
-    inner: PpuInner,
+    pub inner: PpuInner,
     pub screen: Vec<[Pixel; 160]>,
 }
 
@@ -73,7 +73,7 @@ impl Default for PpuInner {
 }
 
 impl PpuInner {
-    fn tick(&mut self, screen: &mut [[Pixel; 160]], mem: &MemoryMap) {
+    fn tick(&mut self, screen: &mut [[Pixel; 160]], mem: &mut MemoryMap) {
         match self {
             PpuInner::OamScan { dots, y } if *dots == 79 => {
                 *self = Self::Drawing {
@@ -103,7 +103,7 @@ impl PpuInner {
             PpuInner::HBlank { dots, y } if *dots == 375 => {
                 let y = *y + 1;
                 *self = if y == 144 {
-                    // TODO: request vblank interuppt here
+                    mem.request_vblank_int();
                     Self::VBlank { dots: 0 }
                 } else {
                     Self::OamScan { dots: 0, y }
@@ -450,14 +450,14 @@ mod tests {
 
     #[test]
     fn test_scan_line_timing() {
-        let mem = MemoryMap::construct();
+        let mut mem = MemoryMap::construct();
         let mut screen = vec![[Pixel::new(); 160]; 144];
         let mut ppu = PpuInner::default();
         let mut state = ppu.state();
         let mut counter = 0;
         while {
             counter += 1;
-            ppu.tick(&mut screen, &mem);
+            ppu.tick(&mut screen, &mut mem);
             let next_state = ppu.state();
             let digest = !matches!((state, next_state), (PpuMode::HBlank, PpuMode::OamScan));
             state = next_state;
@@ -468,14 +468,14 @@ mod tests {
 
     #[test]
     fn test_frame_render_timing() {
-        let mem = MemoryMap::construct();
+        let mut mem = MemoryMap::construct();
         let mut screen = vec![[Pixel::new(); 160]; 144];
         let mut ppu = PpuInner::default();
         let mut state = ppu.state();
         let mut counter = 0;
         while {
             counter += 1;
-            ppu.tick(&mut screen, &mem);
+            ppu.tick(&mut screen, &mut mem);
             let next_state = ppu.state();
             let digest = !matches!((state, next_state), (PpuMode::VBlank, PpuMode::OamScan));
             state = next_state;

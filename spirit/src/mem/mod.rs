@@ -221,8 +221,8 @@ impl Index<u16> for MemoryMap {
 
 impl IndexMut<u16> for MemoryMap {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
-        println!("Mut index into MemMap: 0x{index:0>4X}");
-        // trace!("Mut index into MemMap: 0x{index:0>4X}");
+        // println!("Mut index into MemMap: 0x{index:0>4X}");
+        trace!("Mut index into MemMap: 0x{index:0>4X}");
         match index {
             n @ 0x0000..=0x7FFF => &mut self.mbc[n],
             n @ 0x8000..=0x9FFF => &mut self.vram[VramIndex(n)],

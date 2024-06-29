@@ -498,6 +498,7 @@ impl Cpu {
         mem.clear_interrupt_req(op);
         self.push_pc(mem);
         self.pc = Wrapping(op as u16);
+        panic!("TODO");
     }
 
     fn execute_jump_op(&mut self, op: JumpOp, mem: &mut MemoryMap) {
@@ -748,7 +749,6 @@ impl Cpu {
                 self.sp -= 1;
             }
             LoadOp::LoadHigh(val) => {
-                println!("LoadHigh(0x{val:0>2X})");
                 trace!("LoadHigh(0x{val:0>2X})");
                 mem[u16::from_be_bytes([0xFF, val])] = self.a.0
             }

@@ -239,8 +239,12 @@ impl<'a> StartUpSequence<'a> {
     }
 
     pub fn step(&mut self) {
-        (self.counter..self.op.length(&self.gb.cpu)).for_each(|_| self.tick());
+        (self.counter..self.op.length(&self.gb.cpu)).for_each(|_| self.gb.tick());
         self.counter = 0;
+        self.load_next_op();
+    }
+
+    fn load_next_op(&mut self) {
         if let Some(op) = self.gb.start_up_apply_op(self.op) {
             self.op = op;
         } else {
@@ -263,7 +267,7 @@ impl<'a> StartUpSequence<'a> {
 impl Drop for StartUpSequence<'_> {
     fn drop(&mut self) {
         while !self.is_complete() {
-            self.tick()
+            self.step()
         }
         self.gb.mem.start_up_unmap(self.remap_mem)
     }
@@ -289,7 +293,6 @@ impl<'b, 'a: 'b> StartUpFrame<'b, 'a> {
 
     pub fn is_complete(&self) -> bool {
         let state = self.seq.gb().ppu.state();
-        println!("Stored mode: {:?}, Current mode: {:?}", self.mode, state);
         self.mode == PpuMode::VBlank && state == PpuMode::OamScan
     }
 
@@ -356,12 +359,20 @@ impl<'a> Drop for FrameSequence<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::mem::size_of;
-
-    use crate::lookup::Instruction;
+    use crate::Gameboy;
 
     #[test]
-    fn size() {
-        assert!(size_of::<Instruction>() <= size_of::<usize>())
+    fn start_up_completion() {
+        let mut gb = Gameboy::new(include_bytes!("../tests/roms/acid/which.gb"));
+        gb.start_up().complete();
+    }
+
+    #[test]
+    fn frame_by_frame_start_up() {
+        let mut gb = Gameboy::new(include_bytes!("../tests/roms/acid/which.gb"));
+        let mut seq = gb.start_up();
+        while !seq.is_complete() {
+            seq.frame_step().complete();
+        }
     }
 }

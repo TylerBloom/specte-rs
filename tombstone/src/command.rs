@@ -41,8 +41,8 @@ impl From<ParseIntError> for CommandParserError {
 untwine::parser! {
     [error = CommandParserError]
     ws = #{char::is_ascii_whitespace}+;
-    number: <"0x" | "0b">? rest=<.*> -> u16 { rest.parse()? }
-    range: start=number ".." end=number -> Range<u16> { start..end }
+    number: <"0x" | "0b">? rest=<.*> -> usize { rest.parse()? }
+    range: start=number ".." end=number -> Range<usize> { start..end }
     step: "step" ws count=number -> Command { Command::Step(count as usize) }
     info: "info" -> Command { Command::Info }
     index_number: "index" ws number=number -> Command { Command::Index(IndexOptions::Single(number)) }
@@ -115,15 +115,15 @@ impl Command {
                 String::new()
             }
             Command::Index(opts) => match opts {
-                IndexOptions::Single(i) => format!("ADDR=0x{i:0>4X} -> {:0>2X}", gb.gb().mem[i]),
+                IndexOptions::Single(i) => format!("ADDR=0x{i:0>4X} -> {:0>2X}", gb.gb().mem[i as u16]),
                 IndexOptions::Range(mut rng) => {
                     let mut digest = format!("ADDR=0x{:0>4X}..0x{:0>4X}", rng.start, rng.end);
                     digest.push('[');
                     if let Some(i) = rng.next() {
-                        write!(digest, "0x{:0>2}", gb.gb().mem[i]).unwrap();
+                        write!(digest, "0x{:0>2}", gb.gb().mem[i as u16]).unwrap();
                     }
                     for i in rng {
-                        write!(digest, ", 0x{:0>2}", gb.gb().mem[i]);
+                        write!(digest, ", 0x{:0>2}", gb.gb().mem[i as u16]);
                     }
                     digest.push(']');
                     digest
@@ -132,7 +132,7 @@ impl Command {
             Command::Run(until) => match until {
                 RunUntil::Loop => {
                     let mut ops = Vec::new();
-                    let mut cpu_map: HashMap<_, HashMap<u64, HashMap<u64, usize>>> = HashMap::new();
+                    let mut cpu_map: HashMap<_, HashMap<u64, usize>> = HashMap::new();
                     let mut index = 0;
                     while !gb.is_complete() {
                         let cpu = gb.gb().cpu().clone();
@@ -141,23 +141,14 @@ impl Command {
                         match cpu_map.entry(gb.gb().cpu().clone()) {
                             Entry::Occupied(mut entry) => {
                                 let mut hasher = DefaultHasher::new();
-                                gb.gb().ppu.hash(&mut hasher);
+                                gb.gb().mem.hash(&mut hasher);
                                 match entry.get_mut().entry(hasher.finish()) {
                                     Entry::Vacant(entry) => {
-                                        entry.insert(HashMap::new());
+                                        entry.insert(ops.len());
                                     }
-                                    Entry::Occupied(mut entry) => {
-                                        let mut hasher = DefaultHasher::new();
-                                        gb.gb().mem.hash(&mut hasher);
-                                        match entry.get_mut().entry(hasher.finish()) {
-                                            Entry::Vacant(entry) => {
-                                                entry.insert(ops.len());
-                                            }
-                                            Entry::Occupied(entry) => {
-                                                index = *entry.get();
-                                                break;
-                                            }
-                                        }
+                                    Entry::Occupied(entry) => {
+                                        index = *entry.get();
+                                        break;
                                     }
                                 }
                             }
@@ -213,8 +204,8 @@ pub(crate) enum Interrupt {
 }
 
 pub(crate) enum IndexOptions {
-    Single(u16),
-    Range(Range<u16>),
+    Single(usize),
+    Range(Range<usize>),
 }
 
 /// Encodes the conditions used by the run command
@@ -225,15 +216,15 @@ pub(crate) enum RunUntil {
     Return,
 }
 
-fn parse_int(s: &str) -> Result<u16, String> {
+fn parse_int(s: &str) -> Result<usize, String> {
     let err = || format!("Unable to parse {s:?} into an integer.");
     match s.parse() {
         Ok(val) => Ok(val),
         Err(_) => {
             if let Some(s) = s.strip_prefix("0x") {
-                u16::from_str_radix(s, 16).map_err(|_| err())
+                usize::from_str_radix(s, 16).map_err(|_| err())
             } else if let Some(s) = s.strip_prefix("0b") {
-                u16::from_str_radix(s, 2).map_err(|_| err())
+                usize::from_str_radix(s, 2).map_err(|_| err())
             } else {
                 Err(err())
             }
