@@ -1,41 +1,47 @@
+use std::ops::{Index, IndexMut};
+
+use crate::cpu::u16_check_bit_const;
+
+#[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct MBC2 {
     rom: Vec<u8>,
     // TODO: This can probably be replaced with NonZeroUsize
-    rom_bank: usize,
+    rom_bank: u8,
+    // TODO: The built-in RAM only uses the lower 4-bits. There is no good way to model this via
+    // indexing, so we are going to rely on the ROM writers to obey this. It might be the case
+    // that this needs to be changed.
     ram: Box<[u8; 512]>,
-    ram_enabled: bool,
+    ram_enabled: u8,
+    dead_byte: u8,
 }
 
-impl MBC2 {
-    pub fn read(&self, index: u16) -> u8 {
+impl Index<u16> for MBC2 {
+    type Output = u8;
+
+    fn index(&self, index: u16) -> &Self::Output {
         match index {
-            i @ 0x0000..=0x3FFF => self.rom[i as usize],
-            i @ 0x4000..=0x7FFF => {
-                let start = std::cmp::max(self.rom_bank, 1) * 0x4000;
-                self.rom[start..(start + 0x4000)][(i - 0x4000) as usize]
-            }
-            i @ 0xA000..=0xBFFF if self.ram_enabled => self.ram[(i & 0x01FF) as usize],
-            i @ 0xA000..=0xBFFF => 0,
-            i => unreachable!("MBC2 could not read from address: {i:#X}"),
+            0x0000..=0x3FFF => todo!("read from rom bank 0"),
+            0x4000..=0x7FFF => todo!("read from rom bank 1-F"),
+            i @ 0xA000..=0xBFFF => {
+                &self.ram[(i & 0x01FF) as usize]
+            },
+            _ => unreachable!(),
         }
     }
+}
 
-    pub fn write(&mut self, index: u16, value: u8) {
+impl IndexMut<u16> for MBC2 {
+    fn index_mut(&mut self, index: u16) -> &mut Self::Output {
         match index {
-            i @ 0x0000..=0x3FFF => {
-                if i & 0x0100 == 0 {
-                    self.ram_enabled = value == 0x0A;
-                } else {
-                    self.rom_bank = (value & 0x0F) as usize;
-                }
+            i @ 0x0000..=0x3FFF if u16_check_bit_const::<8>(i) => &mut self.rom_bank,
+            i @ 0x0000..=0x3FFF => &mut self.ram_enabled,
+            i @ 0xA000..=0xBFFF if self.ram_enabled == 0x0A => {
+                todo!("Index into RAM")
             }
-            mut i @ 0xA000..=0xBFFF => {
-                if self.ram_enabled {
-                    i &= 0x01FF;
-                    self.ram[i as usize] = 0x0F & value;
-                }
+            0xA000..=0xBFFF if self.ram_enabled == 0x0A => {
+                &mut self.dead_byte
             }
-            i => unreachable!("MBC2 could not write to address: {i:#X}"),
+            _ => unreachable!(),
         }
     }
 }

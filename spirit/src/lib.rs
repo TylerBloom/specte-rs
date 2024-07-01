@@ -361,7 +361,7 @@ impl<'a> Drop for FrameSequence<'a> {
 mod tests {
     use crate::Gameboy;
 
-    #[test]
+    #[test_log::test]
     fn start_up_completion() {
         let mut gb = Gameboy::new(include_bytes!("../tests/roms/acid/which.gb"));
         gb.start_up().complete();

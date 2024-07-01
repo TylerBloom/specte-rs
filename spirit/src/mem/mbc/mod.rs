@@ -55,7 +55,7 @@ pub enum MemoryBankController {
     MBC1(MBC1),
     ///
     /// See the spec [here](https://gbdev.io/pandocs/MBC2.html).
-    MBC2,
+    MBC2(MBC2),
     ///
     /// See the spec [here](https://gbdev.io/pandocs/MBC3.html).
     MBC3,
