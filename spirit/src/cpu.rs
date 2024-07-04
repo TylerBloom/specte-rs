@@ -127,7 +127,7 @@ const fn bit_select<const B: u8>() -> u8 {
 const fn u16_bit_select<const B: u8>() -> u16 {
     const {
         match B {
-            n @ 0..=7 => 0x1 << n,
+            n @ 0..=15 => 0x1 << n,
             _ => panic!("You must select between the 0th and 7th bit!"),
         }
     }

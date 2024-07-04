@@ -160,7 +160,7 @@ impl MemoryBankController {
                 }
             }
             MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
-            MemoryBankController::MBC2 => todo!("MBC2 not yet impl-ed"),
+            MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
             MemoryBankController::MBC3 => todo!("MBC3 not yet impl-ed"),
             MemoryBankController::MBC5 => todo!("MBC5 not yet impl-ed"),
         }
@@ -181,7 +181,7 @@ impl Index<u16> for MemoryBankController {
                 }
             }
             MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
-            MemoryBankController::MBC2 => todo!("MBC2 not yet impl-ed"),
+            MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
             MemoryBankController::MBC3 => todo!("MBC3 not yet impl-ed"),
             MemoryBankController::MBC5 => todo!("MBC5 not yet impl-ed"),
         }
@@ -203,7 +203,7 @@ impl IndexMut<u16> for MemoryBankController {
                 &mut ram[index - rom.len()]
             }
             MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
-            MemoryBankController::MBC2 => todo!("MBC2 not yet impl-ed"),
+            MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
             MemoryBankController::MBC3 => todo!("MBC3 not yet impl-ed"),
             MemoryBankController::MBC5 => todo!("MBC5 not yet impl-ed"),
         }
@@ -220,7 +220,7 @@ impl Debug for MemoryBankController {
                 ram.len()
             ),
             MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
-            MemoryBankController::MBC2 => todo!("MBC2 not yet impl-ed"),
+            MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
             MemoryBankController::MBC3 => todo!("MBC3 not yet impl-ed"),
             MemoryBankController::MBC5 => todo!("MBC5 not yet impl-ed"),
         }

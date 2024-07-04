@@ -46,13 +46,28 @@ pub struct Ppu {
 }
 
 #[derive(Debug, Hash)]
+pub struct OamObject {
+    y: u8,
+    x: u8,
+    tile_index: u8,
+    attrs: u8,
+}
+
+impl OamObject {
+    fn new(data: &[u8]) -> Self {
+        todo!()
+    }
+}
+
+#[derive(Debug, Hash)]
 pub enum PpuInner {
     OamScan {
         dots: u8,
         y: u8,
     },
     Drawing {
-        fifo: PixelFiFo,
+        obj_fifo: ObjectFiFo,
+        bg_fifo: BackgroundFiFo,
         dots: u16,
         x: u8,
         y: u8,
@@ -77,17 +92,24 @@ impl PpuInner {
         match self {
             PpuInner::OamScan { dots, y } if *dots == 79 => {
                 *self = Self::Drawing {
-                    fifo: PixelFiFo::new(),
+                    bg_fifo: BackgroundFiFo::new(),
                     y: *y,
                     dots: 0,
                     x: 0,
+                    obj_fifo: ObjectFiFo::new(*y, mem),
                 };
             }
             PpuInner::OamScan { dots, y } => *dots += 1,
             PpuInner::Drawing { dots, x, y, .. } if *x == 160 => {
                 *self = Self::HBlank { dots: *dots, y: *y };
             }
-            PpuInner::Drawing { fifo, dots, x, y } => {
+            PpuInner::Drawing {
+                bg_fifo: fifo,
+                dots,
+                x,
+                y,
+                obj_fifo,
+            } => {
                 *dots += 1;
                 fifo.tick(mem);
                 if let Some(pixel) = fifo.pop_pixel() {
@@ -129,16 +151,49 @@ impl PpuInner {
 
 // TODO: This needs to track what model it is in (not VBLANK, though) and pass that to the PPU
 #[derive(Debug, Hash)]
-struct PixelFiFo {
+struct ObjectFiFo {
+    x: u8,
+    objects: InlineVec<OamObject, 10>,
+    pixels: InlineVec<FiFoPixel, 8>,
+}
+
+impl ObjectFiFo {
+    fn new(y: u8, mem: &MemoryMap) -> Self {
+        let y = y + 16;
+        let oam = &mem.vram.oam;
+        // TODO: Right now, we are assuming that all objects are 8x8. We need to add a check for
+        // 8x16 objects.
+        let objects = (0..0x100)
+            .step_by(4)
+            .filter(|i| y <= oam[*i] && oam[*i] < y + 8)
+            .map(|i| OamObject::new(&oam[i..i + 4]))
+            .collect();
+        Self { objects }
+    }
+
+    fn tick(&mut self, mem: &MemoryMap) {
+        let bg = self.pixels.is_empty().then(|| {
+            self.tile_count += 1;
+            &mut self.pixels
+        });
+        self.fetcher.tick(mem, bg);
+    }
+
+    fn pop_pixel(&mut self) -> Option<FiFoPixel> {
+        self.pixels.pop()
+    }
+}
+
+// TODO: This needs to track what model it is in (not VBLANK, though) and pass that to the PPU
+#[derive(Debug, Hash)]
+struct BackgroundFiFo {
     counter: u8,
     tile_count: u8,
     fetcher: PixelFetcher,
-    // This field is ignored until object pixels are impl-ed
-    // oam: InlineVec<Pixel, 8>,
     background: InlineVec<FiFoPixel, 8>,
 }
 
-impl PixelFiFo {
+impl BackgroundFiFo {
     fn new() -> Self {
         Self {
             counter: 0,
@@ -402,7 +457,10 @@ impl Ppu {
 
 #[cfg(test)]
 mod tests {
-    use crate::{mem::{vram::PpuMode, MemoryMap}, ppu::Pixel};
+    use crate::{
+        mem::{vram::PpuMode, MemoryMap},
+        ppu::Pixel,
+    };
     use heapless::Vec as InlineVec;
 
     use super::{FiFoPixel, PixelFetcher, PpuInner};

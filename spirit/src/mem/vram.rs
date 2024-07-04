@@ -41,7 +41,7 @@ pub(crate) struct VRam {
     /// The main video RAM. Accessible through the address range 0x8000 through 0x9FFF.
     pub(crate) vram: ([u8; 0x2000], [u8; 0x2000]),
     /// The Object Attribute Map. Accessible through the address range 0xFE00 through 0xFE9F
-    oam: [u8; 0x100],
+    pub(crate) oam: [u8; 0x100],
     /// The status that the PPU is currently in. This mode is set when the PPU is ticked and
     /// determines how the VRAM and OAM are indexed into.
     status: PpuMode,
@@ -73,6 +73,7 @@ impl Index<VramIndex> for VRam {
     type Output = u8;
 
     fn index(&self, VramIndex(index): VramIndex) -> &Self::Output {
+        println!("Indexing into VRAM @ 0x{index:0>4X}");
         if self.status.is_drawing() {
             &DEAD_READ_ONLY_BYTE
         } else {
@@ -83,6 +84,7 @@ impl Index<VramIndex> for VRam {
 
 impl IndexMut<VramIndex> for VRam {
     fn index_mut(&mut self, VramIndex(index): VramIndex) -> &mut Self::Output {
+        println!("Mutably indexing into OAM @ 0x{index:0>4X}");
         if self.status.is_drawing() {
             self.dead_byte = 0xFF;
             &mut self.dead_byte
@@ -96,6 +98,7 @@ impl Index<OamIndex> for VRam {
     type Output = u8;
 
     fn index(&self, OamIndex(index): OamIndex) -> &Self::Output {
+        println!("Indexing into OAM @ 0x{index:0>4X}");
         if matches!(self.status, PpuMode::OamScan | PpuMode::Drawing) {
             &DEAD_READ_ONLY_BYTE
         } else {
@@ -106,6 +109,7 @@ impl Index<OamIndex> for VRam {
 
 impl IndexMut<OamIndex> for VRam {
     fn index_mut(&mut self, OamIndex(index): OamIndex) -> &mut Self::Output {
+        println!("Mutably indexing into OAM @ 0x{index:0>4X}");
         if matches!(self.status, PpuMode::OamScan | PpuMode::Drawing) {
             self.dead_byte = 0xFF;
             &mut self.dead_byte
