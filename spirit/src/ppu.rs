@@ -1,4 +1,4 @@
-use std::array;
+use std::{array, collections::VecDeque};
 
 use heapless::Vec as InlineVec;
 
@@ -57,6 +57,37 @@ impl OamObject {
     fn new(data: &[u8]) -> Self {
         todo!()
     }
+
+    fn populate_buffer(self, y: u8, buffer: &mut [FiFoPixel], mem: &MemoryMap) {
+        let x = self.x as usize;
+        self.generate_pixels(y, mem).into_iter().enumerate().for_each(|(i, pixel)| buffer[x + i] = pixel);
+    }
+
+    fn generate_pixels(self, y: u8, mem: &MemoryMap) -> [FiFoPixel; 8] {
+        // The given Y needs to be within the bounds of the object. This should be the case
+        // already.
+        debug_assert!(y >= self.y);
+        debug_assert!(y < self.y + 8);
+        let bank = if check_bit_const::<3>(self.attrs) {
+            &mem.vram.vram.1
+        } else {
+            &mem.vram.vram.0
+        };
+        // This index is of the form 0x0XX0
+        let starting_index = (self.tile_index as usize) << 4;
+        let mut offset = (y - self.y) as usize;
+        if check_bit_const::<6>(self.attrs) {
+            offset = 8 - offset;
+        }
+        let index = starting_index + (2 * offset);
+        let lo = bank[index];
+        let hi = bank[index + 1];
+        let mut digest = form_pixels(self.attrs, lo, hi).into_array().unwrap();
+        if check_bit_const::<5>(self.attrs) {
+            digest.as_mut_slice().reverse();
+        }
+        digest
+    }
 }
 
 #[derive(Debug, Hash)]
@@ -104,15 +135,17 @@ impl PpuInner {
                 *self = Self::HBlank { dots: *dots, y: *y };
             }
             PpuInner::Drawing {
-                bg_fifo: fifo,
+                bg_fifo,
                 dots,
                 x,
                 y,
                 obj_fifo,
             } => {
                 *dots += 1;
-                fifo.tick(mem);
-                if let Some(pixel) = fifo.pop_pixel() {
+                bg_fifo.tick(mem);
+                let obj_pixel = obj_fifo.pop_pixel();
+                if let Some(pixel) = bg_fifo.pop_pixel() {
+                    let pixel = pixel.mix(obj_pixel);
                     screen[*y as usize][*x as usize] = pixel.to_pixel(mem);
                     *x += 1;
                     if *x == 160 {
@@ -152,35 +185,35 @@ impl PpuInner {
 // TODO: This needs to track what model it is in (not VBLANK, though) and pass that to the PPU
 #[derive(Debug, Hash)]
 struct ObjectFiFo {
-    x: u8,
-    objects: InlineVec<OamObject, 10>,
-    pixels: InlineVec<FiFoPixel, 8>,
+    pixels: VecDeque<FiFoPixel>,
 }
 
 impl ObjectFiFo {
     fn new(y: u8, mem: &MemoryMap) -> Self {
+        let mut pixels = std::iter::repeat(FiFoPixel::transparent())
+            .take(172)
+            .collect::<VecDeque<_>>();
         let y = y + 16;
         let oam = &mem.vram.oam;
         // TODO: Right now, we are assuming that all objects are 8x8. We need to add a check for
         // 8x16 objects.
+        let buffer = pixels.make_contiguous();
         let objects = (0..0x100)
             .step_by(4)
             .filter(|i| y <= oam[*i] && oam[*i] < y + 8)
             .map(|i| OamObject::new(&oam[i..i + 4]))
-            .collect();
-        Self { objects }
+            .take(10)
+            .for_each(|obj| obj.populate_buffer(y, buffer, mem));
+        // Discard the front and back 8 pixels
+        for _ in 0..8 {
+            pixels.pop_front();
+            pixels.pop_back();
+        }
+        Self { pixels }
     }
 
-    fn tick(&mut self, mem: &MemoryMap) {
-        let bg = self.pixels.is_empty().then(|| {
-            self.tile_count += 1;
-            &mut self.pixels
-        });
-        self.fetcher.tick(mem, bg);
-    }
-
-    fn pop_pixel(&mut self) -> Option<FiFoPixel> {
-        self.pixels.pop()
+    fn pop_pixel(&mut self) -> FiFoPixel {
+        self.pixels.pop_front().unwrap_or(FiFoPixel::transparent())
     }
 }
 
@@ -217,7 +250,7 @@ impl BackgroundFiFo {
     }
 }
 
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Clone, Copy)]
 pub struct FiFoPixel {
     /// Which color for the selected palette should be used. Ranges from 0 to 3.
     color: u8,
@@ -237,6 +270,20 @@ impl FiFoPixel {
             sprite_priority: false,
             bg_priority: false,
         }
+    }
+
+    #[inline]
+    const fn transparent() -> Self {
+        Self {
+            color: 0,
+            palette: 0,
+            sprite_priority: false,
+            bg_priority: false,
+        }
+    }
+
+    fn mix(self, obj: Self) -> Self {
+        todo!()
     }
 
     fn to_pixel(self, mem: &MemoryMap) -> Pixel {
