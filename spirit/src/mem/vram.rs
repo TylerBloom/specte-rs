@@ -7,6 +7,8 @@
 
 use std::ops::{Index, IndexMut};
 
+use tracing::{info, trace};
+
 static DEAD_READ_ONLY_BYTE: u8 = 0xFF;
 
 /// This wrapper type is used to communicate that the VRAM should be indexed into when indexing into VRam.
@@ -73,7 +75,7 @@ impl Index<VramIndex> for VRam {
     type Output = u8;
 
     fn index(&self, VramIndex(index): VramIndex) -> &Self::Output {
-        println!("Indexing into VRAM @ 0x{index:0>4X}");
+        trace!("Indexing into VRAM @ 0x{index:0>4X}");
         if self.status.is_drawing() {
             &DEAD_READ_ONLY_BYTE
         } else {
@@ -84,7 +86,7 @@ impl Index<VramIndex> for VRam {
 
 impl IndexMut<VramIndex> for VRam {
     fn index_mut(&mut self, VramIndex(index): VramIndex) -> &mut Self::Output {
-        println!("Mutably indexing into OAM @ 0x{index:0>4X}");
+        trace!("Mutably indexing into VRAM @ 0x{index:0>4X}");
         if self.status.is_drawing() {
             self.dead_byte = 0xFF;
             &mut self.dead_byte
@@ -98,7 +100,7 @@ impl Index<OamIndex> for VRam {
     type Output = u8;
 
     fn index(&self, OamIndex(index): OamIndex) -> &Self::Output {
-        println!("Indexing into OAM @ 0x{index:0>4X}");
+        trace!("Indexing into OAM @ 0x{index:0>4X}");
         if matches!(self.status, PpuMode::OamScan | PpuMode::Drawing) {
             &DEAD_READ_ONLY_BYTE
         } else {
@@ -109,7 +111,7 @@ impl Index<OamIndex> for VRam {
 
 impl IndexMut<OamIndex> for VRam {
     fn index_mut(&mut self, OamIndex(index): OamIndex) -> &mut Self::Output {
-        println!("Mutably indexing into OAM @ 0x{index:0>4X}");
+        trace!("Mutably indexing into OAM @ 0x{index:0>4X}");
         if matches!(self.status, PpuMode::OamScan | PpuMode::Drawing) {
             self.dead_byte = 0xFF;
             &mut self.dead_byte

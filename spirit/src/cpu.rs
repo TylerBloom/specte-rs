@@ -9,7 +9,7 @@ use std::{
 };
 
 use once_cell::sync::{Lazy, OnceCell};
-use tracing::trace;
+use tracing::{info, info_span, trace};
 
 use crate::{
     lookup::{
@@ -239,6 +239,9 @@ impl Cpu {
     }
 
     pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
+        let span = info_span!("Executing intruction:");
+        let _guard = span.enter();
+        // info!("{instr}");
         // info!("Starting execution: {instr}",);
         // info!("CPU={self}");
         // TODO: Remove this! This is onlhy for testing before we impl interrupt handling and IO.

@@ -33,9 +33,6 @@ pub struct MemoryMap {
     pub(crate) vram: VRam,
     // The working RAM
     wram: ([u8; 0x1000], [u8; 0x1000]),
-    // There is a region of memory that is marked as inaccessible (0xFEA0 through 0xFEFF). Instead
-    // of panicking when this area is accessed, a reference to this dead byte is used instead.
-    dead_byte: u8,
     pub io: IoRegisters,
     // High RAM
     pub(crate) hr: [u8; 0x7F],
@@ -48,6 +45,9 @@ pub struct MemoryMap {
     ///  - Bit 4 corresponds to the joypad interrupt
     /// When intexed, this register is at 0xFFFF.
     pub ie: u8,
+    // There is a region of memory that is marked as inaccessible (0xFEA0 through 0xFEFF). Instead
+    // of panicking when this area is accessed, a reference to this dead byte is used instead.
+    dead_byte: u8,
 }
 
 impl MemoryMap {

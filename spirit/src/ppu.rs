@@ -1,6 +1,7 @@
 use std::{array, collections::VecDeque};
 
 use heapless::Vec as InlineVec;
+use tracing::{info_span, trace};
 
 use crate::{
     cpu::{check_bit, check_bit_const},
@@ -55,7 +56,12 @@ pub struct OamObject {
 
 impl OamObject {
     fn new(data: &[u8]) -> Self {
-        todo!()
+        Self {
+            y: data[0],
+            x: data[1],
+            tile_index: data[2],
+            attrs: data[3],
+        }
     }
 
     fn populate_buffer(self, y: u8, buffer: &mut [FiFoPixel], mem: &MemoryMap) {
@@ -85,6 +91,11 @@ impl OamObject {
         let mut digest = form_pixels(self.attrs, lo, hi).into_array().unwrap();
         if check_bit_const::<5>(self.attrs) {
             digest.as_mut_slice().reverse();
+        }
+        for pixel in &digest {
+            if pixel.color != 0 {
+                println!("Outputting a non-transparent object pixel: {pixel:?}");
+            }
         }
         digest
     }
@@ -283,7 +294,13 @@ impl FiFoPixel {
     }
 
     fn mix(self, obj: Self) -> Self {
-        todo!()
+        // TODO: The pixels carry the data to determine this, but that is not being properly
+        // determined yet.
+        if obj.color == 0 {
+            obj
+        } else {
+            self
+        }
     }
 
     fn to_pixel(self, mem: &MemoryMap) -> Pixel {
@@ -493,6 +510,8 @@ impl Ppu {
     }
 
     pub(crate) fn tick(&mut self, mem: &mut MemoryMap) {
+        let span = info_span!("Ticking PPU:");
+        let _guard = span.enter();
         self.inner.tick(&mut self.screen, mem);
         mem.vram.inc_status(self.inner.state());
     }

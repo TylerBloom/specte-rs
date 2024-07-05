@@ -42,6 +42,19 @@ pub struct IoRegisters {
     dead_byte: u8,
 }
 
+// Notes on the FF40-FF4B range (i.e. the "LCD registers")
+// FF40 -> LCD control register
+// FF41 -> LCD status register
+// FF42 & FF43 -> Background viewport position (SCY, SCX)
+// FF44 -> LCD Y coordinate (read only) (this is held in the PPU)
+// FF45 -> LY compare (controls the STAT iterrupt) (LCD Y is in the PPU, so this should be put
+// there too)
+// FF46 -> OAM DMA source address and start
+// FF47 -> Monochrome BG palette data
+// FF48 & FF49 -> Monochrome OBJ palette data
+// FF4A & FF4B -> Window position (Y, X + 7)
+
+
 /// In GBC mode, there are extra palettes for the colors
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
 pub struct ColorPalettes {
