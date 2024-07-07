@@ -35,6 +35,7 @@ pub(crate) struct AppState {
     pub(crate) subscriber:
         Option<FmtSubscriber<DefaultFields, Format<Compact, ()>, LevelFilter, GameboySubscriber>>,
     buffer: Arc<Mutex<Vec<u8>>>,
+    pub(crate) mem_start: u16,
 }
 
 /// This captures the different levels of verbosity, current, there is only two, but others will be

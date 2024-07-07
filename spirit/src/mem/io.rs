@@ -2,7 +2,9 @@ use std::ops::{Index, IndexMut};
 
 use tracing::trace;
 
-use crate::{cpu::check_bit_const, ButtonInput};
+use crate::{cpu::check_bit_const, lookup::InterruptOp, ButtonInput};
+
+use super::vram::PpuMode;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
 pub struct IoRegisters {
@@ -21,8 +23,27 @@ pub struct IoRegisters {
     audio: [u8; 0x17],
     /// ADDR FF30-FF3F
     wave: [u8; 0x10],
-    /// ADDR FF40-FF4B
-    lcd: LcdRegisters,
+    /// ADDR FF40
+    pub(crate) lcd_control: u8,
+    /// ADDR FF41
+    lcd_status: u8,
+    /// A duplicate value of the LCD status register. A reference to this byte is given out when
+    /// mutably indexing as some of the bytes are read-only
+    lcd_status_dup: u8,
+    /// ADDR FF42 & FF43
+    bg_position: (u8, u8),
+    /// ADDR FF44 (set by the PPU)
+    lcd_y: u8,
+    /// ADDR FF45
+    lcd_cmp: u8,
+    /// ADDR FF46
+    oam_dma: u8,
+    /// ADDR FF47
+    monochrome_bg_palette: u8,
+    /// ADDR FF48 & FF49
+    monochrome_obj_palettes: [u8; 2],
+    /// ADDR FF4A & FF4B
+    window_position: (u8, u8),
     /// ADDR FF4F
     vram_select: u8,
     /// ADDR FF50
@@ -32,7 +53,7 @@ pub struct IoRegisters {
     /// ADDR FF68 and FF69
     pub(crate) background_palettes: ColorPalettes,
     /// ADDR FF6A and FF6B
-    object_palettes: ColorPalettes,
+    pub(crate) object_palettes: ColorPalettes,
     /// ADDR FF70
     wram_select: u8,
     /// There are gaps amount the memory mapped IO registers. Any index into this that hits one of
@@ -42,7 +63,6 @@ pub struct IoRegisters {
     dead_byte: u8,
 }
 
-// Notes on the FF40-FF4B range (i.e. the "LCD registers")
 // FF40 -> LCD control register
 // FF41 -> LCD status register
 // FF42 & FF43 -> Background viewport position (SCY, SCX)
@@ -54,6 +74,171 @@ pub struct IoRegisters {
 // FF48 & FF49 -> Monochrome OBJ palette data
 // FF4A & FF4B -> Window position (Y, X + 7)
 
+impl IoRegisters {
+    pub(super) fn tick(&mut self) {
+        self.joypad.tick();
+        self.lcd_status = (0b0000_0111 & self.lcd_status) | (0b0111_1000 & self.lcd_status_dup);
+        self.lcd_status_dup = self.lcd_status;
+        if self.lcd_y == self.lcd_cmp {
+            // TODO: I think this should only be called if that interrupt is enabled...
+            self.request_lcd_int();
+        }
+        let byte = &mut self.timer_div[0];
+        *byte = byte.wrapping_add(1);
+        if self.tac.update_and_tick(self.timer_div[3]) {
+            match self.timer_div[1].checked_add(1) {
+                Some(b) => self.timer_div[1] = b,
+                None => {
+                    let b = self.timer_div[1];
+                    self.timer_div[0] = b;
+                    self.request_timer_int();
+                }
+            }
+        }
+    }
+
+    pub(crate) fn set_ppu_status(&mut self, state: PpuMode) {
+        self.lcd_status &= 0b1111_1100 | state as u8;
+    }
+
+    /// Called by the PPU when it finishes a scan line
+    pub(crate) fn inc_lcd_y(&mut self) {
+        self.lcd_y = (self.lcd_y + 1) % 154;
+    }
+
+    // TODO: It is somewhat unclear to me if the IE register acts like a barrier to interrupts or
+    // not. It would seems (from the start up sequence) the answer is "no".
+    pub fn request_vblank_int(&mut self) {
+        // self.io.interrupt_flags |= self.ie & 0b1;
+        self.interrupt_flags |= 0b1;
+    }
+
+    pub fn request_lcd_int(&mut self) {
+        // self.io.interrupt_flags |= self.ie & 0b10;
+        self.interrupt_flags |= 0b10;
+    }
+
+    pub fn request_timer_int(&mut self) {
+        // self.io.interrupt_flags |= self.ie & 0b100;
+        self.interrupt_flags |= 0b100;
+    }
+
+    pub fn request_serial_int(&mut self) {
+        // self.io.interrupt_flags |= self.ie & 0b1000;
+        self.interrupt_flags |= 0b1000;
+    }
+
+    pub fn request_button_int(&mut self, input: ButtonInput) {
+        self.joypad.register_input(input);
+        // self.io.interrupt_flags |= self.ie & 0b1_0000;
+        self.interrupt_flags |= 0b1_0000;
+    }
+
+    pub(crate) fn clear_interrupt_req(&mut self, op: InterruptOp) {
+        let mask = match op {
+            InterruptOp::VBlank => 0b1,
+            InterruptOp::LCD => 0b10,
+            InterruptOp::Timer => 0b100,
+            InterruptOp::Serial => 0b1000,
+            InterruptOp::Joypad => 0b1_0000,
+        };
+        self.interrupt_flags &= !mask;
+    }
+}
+
+impl Index<u16> for IoRegisters {
+    type Output = u8;
+
+    fn index(&self, index: u16) -> &Self::Output {
+        match index {
+            0xFF00 => &self.joypad[()],
+            0xFF01 => &self.serial.0,
+            0xFF02 => &self.serial.1,
+            n @ 0xFF04..=0xFF07 => &self.timer_div[(n - 0xFF04) as usize],
+            0xFF0F => &self.interrupt_flags,
+            n @ 0xFF10..=0xFF26 => &self.audio[(n - 0xFF10) as usize],
+            n @ 0xFF30..=0xFF3F => &self.wave[(n - 0xFF30) as usize],
+            0xFF40 => &self.lcd_control,
+            0xFF41 => &self.lcd_status,
+            0xFF42 => &self.bg_position.0,
+            0xFF43 => &self.bg_position.1,
+            0xFF44 => &self.lcd_y,
+            0xFF45 => &self.lcd_cmp,
+            0xFF46 => &self.oam_dma,
+            0xFF47 => &self.monochrome_bg_palette,
+            0xFF48 => &self.monochrome_obj_palettes[0],
+            0xFF49 => &self.monochrome_obj_palettes[1],
+            0xFF4A => &self.window_position.0,
+            0xFF4B => &self.window_position.1,
+            0xFF4F => &self.vram_select,
+            0xFF50 => &self.boot_status,
+            n @ 0xFF51..=0xFF55 => &self.vram_dma[(n - 0xFF51) as usize],
+            n @ 0xFF68..=0xFF69 => &self.background_palettes[n - 0xFF68],
+            n @ 0xFF6A..=0xFF6B => &self.object_palettes[n - 0xFF68],
+            0xFF70 => &self.wram_select,
+            0xFF03
+            | 0xFF08..=0xFF0E
+            | 0xFF27..=0xFF2F
+            | 0xFF4C..=0xFF4E
+            | 0xFF56..=0xFF67
+            | 0xFF6C..=0xFF6F => &self.dead_byte,
+            ..=0xFEFF | 0xFF71.. => unreachable!(
+                "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
+            ),
+        }
+    }
+}
+
+impl IndexMut<u16> for IoRegisters {
+    fn index_mut(&mut self, index: u16) -> &mut Self::Output {
+        trace!("Index: 0x{index:0>4X}");
+        match index {
+            0xFF00 => &mut self.joypad[()],
+            0xFF01 => &mut self.serial.0,
+            0xFF02 => &mut self.serial.1,
+            0xFF04 => {
+                self.timer_div[0] = 0;
+                self.dead_byte = 0;
+                &mut self.dead_byte
+            }
+            n @ 0xFF05..=0xFF07 => &mut self.timer_div[(n - 0xFF04) as usize],
+            0xFF0F => &mut self.interrupt_flags,
+            n @ 0xFF10..=0xFF26 => &mut self.audio[(n - 0xFF10) as usize],
+            n @ 0xFF30..=0xFF3F => &mut self.wave[(n - 0xFF30) as usize],
+            0xFF40 => &mut self.lcd_control,
+            // TODO: Only part of this register can be written to. Only bits 3-6 can be written to.
+            // This register needs to be reset when ticked.
+            0xFF41 => &mut self.lcd_status_dup,
+            0xFF42 => &mut self.bg_position.0,
+            0xFF43 => &mut self.bg_position.1,
+            0xFF44 => &mut self.dead_byte, // This register is read-only
+            0xFF45 => &mut self.lcd_cmp,
+            0xFF46 => &mut self.oam_dma,
+            0xFF47 => &mut self.monochrome_bg_palette,
+            0xFF48 => &mut self.monochrome_obj_palettes[0],
+            0xFF49 => &mut self.monochrome_obj_palettes[1],
+            0xFF4A => &mut self.window_position.0,
+            0xFF4B => &mut self.window_position.1,
+            0xFF4F => &mut self.vram_select,
+            0xFF50 => &mut self.boot_status,
+            0xFF4F => &mut self.vram_select,
+            0xFF50 => &mut self.boot_status,
+            n @ 0xFF51..=0xFF55 => &mut self.vram_dma[(n - 0xFF51) as usize],
+            n @ 0xFF68..=0xFF69 => &mut self.background_palettes[n - 0xFF68],
+            n @ 0xFF6A..=0xFF6B => &mut self.object_palettes[n - 0xFF6A],
+            0xFF70 => &mut self.wram_select,
+            0xFF03
+            | 0xFF08..=0xFF0E
+            | 0xFF27..=0xFF2F
+            | 0xFF4C..=0xFF4E
+            | 0xFF56..=0xFF67
+            | 0xFF6C..=0xFF7F => &mut self.dead_byte,
+            ..=0xFEFF | 0xFF80.. => unreachable!(
+                "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
+            ),
+        }
+    }
+}
 
 /// In GBC mode, there are extra palettes for the colors
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
@@ -182,48 +367,6 @@ impl IndexMut<u8> for PaletteColor {
     }
 }
 
-/// Addressed between 0xFF40 and FF4B, this type encapsulates
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
-pub struct LcdRegisters {
-    /// Monochrome palettes: FF47
-    bgp: u8,
-    /// Monochrome palette data: FF48, FF49
-    obgp: [u8; 2],
-    dead_byte: u8,
-}
-
-impl Index<u16> for LcdRegisters {
-    type Output = u8;
-
-    fn index(&self, index: u16) -> &Self::Output {
-        match index {
-            0xFF47 => &self.bgp,
-            0xFF48 => &self.obgp[0],
-            0xFF49 => &self.obgp[1],
-            _ => {
-                &self.dead_byte
-                // TODO: This should be marked as unreachable in the future!
-                // unreachable!();
-            }
-        }
-    }
-}
-
-impl IndexMut<u16> for LcdRegisters {
-    fn index_mut(&mut self, index: u16) -> &mut Self::Output {
-        match index {
-            0xFF47 => &mut self.bgp,
-            0xFF48 => &mut self.obgp[0],
-            0xFF49 => &mut self.obgp[1],
-            _ => {
-                &mut self.dead_byte
-                // TODO: This should be marked as unreachable in the future!
-                // unreachable!();
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
 pub enum TimerControl {
     #[default]
@@ -258,92 +401,6 @@ pub enum TimerControl {
 pub(super) struct Joypad {
     main: u8,
     dup: u8,
-}
-
-impl IoRegisters {
-    pub(super) fn tick(&mut self) {
-        self.joypad.tick();
-        let byte = &mut self.timer_div[0];
-        *byte = byte.wrapping_add(1);
-        if self.tac.update_and_tick(self.timer_div[3]) {
-            match self.timer_div[1].checked_add(1) {
-                Some(b) => self.timer_div[1] = b,
-                None => {
-                    let b = self.timer_div[1];
-                    self.timer_div[0] = b;
-                    self.interrupt_flags |= 0b100;
-                }
-            }
-        }
-    }
-}
-
-impl Index<u16> for IoRegisters {
-    type Output = u8;
-
-    fn index(&self, index: u16) -> &Self::Output {
-        match index {
-            0xFF00 => &self.joypad[()],
-            0xFF01 => &self.serial.0,
-            0xFF02 => &self.serial.1,
-            n @ 0xFF04..=0xFF07 => &self.timer_div[(n - 0xFF04) as usize],
-            0xFF0F => &self.interrupt_flags,
-            n @ 0xFF10..=0xFF26 => &self.audio[(n - 0xFF10) as usize],
-            n @ 0xFF30..=0xFF3F => &self.wave[(n - 0xFF30) as usize],
-            n @ 0xFF40..=0xFF4B => &self.lcd[n],
-            0xFF4F => &self.vram_select,
-            0xFF50 => &self.boot_status,
-            n @ 0xFF51..=0xFF55 => &self.vram_dma[(n - 0xFF51) as usize],
-            n @ 0xFF68..=0xFF69 => &self.background_palettes[n - 0xFF68],
-            n @ 0xFF6A..=0xFF6B => &self.object_palettes[n - 0xFF68],
-            0xFF70 => &self.wram_select,
-            0xFF03
-            | 0xFF08..=0xFF0E
-            | 0xFF27..=0xFF2F
-            | 0xFF4C..=0xFF4E
-            | 0xFF56..=0xFF67
-            | 0xFF6C..=0xFF6F => &self.dead_byte,
-            ..=0xFEFF | 0xFF71.. => unreachable!(
-                "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
-            ),
-        }
-    }
-}
-
-impl IndexMut<u16> for IoRegisters {
-    fn index_mut(&mut self, index: u16) -> &mut Self::Output {
-        trace!("Index: 0x{index:0>4X}");
-        match index {
-            0xFF00 => &mut self.joypad[()],
-            0xFF01 => &mut self.serial.0,
-            0xFF02 => &mut self.serial.1,
-            0xFF04 => {
-                self.timer_div[0] = 0;
-                self.dead_byte = 0;
-                &mut self.dead_byte
-            }
-            n @ 0xFF05..=0xFF07 => &mut self.timer_div[(n - 0xFF04) as usize],
-            0xFF0F => &mut self.interrupt_flags,
-            n @ 0xFF10..=0xFF26 => &mut self.audio[(n - 0xFF10) as usize],
-            n @ 0xFF30..=0xFF3F => &mut self.wave[(n - 0xFF30) as usize],
-            n @ 0xFF40..=0xFF4B => &mut self.lcd[n],
-            0xFF4F => &mut self.vram_select,
-            0xFF50 => &mut self.boot_status,
-            n @ 0xFF51..=0xFF55 => &mut self.vram_dma[(n - 0xFF51) as usize],
-            n @ 0xFF68..=0xFF69 => &mut self.background_palettes[n - 0xFF68],
-            n @ 0xFF6A..=0xFF6B => &mut self.object_palettes[n - 0xFF6A],
-            0xFF70 => &mut self.wram_select,
-            0xFF03
-            | 0xFF08..=0xFF0E
-            | 0xFF27..=0xFF2F
-            | 0xFF4C..=0xFF4E
-            | 0xFF56..=0xFF67
-            | 0xFF6C..=0xFF7F => &mut self.dead_byte,
-            ..=0xFEFF | 0xFF80.. => unreachable!(
-                "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
-            ),
-        }
-    }
 }
 
 impl TimerControl {

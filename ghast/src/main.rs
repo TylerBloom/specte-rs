@@ -11,7 +11,7 @@ use spirit::ppu::Pixel;
 use spirit::{Gameboy, StartUpSequence};
 
 pub fn main() -> iced::Result {
-    tracing_subscriber::fmt().init();
+    // tracing_subscriber::fmt().init();
     Example::run(Settings {
         antialiasing: true,
         ..Settings::default()

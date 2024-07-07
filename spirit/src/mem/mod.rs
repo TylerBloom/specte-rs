@@ -125,44 +125,28 @@ impl MemoryMap {
         self.io.tick();
     }
 
-    // TODO: It is somewhat unclear to me if the IE register acts like a barrier to interrupts or
-    // not. It would seems (from the start up sequence) the answer is "no".
-
     pub fn request_vblank_int(&mut self) {
-        // self.io.interrupt_flags |= self.ie & 0b1;
-        self.io.interrupt_flags |= 0b1;
+        self.io.request_vblank_int()
     }
 
     pub fn request_lcd_int(&mut self) {
-        // self.io.interrupt_flags |= self.ie & 0b10;
-        self.io.interrupt_flags |= 0b10;
+        self.io.request_lcd_int()
     }
 
     pub fn request_timer_int(&mut self) {
-        // self.io.interrupt_flags |= self.ie & 0b100;
-        self.io.interrupt_flags |= 0b100;
+        self.io.request_timer_int()
     }
 
     pub fn request_serial_int(&mut self) {
-        // self.io.interrupt_flags |= self.ie & 0b1000;
-        self.io.interrupt_flags |= 0b1000;
+        self.io.request_serial_int()
     }
 
     pub fn request_button_int(&mut self, input: ButtonInput) {
-        self.io.joypad.register_input(input);
-        // self.io.interrupt_flags |= self.ie & 0b1_0000;
-        self.io.interrupt_flags |= 0b1_0000;
+        self.io.request_button_int(input)
     }
 
     pub(crate) fn clear_interrupt_req(&mut self, op: InterruptOp) {
-        let mask = match op {
-            InterruptOp::VBlank => 0b1,
-            InterruptOp::LCD => 0b10,
-            InterruptOp::Timer => 0b100,
-            InterruptOp::Serial => 0b1000,
-            InterruptOp::Joypad => 0b1_0000,
-        };
-        self.io.interrupt_flags &= !mask;
+        self.io.clear_interrupt_req(op)
     }
 }
 

@@ -1,5 +1,6 @@
 #![allow(dead_code, unused)]
-use std::{error::Error, io::Write};
+use std::fmt::Write;
+use std::{error::Error, io::Write as _};
 
 use ratatui::{
     backend::{Backend, CrosstermBackend},
@@ -21,6 +22,7 @@ static TMP_ROM: &[u8] = include_bytes!("../../spirit/tests/roms/acid/which.gb");
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut state = AppState::default();
+    state.mem_start = 0x8000;
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut term = Terminal::new(backend)?;
     term.clear()?;
@@ -72,7 +74,8 @@ fn render_frame(frame: &mut Frame, state: &mut AppState, gb: &Gameboy) {
         ])
         .split(right);
     render_cli(frame, state, left[0]);
-    render_pc_area(frame, state, left[1], gb);
+    // render_pc_area(frame, state, left[1], gb);
+    render_mem(frame, state, left[1], &gb.mem);
     render_cpu(frame, state, right[0], gb.cpu());
     render_ppu(frame, state, right[1], &gb.ppu);
     render_interrupts(frame, state, right[2], &gb.mem);
@@ -139,8 +142,7 @@ fn render_ppu(frame: &mut Frame, state: &mut AppState, area: Rect, ppu: &Ppu) {
     let block = Block::bordered()
         .title("PPU")
         .title_alignment(ratatui::layout::Alignment::Center);
-    let para = Paragraph::new(format!("{:#?}", ppu.inner))
-    .block(block);
+    let para = Paragraph::new(format!("{:#?}", ppu.inner)).block(block);
     frame.render_widget(para, area);
 }
 
@@ -171,11 +173,30 @@ fn render_stack(frame: &mut Frame, state: &mut AppState, area: Rect, mem: &Memor
 
 // TODO: Move mem
 
-fn render_mem(frame: &mut Frame, state: &mut AppState, area: Rect) {
+fn render_mem(frame: &mut Frame, state: &mut AppState, area: Rect, mem: &MemoryMap) {
     let block = Block::bordered()
         .title("Memory")
         .title_alignment(ratatui::layout::Alignment::Center);
-    frame.render_widget(block, area);
+    let mem_start = state.mem_start & 0xFFF0;
+    let lines = area.height - 2;
+    let mut buffer = vec![0; 16 * lines as usize];
+    (mem_start..)
+        .zip(buffer.iter_mut())
+        .for_each(|(i, byte)| *byte = std::panic::catch_unwind(|| mem[i]).unwrap_or_default());
+
+    let mut data = String::from("  ADDR | 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F\n");
+    data.push_str("-------|------------------------------------------------\n");
+    for i in 0..lines {
+        let start = i * 16;
+        let end = (i + 1) * 16;
+        write!(data, "0x{:0>4X} |", mem_start + start);
+        for i in start..end {
+            write!(data, " {:0>2X}", buffer[i as usize]);
+        }
+        data.push('\n');
+    }
+    let para = Paragraph::new(data).block(block);
+    frame.render_widget(para, area);
 }
 
 trait GameBoyLike {
@@ -186,6 +207,8 @@ trait GameBoyLike {
     fn next_op(&self) -> Instruction;
 
     fn step(&mut self);
+
+    fn step_frame(&mut self);
 
     fn is_complete(&self) -> bool;
 }
@@ -203,6 +226,10 @@ impl GameBoyLike for Gameboy {
 
     fn step(&mut self) {
         self.step().complete()
+    }
+
+    fn step_frame(&mut self) {
+        self.next_frame().complete()
     }
 
     fn is_complete(&self) -> bool {
@@ -223,6 +250,10 @@ impl<'a> GameBoyLike for StartUpSequence<'a> {
 
     fn step(&mut self) {
         self.step()
+    }
+
+    fn step_frame(&mut self) {
+        self.frame_step().complete()
     }
 
     fn is_complete(&self) -> bool {

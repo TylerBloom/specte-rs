@@ -339,7 +339,7 @@ impl<'a> FrameSequence<'a> {
         self.mode == PpuMode::VBlank && self.next.gb.ppu.state() == PpuMode::OamScan
     }
 
-    fn complete(self) {}
+    pub fn complete(self) {}
 
     fn step(&mut self) {
         if !self.is_complete() {

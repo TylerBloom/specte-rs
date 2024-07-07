@@ -71,7 +71,8 @@ untwine::parser! {
     ws = #{char::is_ascii_whitespace}+;
     until_loop: "loop" -> RunUntil { RunUntil::Loop }
     until_return: "return" -> RunUntil { RunUntil::Return }
-    pub run = (until_loop | until_return) -> RunUntil;
+    until_frame: "frame" -> RunUntil { RunUntil::Frame }
+    pub run = (until_loop | until_return | until_frame) -> RunUntil;
 }
 
 pub(crate) fn get_input(state: &mut AppState) -> Command {
@@ -175,6 +176,10 @@ impl Command {
                     }
                     "End of subroutine. Next operation is `ret`.".to_owned()
                 }
+                RunUntil::Frame => {
+                    gb.step_frame();
+                    "Starting new frame".to_owned()
+                }
             },
             Command::Stash(_stash) => {
                 todo!()
@@ -214,6 +219,8 @@ pub(crate) enum RunUntil {
     Loop,
     /// Runs the emulator until just before `ret` is ran
     Return,
+    /// Runs the emulator until just before `ret` is ran
+    Frame,
 }
 
 fn parse_int(s: &str) -> Result<usize, String> {

@@ -1,0 +1,5 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `/home/tylerbloom/.cargo/target/debug/tombstone`
+thread 'main' panicked at tombstone/src/command.rs:81:44:
+called `Result::unwrap()` on an `Err` value: [(0..0, Command)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

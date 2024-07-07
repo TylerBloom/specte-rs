@@ -65,8 +65,12 @@ impl OamObject {
     }
 
     fn populate_buffer(self, y: u8, buffer: &mut [FiFoPixel], mem: &MemoryMap) {
+        println!("Object found in OAM. Populating buffer.");
         let x = self.x as usize;
-        self.generate_pixels(y, mem).into_iter().enumerate().for_each(|(i, pixel)| buffer[x + i] = pixel);
+        self.generate_pixels(y, mem)
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, pixel)| buffer[x + i] = pixel);
     }
 
     fn generate_pixels(self, y: u8, mem: &MemoryMap) -> [FiFoPixel; 8] {
@@ -156,8 +160,7 @@ impl PpuInner {
                 bg_fifo.tick(mem);
                 let obj_pixel = obj_fifo.pop_pixel();
                 if let Some(pixel) = bg_fifo.pop_pixel() {
-                    let pixel = pixel.mix(obj_pixel);
-                    screen[*y as usize][*x as usize] = pixel.to_pixel(mem);
+                    screen[*y as usize][*x as usize] = pixel.mix(obj_pixel, mem);
                     *x += 1;
                     if *x == 160 {
                         *self = Self::HBlank { dots: *dots, y: *y };
@@ -167,6 +170,7 @@ impl PpuInner {
             // This measures the number of ticks after mode 2 becasuse all modes added together is
             // 456 and mode 2 is always 80 dots
             PpuInner::HBlank { dots, y } if *dots == 375 => {
+                mem.io.inc_lcd_y();
                 let y = *y + 1;
                 *self = if y == 144 {
                     mem.request_vblank_int();
@@ -293,23 +297,23 @@ impl FiFoPixel {
         }
     }
 
-    fn mix(self, obj: Self) -> Self {
+    fn mix(self, obj: Self, mem: &MemoryMap) -> Pixel {
         // TODO: The pixels carry the data to determine this, but that is not being properly
         // determined yet.
-        if obj.color == 0 {
-            obj
+        let [a, b] = if obj.color == 0 {
+            mem.io
+                .background_palettes
+                .get_palette(self.palette)
+                .get_color(self.color)
+                .0
         } else {
-            self
-        }
-    }
-
-    fn to_pixel(self, mem: &MemoryMap) -> Pixel {
-        let [a, b] = mem
-            .io
-            .background_palettes
-            .get_palette(self.palette)
-            .get_color(self.color)
-            .0;
+            println!("A non transparent object!!");
+            mem.io
+                .object_palettes
+                .get_palette(self.palette)
+                .get_color(self.color)
+                .0
+        };
         let r = a & 0b0001_1111;
         let g = ((a & 0b1110_0000) >> 5) | ((b & 0b0000_0011) << 3);
         let b = (b & 0b0111_1100) >> 2;
@@ -399,6 +403,10 @@ impl PixelFetcher {
                 let addr = *y as usize * 32 + *x as usize;
                 // VRAM starts at 0x8000, and we want to access 0x9800..
                 let index = mem.vram.vram.0[0x1800 + addr];
+                if index > 0 {
+                    println!("A non-zero index from 0x{addr:0>4X}: 0x{index:0>2X}");
+                    println!("The LCDC register: 0b{:0>8b}", mem.io.lcd_control);
+                }
                 let attr = mem.vram.vram.1[0x1800 + addr];
                 *self = Self::DataLow {
                     ticked: false,
@@ -465,6 +473,9 @@ impl PixelFetcher {
             // TODO: Attempt to push the pixels somewhere, and, on success, reset
             PixelFetcher::Push { x, y, lo, hi, attr } => {
                 if let Some(out) = pixels_out {
+                    if *lo > 0 || *hi > 0 || *attr > 0 {
+                        println!("Found a real BG pixel");
+                    }
                     *out = form_pixels(*attr, *lo, *hi);
                     // Once the pixels are pushed, the coordinates need to be updated. The tile
                     // maps are 32x32 indices, so we need to reset x (and maybe y).
