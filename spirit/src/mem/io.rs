@@ -63,6 +63,14 @@ pub struct IoRegisters {
     dead_byte: u8,
 }
 
+/// This simple wrapper type is used to index into the IO registers by the PPU. Because the PPU
+/// need access to all of the palette data at once, it needs its own method of indexing.
+pub(crate) struct BgPaletteIndex(pub u8);
+
+/// This simple wrapper type is used to index into the IO registers by the PPU. Because the PPU
+/// need access to all of the palette data at once, it needs its own method of indexing.
+pub(crate) struct ObjPaletteIndex(pub u8);
+
 // FF40 -> LCD control register
 // FF41 -> LCD status register
 // FF42 & FF43 -> Background viewport position (SCY, SCX)
@@ -240,13 +248,29 @@ impl IndexMut<u16> for IoRegisters {
     }
 }
 
+impl Index<BgPaletteIndex> for IoRegisters {
+    type Output = Palette;
+
+    fn index(&self, BgPaletteIndex(index): BgPaletteIndex) -> &Self::Output {
+        &self.background_palettes[index]
+    }
+}
+
+impl Index<ObjPaletteIndex> for IoRegisters {
+    type Output = Palette;
+
+    fn index(&self, ObjPaletteIndex(index): ObjPaletteIndex) -> &Self::Output {
+        &self.object_palettes[index]
+    }
+}
+
+
 /// In GBC mode, there are extra palettes for the colors
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
 pub struct ColorPalettes {
-    // TODO: When the palette is mutably indexed into, increment this value iff the top bit is set.
-    index: u8,
+    pub(crate) index: u8,
     /// This array is indexed into by the index field.
-    data: [Palette; 8],
+    pub(crate) data: [Palette; 8],
 }
 
 impl ColorPalettes {
@@ -264,6 +288,14 @@ impl ColorPalettes {
     fn indices(&self) -> (u8, u8) {
         let index = self.index & 0x1F;
         (index / 8, index % 8)
+    }
+}
+
+impl Index<u8> for ColorPalettes {
+    type Output = Palette;
+
+    fn index(&self, index: u8) -> &Self::Output {
+        &self.data[index as usize]
     }
 }
 
@@ -289,6 +321,7 @@ impl IndexMut<u16> for ColorPalettes {
             1 => {
                 let (a, b) = self.indices();
                 self.index += self.index >> 7;
+                // TODO: If the PPU is in mode 3, this should return a dead byte.
                 &mut self.data[a as usize][b]
             }
             _ => unreachable!(),
@@ -299,7 +332,7 @@ impl IndexMut<u16> for ColorPalettes {
 /// All of the date for one of the 8 palettes that can be held in memory.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
 pub struct Palette {
-    colors: [PaletteColor; 4],
+    pub(crate) colors: [PaletteColor; 4],
 }
 
 impl Palette {

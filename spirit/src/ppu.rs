@@ -138,7 +138,7 @@ impl PpuInner {
         match self {
             PpuInner::OamScan { dots, y } if *dots == 79 => {
                 *self = Self::Drawing {
-                    bg_fifo: BackgroundFiFo::new(),
+                    bg_fifo: BackgroundFiFo::new(*y),
                     y: *y,
                     dots: 0,
                     x: 0,
@@ -167,7 +167,7 @@ impl PpuInner {
                     }
                 }
             }
-            // This measures the number of ticks after mode 2 becasuse all modes added together is
+            // This measures the number of ticks after mode 2 because all modes added together is
             // 456 and mode 2 is always 80 dots
             PpuInner::HBlank { dots, y } if *dots == 375 => {
                 mem.io.inc_lcd_y();
@@ -206,7 +206,7 @@ struct ObjectFiFo {
 impl ObjectFiFo {
     fn new(y: u8, mem: &MemoryMap) -> Self {
         let mut pixels = std::iter::repeat(FiFoPixel::transparent())
-            .take(172)
+            .take(176)
             .collect::<VecDeque<_>>();
         let y = y + 16;
         let oam = &mem.vram.oam;
@@ -242,11 +242,11 @@ struct BackgroundFiFo {
 }
 
 impl BackgroundFiFo {
-    fn new() -> Self {
+    fn new(y: u8) -> Self {
         Self {
             counter: 0,
             tile_count: 0,
-            fetcher: PixelFetcher::default(),
+            fetcher: PixelFetcher::new(y),
             background: InlineVec::new(),
         }
     }
@@ -322,7 +322,7 @@ impl FiFoPixel {
 }
 
 /// The final pixel that is available to the end consumer.
-#[derive(Debug, Hash, Clone, Copy)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
 pub struct Pixel {
     pub r: u8,
     pub g: u8,
@@ -330,6 +330,13 @@ pub struct Pixel {
 }
 
 impl Pixel {
+    const WHITE: Self = Self {
+        r: 0x1F,
+        g: 0x1F,
+        b: 0x1F,
+    };
+    const BLACK: Self = Self { r: 0, g: 0, b: 0 };
+
     const fn new() -> Self {
         Self { r: 0, g: 0, b: 0 }
     }
@@ -358,14 +365,14 @@ enum PixelFetcher {
         x: u8,
         y: u8,
         attr: u8,
-        index: u8,
+        index: usize,
     },
     DataHigh {
         ticked: bool,
         x: u8,
         y: u8,
         attr: u8,
-        index: u8,
+        index: usize,
         lo: u8,
     },
     Sleep {
@@ -385,28 +392,23 @@ enum PixelFetcher {
     },
 }
 
-impl Default for PixelFetcher {
-    fn default() -> Self {
+impl PixelFetcher {
+    fn new(y: u8) -> Self {
         Self::GetTile {
             ticked: false,
             x: 0,
-            y: 0,
+            y,
         }
     }
-}
 
-impl PixelFetcher {
     fn tick(&mut self, mem: &MemoryMap, pixels_out: Option<&mut InlineVec<FiFoPixel, 8>>) {
         match self {
             PixelFetcher::GetTile { ticked, .. } if !*ticked => *ticked = true,
             PixelFetcher::GetTile { ticked, x, y } => {
-                let addr = *y as usize * 32 + *x as usize;
+                let addr = ((*y as usize) / 8) * 32 + *x as usize;
                 // VRAM starts at 0x8000, and we want to access 0x9800..
                 let index = mem.vram.vram.0[0x1800 + addr];
-                if index > 0 {
-                    println!("A non-zero index from 0x{addr:0>4X}: 0x{index:0>2X}");
-                    println!("The LCDC register: 0b{:0>8b}", mem.io.lcd_control);
-                }
+                let index = (index as usize * 16) + ((*y as usize) % 8);
                 let attr = mem.vram.vram.1[0x1800 + addr];
                 *self = Self::DataLow {
                     ticked: false,
@@ -431,7 +433,7 @@ impl PixelFetcher {
                     attr: *attr,
                     index: *index,
                     // TODO: This ignores the variable indexing method used for tile data.
-                    lo: mem.vram.vram.0[*index as usize],
+                    lo: mem.vram.vram.0[*index],
                 }
             }
             PixelFetcher::DataHigh { ticked, .. } if !*ticked => *ticked = true,
@@ -450,7 +452,7 @@ impl PixelFetcher {
                     attr: *attr,
                     lo: *lo,
                     // TODO: This ignores the variable indexing method used for tile data.
-                    hi: mem.vram.vram.0[*index as usize + 1],
+                    hi: mem.vram.vram.0[*index + 1],
                 }
             }
             PixelFetcher::Sleep { ticked, .. } if !*ticked => *ticked = true,
@@ -470,23 +472,13 @@ impl PixelFetcher {
                     attr: *attr,
                 }
             }
-            // TODO: Attempt to push the pixels somewhere, and, on success, reset
             PixelFetcher::Push { x, y, lo, hi, attr } => {
                 if let Some(out) = pixels_out {
-                    if *lo > 0 || *hi > 0 || *attr > 0 {
-                        println!("Found a real BG pixel");
-                    }
                     *out = form_pixels(*attr, *lo, *hi);
-                    // Once the pixels are pushed, the coordinates need to be updated. The tile
-                    // maps are 32x32 indices, so we need to reset x (and maybe y).
-                    // Note that % 32 is the same as AND-ing with 0x0F, which might be faster.
-                    *x += 1;
-                    let x = *x % 32;
-                    let y = (*y + ((x & 0x10) >> 4)) % 32;
                     *self = Self::GetTile {
                         ticked: false,
-                        x,
-                        y,
+                        x: *x + 1,
+                        y: *y,
                     };
                 }
             }
@@ -507,7 +499,7 @@ fn form_pixels(attr: u8, lo: u8, hi: u8) -> InlineVec<FiFoPixel, 8> {
 
 /// Used to generate pixel color indications, which have a color depth of 2.
 fn zip_bits(hi: u8, lo: u8) -> impl Iterator<Item = u8> {
-    (0..7)
+    (0..8)
         .map(move |i| (check_bit(i, hi), check_bit(i, lo)))
         .map(|(hi, lo)| (hi as u8) << 1 | lo as u8)
 }
@@ -530,24 +522,41 @@ impl Ppu {
     pub(crate) fn state(&self) -> PpuMode {
         self.inner.state()
     }
+
+    /// Ticks the PPU until it finishes the current screen drawing sequence. After this, the PPU
+    /// will be ready to start rendering the next screen.
+    pub(crate) fn finish_screen(&mut self, mem: &mut MemoryMap) {
+        let mut state = self.state();
+        loop {
+            self.tick(mem);
+            let old = std::mem::replace(&mut state, self.state());
+            if let (PpuMode::VBlank, PpuMode::OamScan) = (old, state) {
+                break;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        mem::{vram::PpuMode, MemoryMap},
-        ppu::Pixel,
+        mem::{
+            io::{BgPaletteIndex, Palette},
+            vram::PpuMode,
+            MemoryMap,
+        },
+        ppu::{Pixel, Ppu},
     };
     use heapless::Vec as InlineVec;
 
-    use super::{FiFoPixel, PixelFetcher, PpuInner};
+    use super::{zip_bits, FiFoPixel, PixelFetcher, PpuInner};
 
     // Test that the fetcher can get the pixel data, populate the buffer at the right time, and
     // reset itself.
     #[test]
     fn single_pass_fetcher() {
         let mem = MemoryMap::construct();
-        let mut fetcher = PixelFetcher::default();
+        let mut fetcher = PixelFetcher::new(0);
         let mut counter = 0;
         let mut buffer = InlineVec::new();
         // The buffer should be empty until at least the 7th tick
@@ -566,7 +575,7 @@ mod tests {
         println!("{}", std::mem::size_of::<PixelFetcher>());
         println!("{}", std::mem::size_of::<FiFoPixel>());
         let mem = MemoryMap::construct();
-        let mut fetcher = PixelFetcher::default();
+        let mut fetcher = PixelFetcher::new(0);
         let mut counter = 0;
         let mut buffer = InlineVec::new();
         // The buffer should be empty until at least the 7th tick
@@ -617,5 +626,31 @@ mod tests {
             digest
         } {}
         assert_eq!(counter, 70224);
+    }
+
+    #[test]
+    fn test_bit_zipper() {
+        let out = zip_bits(0, 0).collect::<Vec<_>>();
+        assert_eq!(vec![0; 8], out);
+        let out = zip_bits(0xFF, 0xFF).collect::<Vec<_>>();
+        assert_eq!(vec![0b11; 8], out);
+    }
+
+    // This is a simple rendering test. Every tile on the screen will the same, the top line is
+    // white and all other lines are black.
+    #[test]
+    fn basic_rendering_test() {
+        let mut mem = MemoryMap::construct();
+        mem.io.background_palettes.data[0].colors[3].0 = [0xFF, 0xFF];
+        mem[0x8000] = 0xFF;
+        mem[0x8001] = 0xFF;
+        let mut ppu = Ppu::new();
+        ppu.finish_screen(&mut mem);
+        let white = vec![Pixel::WHITE; 160];
+        let black = vec![Pixel::BLACK; 160];
+        for (i, line) in ppu.screen.iter().enumerate() {
+            let check = if i % 8 == 0 { &white } else { &black };
+            assert_eq!(check, line, "Line {i} was a mismatch!!")
+        }
     }
 }
