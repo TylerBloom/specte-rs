@@ -8,7 +8,6 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-use once_cell::sync::{Lazy, OnceCell};
 use tracing::{info, info_span, trace};
 
 use crate::{

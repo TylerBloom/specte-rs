@@ -7,7 +7,7 @@ use crate::{
     cpu::{check_bit, check_bit_const},
     mem::{
         vram::{PpuMode, VRam},
-        MemoryMap,
+        BgTileDataIndex, BgTileMapAttrIndex, BgTileMapIndex, MemoryMap, OamIndex, OamObjectIndex,
     },
 };
 
@@ -55,7 +55,7 @@ pub struct OamObject {
 }
 
 impl OamObject {
-    fn new(data: &[u8]) -> Self {
+    fn new(data: &[u8; 4]) -> Self {
         Self {
             y: data[0],
             x: data[1],
@@ -170,7 +170,7 @@ impl PpuInner {
             // This measures the number of ticks after mode 2 because all modes added together is
             // 456 and mode 2 is always 80 dots
             PpuInner::HBlank { dots, y } if *dots == 375 => {
-                mem.io.inc_lcd_y();
+                mem.inc_lcd_y();
                 let y = *y + 1;
                 *self = if y == 144 {
                     mem.request_vblank_int();
@@ -209,14 +209,14 @@ impl ObjectFiFo {
             .take(176)
             .collect::<VecDeque<_>>();
         let y = y + 16;
-        let oam = &mem.vram.oam;
-        // TODO: Right now, we are assuming that all objects are 8x8. We need to add a check for
-        // 8x16 objects.
         let buffer = pixels.make_contiguous();
         let objects = (0..0x100)
             .step_by(4)
-            .filter(|i| y <= oam[*i] && oam[*i] < y + 8)
-            .map(|i| OamObject::new(&oam[i..i + 4]))
+            .map(|i| &mem[OamObjectIndex(i)])
+            // TODO: Right now, we are assuming that all objects are 8x8. We need to add a check for
+            // 8x16 objects.
+            .filter(|[y_pos, ..]| y <= *y_pos && *y_pos < y + 8)
+            .map(OamObject::new)
             .take(10)
             .for_each(|obj| obj.populate_buffer(y, buffer, mem));
         // Discard the front and back 8 pixels
@@ -265,7 +265,7 @@ impl BackgroundFiFo {
     }
 }
 
-#[derive(Debug, Hash, Clone, Copy)]
+#[derive(Debug, Default, Hash, Clone, Copy)]
 pub struct FiFoPixel {
     /// Which color for the selected palette should be used. Ranges from 0 to 3.
     color: u8,
@@ -287,6 +287,7 @@ impl FiFoPixel {
         }
     }
 
+    /// This is the same as `Self::default`, but with a clearer name
     #[inline]
     const fn transparent() -> Self {
         Self {
@@ -405,11 +406,11 @@ impl PixelFetcher {
         match self {
             PixelFetcher::GetTile { ticked, .. } if !*ticked => *ticked = true,
             PixelFetcher::GetTile { ticked, x, y } => {
-                let addr = ((*y as usize) / 8) * 32 + *x as usize;
+                let addr = (*y / 8) * 32 + *x;
                 // VRAM starts at 0x8000, and we want to access 0x9800..
-                let index = mem.vram.vram.0[0x1800 + addr];
+                let index = mem[BgTileMapIndex(addr)];
                 let index = (index as usize * 16) + ((*y as usize) % 8);
-                let attr = mem.vram.vram.1[0x1800 + addr];
+                let attr = mem[BgTileMapAttrIndex(addr)];
                 *self = Self::DataLow {
                     ticked: false,
                     x: *x,
@@ -432,8 +433,7 @@ impl PixelFetcher {
                     y: *y,
                     attr: *attr,
                     index: *index,
-                    // TODO: This ignores the variable indexing method used for tile data.
-                    lo: mem.vram.vram.0[*index],
+                    lo: mem[BgTileDataIndex(*index)],
                 }
             }
             PixelFetcher::DataHigh { ticked, .. } if !*ticked => *ticked = true,
@@ -451,8 +451,7 @@ impl PixelFetcher {
                     y: *y,
                     attr: *attr,
                     lo: *lo,
-                    // TODO: This ignores the variable indexing method used for tile data.
-                    hi: mem.vram.vram.0[*index + 1],
+                    hi: mem[BgTileDataIndex(*index + 1)],
                 }
             }
             PixelFetcher::Sleep { ticked, .. } if !*ticked => *ticked = true,
@@ -516,7 +515,7 @@ impl Ppu {
         let span = info_span!("Ticking PPU:");
         let _guard = span.enter();
         self.inner.tick(&mut self.screen, mem);
-        mem.vram.inc_status(self.inner.state());
+        mem.inc_ppu_status(self.inner.state());
     }
 
     pub(crate) fn state(&self) -> PpuMode {
@@ -527,13 +526,11 @@ impl Ppu {
     /// will be ready to start rendering the next screen.
     pub(crate) fn finish_screen(&mut self, mem: &mut MemoryMap) {
         let mut state = self.state();
-        loop {
+        while {
             self.tick(mem);
             let old = std::mem::replace(&mut state, self.state());
-            if let (PpuMode::VBlank, PpuMode::OamScan) = (old, state) {
-                break;
-            }
-        }
+            !matches!((PpuMode::VBlank, PpuMode::OamScan), (old, state))
+        } {}
     }
 }
 
@@ -641,7 +638,7 @@ mod tests {
     #[test]
     fn basic_rendering_test() {
         let mut mem = MemoryMap::construct();
-        mem.io.background_palettes.data[0].colors[3].0 = [0xFF, 0xFF];
+        mem.io().background_palettes.data[0].colors[3].0 = [0xFF, 0xFF];
         mem[0x8000] = 0xFF;
         mem[0x8001] = 0xFF;
         let mut ppu = Ppu::new();

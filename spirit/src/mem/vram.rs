@@ -14,12 +14,12 @@ static DEAD_READ_ONLY_BYTE: u8 = 0xFF;
 /// This wrapper type is used to communicate that the VRAM should be indexed into when indexing into VRam.
 /// Since there is state that determines what gets indexed into, this type is used rather than
 /// making the field `pub(crate)`/`pub(super)`.
-pub(super) struct VramIndex(pub u16);
+pub(super) struct CpuVramIndex(pub u16);
 
 /// This wrapper type is used to communicate that the OAM should be indexed into when indexing into VRam.
 /// Since there is state that determines what gets indexed into, this type is used rather than
 /// making the field `pub(crate)`/`pub(super)`.
-pub(super) struct OamIndex(pub u16);
+pub(super) struct CpuOamIndex(pub u16);
 
 #[repr(u8)]
 #[derive(
@@ -71,10 +71,10 @@ impl VRam {
     }
 }
 
-impl Index<VramIndex> for VRam {
+impl Index<CpuVramIndex> for VRam {
     type Output = u8;
 
-    fn index(&self, VramIndex(index): VramIndex) -> &Self::Output {
+    fn index(&self, CpuVramIndex(index): CpuVramIndex) -> &Self::Output {
         trace!("Indexing into VRAM @ 0x{index:0>4X}");
         if self.status.is_drawing() {
             &DEAD_READ_ONLY_BYTE
@@ -84,8 +84,8 @@ impl Index<VramIndex> for VRam {
     }
 }
 
-impl IndexMut<VramIndex> for VRam {
-    fn index_mut(&mut self, VramIndex(index): VramIndex) -> &mut Self::Output {
+impl IndexMut<CpuVramIndex> for VRam {
+    fn index_mut(&mut self, CpuVramIndex(index): CpuVramIndex) -> &mut Self::Output {
         trace!("Mutably indexing into VRAM @ 0x{index:0>4X}");
         if self.status.is_drawing() {
             self.dead_byte = 0xFF;
@@ -96,10 +96,10 @@ impl IndexMut<VramIndex> for VRam {
     }
 }
 
-impl Index<OamIndex> for VRam {
+impl Index<CpuOamIndex> for VRam {
     type Output = u8;
 
-    fn index(&self, OamIndex(index): OamIndex) -> &Self::Output {
+    fn index(&self, CpuOamIndex(index): CpuOamIndex) -> &Self::Output {
         trace!("Indexing into OAM @ 0x{index:0>4X}");
         if matches!(self.status, PpuMode::OamScan | PpuMode::Drawing) {
             &DEAD_READ_ONLY_BYTE
@@ -109,8 +109,8 @@ impl Index<OamIndex> for VRam {
     }
 }
 
-impl IndexMut<OamIndex> for VRam {
-    fn index_mut(&mut self, OamIndex(index): OamIndex) -> &mut Self::Output {
+impl IndexMut<CpuOamIndex> for VRam {
+    fn index_mut(&mut self, CpuOamIndex(index): CpuOamIndex) -> &mut Self::Output {
         trace!("Mutably indexing into OAM @ 0x{index:0>4X}");
         if matches!(self.status, PpuMode::OamScan | PpuMode::Drawing) {
             self.dead_byte = 0xFF;
