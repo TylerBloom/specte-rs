@@ -20,7 +20,7 @@ use io::IoRegisters;
 use tracing::trace;
 use vram::PpuMode;
 
-use self::vram::{CpuOamIndex, VRam, CpuVramIndex};
+use self::vram::{CpuOamIndex, CpuVramIndex, VRam};
 
 pub static START_UP_HEADER: &[u8; 0x900] = include_bytes!("../cgb.bin");
 
@@ -130,7 +130,7 @@ impl MemoryMap {
         self.io.inc_lcd_y()
     }
 
-    pub(crate) fn inc_ppu_status(&mut self, state: PpuMode ) {
+    pub(crate) fn inc_ppu_status(&mut self, state: PpuMode) {
         self.vram.inc_status(state)
     }
 
@@ -158,7 +158,6 @@ impl MemoryMap {
         self.io.clear_interrupt_req(op)
     }
 }
-
 
 // #[cfg(test)]
 impl MemoryMap {
@@ -256,24 +255,25 @@ pub(crate) struct OamIndex(pub u8);
 impl Index<OamIndex> for MemoryMap {
     type Output = u8;
 
-    fn index(&self, OamIndex(index): OamIndex) -> &Self::Output {
+    fn index(&self, index: OamIndex) -> &Self::Output {
         todo!()
     }
 }
 
-/// A type used to index an object inside of the Object Attribute Map. This includes the y pos, x pos,
-/// tile index, and attributes of the object. This type is only used by the PPU.
+/// A type used to index an object inside of the Object Attribute Map. The inner value of the index
+/// notes the object's position in the map and *not* the object's address in memory. This includes
+/// the y pos, x pos, tile index, and attributes of the object. This type is only used by the PPU.
 pub(crate) struct OamObjectIndex(pub u8);
 
 impl Index<OamObjectIndex> for MemoryMap {
     type Output = [u8; 4];
 
-    fn index(&self, OamObjectIndex(index): OamObjectIndex) -> &Self::Output {
-        todo!()
+    fn index(&self, index: OamObjectIndex) -> &Self::Output {
+        &self.vram[index]
     }
 }
 
-pub(crate) struct ObjTileDataIndex(pub u8);
+pub(crate) struct ObjTileDataIndex(pub u8, pub bool);
 
 impl Index<ObjTileDataIndex> for MemoryMap {
     /// We return a slice here because the object could be either 8x8 or 8x16, and this is
@@ -281,53 +281,86 @@ impl Index<ObjTileDataIndex> for MemoryMap {
     /// slice and handle it accordingly.
     type Output = [u8];
 
-    fn index(&self, ObjTileDataIndex(index): ObjTileDataIndex) -> &Self::Output {
-        todo!()
+    fn index(&self, index: ObjTileDataIndex) -> &Self::Output {
+        &self.vram[index]
     }
 }
 
-/// A type used to index a background tile inside of the VRAM Tile Map. This type is only used by
-/// the PPU.
-// TODO: This should take the x and y position on the map and then this transform that into a
-// index. This is because there are several pieces of data that we need to use (SCY, SCX, and BG
-// tile map area from LCDC)
-pub(crate) struct BgTileMapIndex(pub u8);
+/// A type used to index a background tile inside of the VRAM Tile Map.
+///
+/// This type is only used by the PPU. As such, the coordinates should be intruppted as the
+/// position of the pixels that the PPU is trying to render. This means that 1) they should be
+/// treated as offsets from the BG position registers and 2) they will need to be divided in order
+/// to index into the map.
+pub(crate) struct BgTileMapIndex {
+    pub x: u8,
+    pub y: u8,
+}
+
+struct BgTileMapInnerIndex {
+    pub first_map: bool,
+    pub x: u8,
+    pub y: u8,
+}
 
 impl Index<BgTileMapIndex> for MemoryMap {
     type Output = u8;
 
-    fn index(&self, BgTileMapIndex(index): BgTileMapIndex) -> &Self::Output {
-        todo!()
+    fn index(&self, BgTileMapIndex { x, y }: BgTileMapIndex) -> &Self::Output {
+        let index = BgTileMapInnerIndex {
+            first_map: check_bit_const::<3>(self.io.lcd_control),
+            // We want to ignore the bottom 3 bits
+            x: (x & 0xF8).wrapping_add(self.io.bg_position.1 & 0xF8),
+            y: (y & 0xF8).wrapping_add(self.io.bg_position.0 & 0xF8),
+        };
+        &self.vram[index]
     }
 }
 
-/// A type used to index a background tile's attributes inside VRAM Tile Map (in bank 1). This type
-/// is only used by the PPU.
-pub(crate) struct BgTileMapAttrIndex(pub u8);
+/// A type used to index a background tile's attributes inside VRAM Tile Map (in bank 1).
+///
+/// This type is only used by the PPU.
+pub(crate) struct BgTileMapAttrIndex {
+    pub x: u8,
+    pub y: u8,
+}
 
 impl Index<BgTileMapAttrIndex> for MemoryMap {
     type Output = u8;
 
-    fn index(&self, BgTileMapAttrIndex(index): BgTileMapAttrIndex) -> &Self::Output {
-        todo!()
+    fn index(&self, BgTileMapAttrIndex { mut x, mut y }: BgTileMapAttrIndex) -> &Self::Output {
+        let index = BgTileMapAttrIndex {
+            // We want to ignore the bottom 3 bits
+            x: (x & 0xF8).wrapping_add(self.io.bg_position.1 & 0xF8),
+            y: (y & 0xF8).wrapping_add(self.io.bg_position.0 & 0xF8),
+        };
+        &self.vram[index]
     }
 }
 
 /// A type used to index a background tile's data inside VRAM Tile Data. This index is meant to be
 /// used by first indexing using the `BgTileMapIndex` and then constructing this index from the
 /// value returned there. This type is only used by the PPU.
-///
-/// NOTE: When indexing this way, all of the logic around what indexing strategy (defined by the
-/// LCDC register) to use is handled here.
 // TODO: Should the PPU should be forced to go through the `BgTileMapIndex` in order get this
 // index? This is technically correct, but perhaps is too verbose/unwieldy.
 pub(crate) struct BgTileDataIndex(pub u8);
+
+struct BgTileDataInnerIndex {
+    unsigned_indexing: bool,
+    index: u8,
+    bank: bool,
+}
 
 impl Index<BgTileDataIndex> for MemoryMap {
     type Output = [u8; 16];
 
     fn index(&self, BgTileDataIndex(index): BgTileDataIndex) -> &Self::Output {
-        todo!()
+        let index = BgTileDataInnerIndex {
+            index,
+            unsigned_indexing: check_bit_const::<4>(self.io.lcd_control),
+            bank: check_bit_const::<0>(self.io.vram_select),
+        };
+        &self.vram[index]
     }
 }
 

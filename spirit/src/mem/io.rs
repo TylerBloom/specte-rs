@@ -2,9 +2,9 @@ use std::ops::{Index, IndexMut};
 
 use tracing::trace;
 
-use crate::{cpu::check_bit_const, lookup::InterruptOp, ButtonInput};
+use crate::{cpu::check_bit_const, lookup::InterruptOp, ppu::Pixel, ButtonInput};
 
-use super::vram::PpuMode;
+use super::{vram::PpuMode, MemoryMap};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
 pub struct IoRegisters {
@@ -31,7 +31,7 @@ pub struct IoRegisters {
     /// mutably indexing as some of the bytes are read-only
     lcd_status_dup: u8,
     /// ADDR FF42 & FF43
-    bg_position: (u8, u8),
+    pub(crate) bg_position: (u8, u8),
     /// ADDR FF44 (set by the PPU)
     lcd_y: u8,
     /// ADDR FF45
@@ -45,7 +45,12 @@ pub struct IoRegisters {
     /// ADDR FF4A & FF4B
     window_position: (u8, u8),
     /// ADDR FF4F
-    vram_select: u8,
+    // TODO: Only the 0th bit is used. From the docs:
+    // """
+    // Reading from this register will return the number of the currently loaded VRAM bank in bit
+    // 0, and all other bits will be set to 1.
+    // """
+    pub(super) vram_select: u8,
     /// ADDR FF50
     boot_status: u8,
     /// ADDR FF51-FF55
@@ -67,9 +72,25 @@ pub struct IoRegisters {
 /// need access to all of the palette data at once, it needs its own method of indexing.
 pub(crate) struct BgPaletteIndex(pub u8);
 
+impl Index<BgPaletteIndex> for MemoryMap {
+    type Output = Palette;
+
+    fn index(&self, BgPaletteIndex(index): BgPaletteIndex) -> &Self::Output {
+        todo!()
+    }
+}
+
 /// This simple wrapper type is used to index into the IO registers by the PPU. Because the PPU
 /// need access to all of the palette data at once, it needs its own method of indexing.
 pub(crate) struct ObjPaletteIndex(pub u8);
+
+impl Index<ObjPaletteIndex> for MemoryMap {
+    type Output = Palette;
+
+    fn index(&self, ObjPaletteIndex(index): ObjPaletteIndex) -> &Self::Output {
+        todo!()
+    }
+}
 
 // FF40 -> LCD control register
 // FF41 -> LCD status register
@@ -381,6 +402,16 @@ impl PaletteColor {
 
     fn b(&self) -> u8 {
         self.0[1] & 0x7C
+    }
+}
+
+impl From<PaletteColor> for Pixel {
+    fn from(value: PaletteColor) -> Self {
+        Pixel {
+            r: value.r(),
+            g: value.g(),
+            b: value.b(),
+        }
     }
 }
 

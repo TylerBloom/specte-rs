@@ -6,8 +6,9 @@ use tracing::{info_span, trace};
 use crate::{
     cpu::{check_bit, check_bit_const},
     mem::{
+        io::{BgPaletteIndex, ObjPaletteIndex},
         vram::{PpuMode, VRam},
-        BgTileDataIndex, BgTileMapAttrIndex, BgTileMapIndex, MemoryMap, OamIndex, OamObjectIndex,
+        BgTileDataIndex, BgTileMapAttrIndex, BgTileMapIndex, MemoryMap, OamIndex, OamObjectIndex, ObjTileDataIndex,
     },
 };
 
@@ -78,28 +79,17 @@ impl OamObject {
         // already.
         debug_assert!(y >= self.y);
         debug_assert!(y < self.y + 8);
-        let bank = if check_bit_const::<3>(self.attrs) {
-            &mem.vram.vram.1
-        } else {
-            &mem.vram.vram.0
-        };
-        // This index is of the form 0x0XX0
-        let starting_index = (self.tile_index as usize) << 4;
-        let mut offset = (y - self.y) as usize;
+        let obj = &mem[ObjTileDataIndex(self.tile_index, check_bit_const::<3>(self.attrs))];
+        let mut index = (self.y % 8) as usize;
         if check_bit_const::<6>(self.attrs) {
-            offset = 8 - offset;
+            // 0 <= index < 8 and we want to invert the space
+            index = !index;
         }
-        let index = starting_index + (2 * offset);
-        let lo = bank[index];
-        let hi = bank[index + 1];
+        let lo = obj[2 * index];
+        let hi = obj[2 * index + 1];
         let mut digest = form_pixels(self.attrs, lo, hi).into_array().unwrap();
         if check_bit_const::<5>(self.attrs) {
             digest.as_mut_slice().reverse();
-        }
-        for pixel in &digest {
-            if pixel.color != 0 {
-                println!("Outputting a non-transparent object pixel: {pixel:?}");
-            }
         }
         digest
     }
@@ -210,7 +200,7 @@ impl ObjectFiFo {
             .collect::<VecDeque<_>>();
         let y = y + 16;
         let buffer = pixels.make_contiguous();
-        let objects = (0..0x100)
+        let objects = (0..=0xFF)
             .step_by(4)
             .map(|i| &mem[OamObjectIndex(i)])
             // TODO: Right now, we are assuming that all objects are 8x8. We need to add a check for
@@ -301,24 +291,12 @@ impl FiFoPixel {
     fn mix(self, obj: Self, mem: &MemoryMap) -> Pixel {
         // TODO: The pixels carry the data to determine this, but that is not being properly
         // determined yet.
-        let [a, b] = if obj.color == 0 {
-            mem.io
-                .background_palettes
-                .get_palette(self.palette)
-                .get_color(self.color)
-                .0
+        if obj.color == 0 {
+            mem[BgPaletteIndex(self.palette)].get_color(self.color)
         } else {
-            println!("A non transparent object!!");
-            mem.io
-                .object_palettes
-                .get_palette(self.palette)
-                .get_color(self.color)
-                .0
-        };
-        let r = a & 0b0001_1111;
-        let g = ((a & 0b1110_0000) >> 5) | ((b & 0b0000_0011) << 3);
-        let b = (b & 0b0111_1100) >> 2;
-        Pixel { r, g, b }
+            mem[ObjPaletteIndex(obj.palette)].get_color(obj.color)
+        }
+        .into()
     }
 }
 
@@ -366,14 +344,14 @@ enum PixelFetcher {
         x: u8,
         y: u8,
         attr: u8,
-        index: usize,
+        index: u8,
     },
     DataHigh {
         ticked: bool,
         x: u8,
         y: u8,
         attr: u8,
-        index: usize,
+        index: u8,
         lo: u8,
     },
     Sleep {
@@ -406,15 +384,14 @@ impl PixelFetcher {
         match self {
             PixelFetcher::GetTile { ticked, .. } if !*ticked => *ticked = true,
             PixelFetcher::GetTile { ticked, x, y } => {
-                let addr = (*y / 8) * 32 + *x;
-                // VRAM starts at 0x8000, and we want to access 0x9800..
-                let index = mem[BgTileMapIndex(addr)];
-                let index = (index as usize * 16) + ((*y as usize) % 8);
-                let attr = mem[BgTileMapAttrIndex(addr)];
+                let x = *x;
+                let y = *y;
+                let index = mem[BgTileMapIndex { x, y }];
+                let attr = mem[BgTileMapAttrIndex { x, y }];
                 *self = Self::DataLow {
                     ticked: false,
-                    x: *x,
-                    y: *y,
+                    x,
+                    y,
                     index,
                     attr,
                 }
@@ -433,7 +410,7 @@ impl PixelFetcher {
                     y: *y,
                     attr: *attr,
                     index: *index,
-                    lo: mem[BgTileDataIndex(*index)],
+                    lo: mem[BgTileDataIndex(*index)][(*y % 8) as usize * 2],
                 }
             }
             PixelFetcher::DataHigh { ticked, .. } if !*ticked => *ticked = true,
@@ -451,7 +428,7 @@ impl PixelFetcher {
                     y: *y,
                     attr: *attr,
                     lo: *lo,
-                    hi: mem[BgTileDataIndex(*index + 1)],
+                    hi: mem[BgTileDataIndex(*index + 1)][2 * (*y % 8) as usize + 1],
                 }
             }
             PixelFetcher::Sleep { ticked, .. } if !*ticked => *ticked = true,

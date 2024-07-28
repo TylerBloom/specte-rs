@@ -9,6 +9,11 @@ use std::ops::{Index, IndexMut};
 
 use tracing::{info, trace};
 
+use super::{
+    BgTileDataIndex, BgTileDataInnerIndex, BgTileMapAttrIndex, BgTileMapIndex, BgTileMapInnerIndex,
+    OamIndex, OamObjectIndex, ObjTileDataIndex,
+};
+
 static DEAD_READ_ONLY_BYTE: u8 = 0xFF;
 
 /// This wrapper type is used to communicate that the VRAM should be indexed into when indexing into VRam.
@@ -43,7 +48,7 @@ pub(crate) struct VRam {
     /// The main video RAM. Accessible through the address range 0x8000 through 0x9FFF.
     pub(crate) vram: ([u8; 0x2000], [u8; 0x2000]),
     /// The Object Attribute Map. Accessible through the address range 0xFE00 through 0xFE9F
-    pub(crate) oam: [u8; 0x100],
+    pub(crate) oam: [u8; 0xA0],
     /// The status that the PPU is currently in. This mode is set when the PPU is ticked and
     /// determines how the VRAM and OAM are indexed into.
     status: PpuMode,
@@ -56,7 +61,7 @@ impl VRam {
     pub(super) fn new() -> Self {
         Self {
             vram: ([0; 0x2000], [0; 0x2000]),
-            oam: [0; 0x100],
+            oam: [0; 0xA0],
             status: PpuMode::default(),
             dead_byte: 0xFF,
         }
@@ -118,5 +123,85 @@ impl IndexMut<CpuOamIndex> for VRam {
         } else {
             &mut self.oam[index as usize - 0xFE00]
         }
+    }
+}
+
+/* --------- Indexing types use by the PPU --------- */
+
+impl Index<OamObjectIndex> for VRam {
+    type Output = [u8; 4];
+
+    fn index(&self, OamObjectIndex(mut index): OamObjectIndex) -> &Self::Output {
+        // There are only 40 objects in the OAM and this type indexes those object, not their
+        // memory address.
+        debug_assert!(index < 40);
+        let index = 4 * index as usize;
+        (&self.oam[index..index + 4]).try_into().unwrap()
+    }
+}
+
+impl Index<ObjTileDataIndex> for VRam {
+    /// We return a slice here because the object could be either 8x8 or 8x16, and this is
+    /// determined by the state of a LCDC bit. It is the job of the PPU to check the length of the
+    /// slice and handle it accordingly.
+    type Output = [u8];
+
+    fn index(&self, ObjTileDataIndex(index, bank): ObjTileDataIndex) -> &Self::Output {
+        let bank = if bank { &self.vram.1 } else { &self.vram.0 };
+        let index = 16 * index as usize;
+        // TODO: This does not check if LCDC bit 2 is set to determine if objects are 8x8 or 8x16.
+        &bank[index..index + 1]
+    }
+}
+
+impl Index<BgTileMapInnerIndex> for VRam {
+    type Output = u8;
+
+    fn index(&self, BgTileMapInnerIndex { first_map, x, y }: BgTileMapInnerIndex) -> &Self::Output {
+        let x = x as usize / 8;
+        let y = y as usize / 8;
+        let index = 0x1800 + (first_map as usize * 0x400) + (y * 32) + x;
+        &self.vram.0[index]
+    }
+}
+
+impl Index<BgTileMapAttrIndex> for VRam {
+    type Output = u8;
+
+    fn index(&self, BgTileMapAttrIndex { x, y }: BgTileMapAttrIndex) -> &Self::Output {
+        let x = x as usize / 8;
+        let y = y as usize / 8;
+        let index = 0x1800 + (y * 32) + x;
+        &self.vram.0[index]
+    }
+}
+
+impl Index<BgTileDataInnerIndex> for VRam {
+    type Output = [u8; 16];
+
+    fn index(
+        &self,
+        BgTileDataInnerIndex {
+            unsigned_indexing,
+            index,
+            bank,
+        }: BgTileDataInnerIndex,
+    ) -> &Self::Output {
+        let index: usize = if unsigned_indexing {
+            16 * index as usize
+        } else {
+            if index > 127 {
+                let offset = (index as i8) as isize;
+                0x1000usize.wrapping_add_signed(16 * offset)
+            } else {
+                0x1000 + (16 * index as usize)
+            }
+        };
+        let bank = if bank {
+            &self.vram.1
+        } else {
+            &self.vram.0
+        };
+        (&bank[index..index + 16]).try_into().unwrap()
     }
 }
