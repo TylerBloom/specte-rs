@@ -8,7 +8,8 @@ use crate::{
     mem::{
         io::{BgPaletteIndex, ObjPaletteIndex},
         vram::{PpuMode, VRam},
-        BgTileDataIndex, BgTileMapAttrIndex, BgTileMapIndex, MemoryMap, OamIndex, OamObjectIndex, ObjTileDataIndex,
+        BgTileDataIndex, BgTileMapAttrIndex, BgTileMapIndex, MemoryMap, OamIndex, OamObjectIndex,
+        ObjTileDataIndex,
     },
 };
 
@@ -66,7 +67,6 @@ impl OamObject {
     }
 
     fn populate_buffer(self, y: u8, buffer: &mut [FiFoPixel], mem: &MemoryMap) {
-        println!("Object found in OAM. Populating buffer.");
         let x = self.x as usize;
         self.generate_pixels(y, mem)
             .into_iter()
@@ -200,8 +200,7 @@ impl ObjectFiFo {
             .collect::<VecDeque<_>>();
         let y = y + 16;
         let buffer = pixels.make_contiguous();
-        let objects = (0..=0xFF)
-            .step_by(4)
+        let objects = (0..40)
             .map(|i| &mem[OamObjectIndex(i)])
             // TODO: Right now, we are assuming that all objects are 8x8. We need to add a check for
             // 8x16 objects.
@@ -428,7 +427,7 @@ impl PixelFetcher {
                     y: *y,
                     attr: *attr,
                     lo: *lo,
-                    hi: mem[BgTileDataIndex(*index + 1)][2 * (*y % 8) as usize + 1],
+                    hi: mem[BgTileDataIndex(*index)][2 * (*y % 8) as usize + 1],
                 }
             }
             PixelFetcher::Sleep { ticked, .. } if !*ticked => *ticked = true,
@@ -453,7 +452,7 @@ impl PixelFetcher {
                     *out = form_pixels(*attr, *lo, *hi);
                     *self = Self::GetTile {
                         ticked: false,
-                        x: *x + 1,
+                        x: *x + 8,
                         y: *y,
                     };
                 }
@@ -506,7 +505,7 @@ impl Ppu {
         while {
             self.tick(mem);
             let old = std::mem::replace(&mut state, self.state());
-            !matches!((PpuMode::VBlank, PpuMode::OamScan), (old, state))
+            !matches!((old, state), (PpuMode::VBlank, PpuMode::OamScan))
         } {}
     }
 }
@@ -616,8 +615,8 @@ mod tests {
     fn basic_rendering_test() {
         let mut mem = MemoryMap::construct();
         mem.io().background_palettes.data[0].colors[3].0 = [0xFF, 0xFF];
-        mem[0x8000] = 0xFF;
-        mem[0x8001] = 0xFF;
+        mem[0x9000] = 0xFF;
+        mem[0x9001] = 0xFF;
         let mut ppu = Ppu::new();
         ppu.finish_screen(&mut mem);
         let white = vec![Pixel::WHITE; 160];

@@ -10,8 +10,7 @@ use std::ops::{Index, IndexMut};
 use tracing::{info, trace};
 
 use super::{
-    BgTileDataIndex, BgTileDataInnerIndex, BgTileMapAttrIndex, BgTileMapIndex, BgTileMapInnerIndex,
-    OamIndex, OamObjectIndex, ObjTileDataIndex,
+    io::{BgPaletteIndex, ObjPaletteIndex}, BgTileDataIndex, BgTileDataInnerIndex, BgTileMapAttrIndex, BgTileMapIndex, BgTileMapInnerIndex, OamIndex, OamObjectIndex, ObjTileDataIndex
 };
 
 static DEAD_READ_ONLY_BYTE: u8 = 0xFF;

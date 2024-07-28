@@ -75,8 +75,8 @@ pub(crate) struct BgPaletteIndex(pub u8);
 impl Index<BgPaletteIndex> for MemoryMap {
     type Output = Palette;
 
-    fn index(&self, BgPaletteIndex(index): BgPaletteIndex) -> &Self::Output {
-        todo!()
+    fn index(&self, index: BgPaletteIndex) -> &Self::Output {
+        &self.io[index]
     }
 }
 
@@ -87,8 +87,8 @@ pub(crate) struct ObjPaletteIndex(pub u8);
 impl Index<ObjPaletteIndex> for MemoryMap {
     type Output = Palette;
 
-    fn index(&self, ObjPaletteIndex(index): ObjPaletteIndex) -> &Self::Output {
-        todo!()
+    fn index(&self, index: ObjPaletteIndex) -> &Self::Output {
+        &self.io[index]
     }
 }
 
@@ -285,7 +285,6 @@ impl Index<ObjPaletteIndex> for IoRegisters {
     }
 }
 
-
 /// In GBC mode, there are extra palettes for the colors
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
 pub struct ColorPalettes {
@@ -393,15 +392,15 @@ impl PaletteColor {
     }
 
     fn r(&self) -> u8 {
-        self.0[0] & 0x1F
+        self.0[0] & 0b0001_1111
     }
 
     fn g(&self) -> u8 {
-        ((self.0[0] & 0xD0) >> 5) | ((self.0[1] & 0x03) << 3)
+        ((self.0[0] & 0b1110_0000) >> 5) | ((self.0[1] & 0b0000_0011) << 3)
     }
 
     fn b(&self) -> u8 {
-        self.0[1] & 0x7C
+        (self.0[1] & 0b0111_1100) >> 2
     }
 }
 
