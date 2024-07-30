@@ -3,9 +3,11 @@
 use iced::mouse::Cursor;
 use iced::widget::canvas::fill::Rule;
 use iced::widget::canvas::{Cache, Fill, Frame, Geometry, Program, Style};
-use iced::widget::{button, column, text, Canvas};
+use iced::widget::image::{viewer, Handle, Viewer};
+use iced::widget::{button, column, row, text, Button, Canvas, Column, Image, Row, Scrollable};
 use iced::{
-    executor, Alignment, Application, Color, Element, Length, Point, Renderer, Sandbox, Settings, Size, Subscription, Theme
+    executor, Alignment, Application, Color, Element, Length, Point, Renderer, Sandbox, Settings,
+    Size, Subscription, Theme,
 };
 use spirit::ppu::Pixel;
 use spirit::{Gameboy, StartUpSequence};
@@ -25,74 +27,65 @@ struct Example {
 }
 
 impl Example {
-    fn screen(&self) -> Element<'_, ()> {
-        Canvas::new(self)
-            .width(Length::Fixed(160.0))
-            .height(Length::Fixed(144.0))
-            .into()
+    fn screen(&self) -> impl Into<Element<usize>> {
+        let screen = &self.gb.gb().ppu.screen;
+        let col = column![
+            Image::new(Handle::from_pixels(
+                160,
+                144,
+                screen
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .flat_map(pixel_to_bytes)
+                    .collect::<Vec<_>>(),
+            )),
+            Column::from_vec(
+                (0..(144 / 8))
+                    .map(|y| {
+                        Row::from_vec(
+                            (0..(160 / 8))
+                                .map(|x| {
+                                    let data = (0..8)
+                                        .flat_map(|dy| (0..8).map(move |dx| (dy, dx)))
+                                        .flat_map(|(dy, dx)| {
+                                            println!();
+                                            pixel_to_bytes(screen[8 * y + dy][8 * x + dx])
+                                        })
+                                        .collect::<Vec<_>>();
+                                    self.gb
+                                    column![
+                                        text(format!("({x:0>2}, {y:0>2})")),
+                                        Image::new(Handle::from_pixels(8, 8, data))
+                                    ]
+                                    .into()
+                                })
+                                .collect(),
+                        )
+                        .into()
+                    })
+                    .collect(),
+            )
+        ];
+        Scrollable::new(col)
+        /*
+        self.gb.gb().ppu.screen.
+        Row::from_vec(children)
+            */
     }
 }
 
-impl Program<()> for &Example {
-    type State = ();
-
-    fn draw(
-        &self,
-        _state: &Self::State,
-        renderer: &Renderer,
-        _theme: &Theme,
-        bounds: iced::Rectangle,
-        _cursor: Cursor,
-    ) -> Vec<Geometry> {
-        let mut frame = Frame::new(renderer, bounds.size());
-        self.gb
-            .gb()
-            .ppu
-            .screen
-            .iter()
-            .enumerate()
-            .flat_map(|(i, line)| line.iter().enumerate().map(move |(j, pixel)| (i, j, pixel)))
-            .map(|(x, y, pixel)| {
-                let point = Point {
-                    x: x as f32 * 10.0,
-                    y: y as f32 * 10.0,
-                };
-                let fill = Fill {
-                    rule: Rule::NonZero,
-                    style: Style::Solid(pixel_to_color(*pixel)),
-                };
-                (point, fill)
-            })
-            .for_each(|(point, fill)| {
-                frame.fill_rectangle(
-                    point,
-                    Size {
-                        width: 10.0,
-                        height: 10.0,
-                    },
-                    fill,
-                )
-            });
-        vec![frame.into_geometry()]
-    }
-}
-
-fn pixel_to_color(Pixel { r, g, b }: Pixel) -> Color {
-    Color {
-        r: r as f32 / 0x1Fu8 as f32,
-        g: g as f32 / 0x1Fu8 as f32,
-        b: b as f32 / 0x1Fu8 as f32,
-        a: 1.0,
-    }
+fn pixel_to_bytes(Pixel { r, g, b }: Pixel) -> [u8; 4] {
+    [r * 8, g * 8, b * 8, 255]
 }
 
 impl Application for Example {
-    type Message = ();
+    type Message = usize;
     type Executor = executor::Default;
     type Theme = Theme;
     type Flags = ();
 
-    fn new((): ()) -> (Self, iced::Command<()>) {
+    fn new((): ()) -> (Self, iced::Command<usize>) {
         let gb: &'static mut Gameboy = Box::leak(Box::new(Gameboy::new(include_bytes!(
             "../../spirit/tests/roms/acid/which.gb"
         ))));
@@ -110,9 +103,9 @@ impl Application for Example {
         String::from("GameBoy!!!")
     }
 
-    fn update(&mut self, (): ()) -> iced::Command<()> {
-        self.count += 1;
-        self.gb.frame_step().complete();
+    fn update(&mut self, count: usize) -> iced::Command<usize> {
+        self.count += count;
+        (0..count).for_each(|_| self.gb.frame_step().complete());
         if self.gb.is_complete() {
             todo!()
         }
@@ -120,11 +113,13 @@ impl Application for Example {
         iced::Command::none()
     }
 
-    fn view(&self) -> Element<()> {
+    fn view(&self) -> Element<usize> {
         column![
-            text(format!("Gameboy start: Frame {}", self.count)).width(Length::Shrink).size(50),
-            self.screen(),
-            button("Clear").padding(8).on_press(()),
+            row![
+                Button::new(text(format!("To frame {}", self.count + 1))).on_press(1),
+                Button::new(text(format!("To frame {}", self.count + 10))).on_press(10),
+            ],
+            self.screen().into(),
         ]
         .padding(20)
         .spacing(20)
@@ -132,7 +127,9 @@ impl Application for Example {
         .into()
     }
 
+    /*
     fn subscription(&self) -> Subscription<()> {
         iced::time::every(std::time::Duration::from_millis(33)).map(|_| ())
     }
+    */
 }
