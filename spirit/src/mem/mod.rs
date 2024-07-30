@@ -186,9 +186,13 @@ impl MemoryMap {
     }
 }
 
-#[cfg(test)]
+// #[cfg(test)]
 impl MemoryMap {
-    pub fn io(&mut self) -> &mut IoRegisters {
+    pub fn io(&self) -> &IoRegisters {
+        &self.io
+    }
+
+    pub fn io_mut(&mut self) -> &mut IoRegisters {
         &mut self.io
     }
 }
@@ -292,7 +296,7 @@ impl Index<ObjTileDataIndex> for MemoryMap {
 /// position of the pixels that the PPU is trying to render. This means that 1) they should be
 /// treated as offsets from the BG position registers and 2) they will need to be divided in order
 /// to index into the map.
-pub(crate) struct BgTileMapIndex {
+pub struct BgTileMapIndex {
     pub x: u8,
     pub y: u8,
 }
@@ -320,7 +324,7 @@ impl Index<BgTileMapIndex> for MemoryMap {
 /// A type used to index a background tile's attributes inside VRAM Tile Map (in bank 1).
 ///
 /// This type is only used by the PPU.
-pub(crate) struct BgTileMapAttrIndex {
+pub struct BgTileMapAttrIndex {
     pub x: u8,
     pub y: u8,
 }
@@ -343,7 +347,7 @@ impl Index<BgTileMapAttrIndex> for MemoryMap {
 /// value returned there. This type is only used by the PPU.
 // TODO: Should the PPU should be forced to go through the `BgTileMapIndex` in order get this
 // index? This is technically correct, but perhaps is too verbose/unwieldy.
-pub(crate) struct BgTileDataIndex(pub u8);
+pub struct BgTileDataIndex(pub u8);
 
 struct BgTileDataInnerIndex {
     unsigned_indexing: bool,

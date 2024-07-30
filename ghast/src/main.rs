@@ -9,7 +9,8 @@ use iced::{
     executor, Alignment, Application, Color, Element, Length, Point, Renderer, Sandbox, Settings,
     Size, Subscription, Theme,
 };
-use spirit::ppu::Pixel;
+use spirit::mem::{BgTileDataIndex, BgTileMapAttrIndex, BgTileMapIndex};
+use spirit::ppu::{zip_bits, Pixel};
 use spirit::{Gameboy, StartUpSequence};
 
 pub fn main() -> iced::Result {
@@ -41,22 +42,22 @@ impl Example {
                     .collect::<Vec<_>>(),
             )),
             Column::from_vec(
-                (0..(144 / 8))
+                (0u8..(144 / 8))
                     .map(|y| {
                         Row::from_vec(
-                            (0..(160 / 8))
+                            (0u8..(160 / 8))
                                 .map(|x| {
                                     let data = (0..8)
                                         .flat_map(|dy| (0..8).map(move |dx| (dy, dx)))
                                         .flat_map(|(dy, dx)| {
-                                            println!();
-                                            pixel_to_bytes(screen[8 * y + dy][8 * x + dx])
+                                            pixel_to_bytes(
+                                                screen[8 * y as usize + dy][8 * x as usize + dx],
+                                            )
                                         })
                                         .collect::<Vec<_>>();
-                                    self.gb
                                     column![
                                         text(format!("({x:0>2}, {y:0>2})")),
-                                        Image::new(Handle::from_pixels(8, 8, data))
+                                        Image::new(Handle::from_pixels(8, 8, data)),
                                     ]
                                     .into()
                                 })

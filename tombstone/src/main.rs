@@ -151,8 +151,8 @@ fn render_interrupts(frame: &mut Frame, state: &mut AppState, area: Rect, mem: &
         .title("Interrupts")
         .title_alignment(ratatui::layout::Alignment::Center);
     let para = Paragraph::new(Text::from_iter([
-        format!("Enabled   : 0b{:0>8b}", mem.ie),
-        format!("Requested : 0b{:0>8b}", mem.io.interrupt_flags),
+        format!("Enabled   : 0b{0:0>8b}"), // , mem.ie),
+        format!("Requested : 0b{0:0>8b}"), // , mem.io.interrupt_flags),
     ]))
     .block(block);
     frame.render_widget(para, area);

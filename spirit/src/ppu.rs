@@ -473,7 +473,7 @@ fn form_pixels(attr: u8, lo: u8, hi: u8) -> InlineVec<FiFoPixel, 8> {
 }
 
 /// Used to generate pixel color indications, which have a color depth of 2.
-fn zip_bits(hi: u8, lo: u8) -> impl Iterator<Item = u8> {
+pub fn zip_bits(hi: u8, lo: u8) -> impl Iterator<Item = u8> {
     (0..8)
         .map(move |i| (check_bit(i, hi), check_bit(i, lo)))
         .map(|(hi, lo)| (hi as u8) << 1 | lo as u8)
@@ -614,7 +614,7 @@ mod tests {
     #[test]
     fn basic_rendering_test() {
         let mut mem = MemoryMap::construct();
-        mem.io().background_palettes.data[0].colors[3].0 = [0xFF, 0xFF];
+        mem.io_mut().background_palettes.data[0].colors[3].0 = [0xFF, 0xFF];
         mem[0x9000] = 0xFF;
         mem[0x9001] = 0xFF;
         let mut ppu = Ppu::new();

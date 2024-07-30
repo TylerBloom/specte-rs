@@ -56,7 +56,7 @@ pub struct IoRegisters {
     /// ADDR FF51-FF55
     vram_dma: [u8; 5],
     /// ADDR FF68 and FF69
-    pub(crate) background_palettes: ColorPalettes,
+    pub background_palettes: ColorPalettes,
     /// ADDR FF6A and FF6B
     pub(crate) object_palettes: ColorPalettes,
     /// ADDR FF70
@@ -203,7 +203,7 @@ impl Index<u16> for IoRegisters {
             0xFF50 => &self.boot_status,
             n @ 0xFF51..=0xFF55 => &self.vram_dma[(n - 0xFF51) as usize],
             n @ 0xFF68..=0xFF69 => &self.background_palettes[n - 0xFF68],
-            n @ 0xFF6A..=0xFF6B => &self.object_palettes[n - 0xFF68],
+            n @ 0xFF6A..=0xFF6B => &self.object_palettes[n - 0xFF6A],
             0xFF70 => &self.wram_select,
             0xFF03
             | 0xFF08..=0xFF0E
@@ -295,19 +295,14 @@ pub struct ColorPalettes {
 
 impl ColorPalettes {
     fn tick(&mut self) {
-        self.index &= 0x9F;
+        self.index &= 0b1011_1111;
         let (a, b) = self.indices();
-        self.data[(a) as usize].tick(b);
-    }
-
-    pub(crate) fn get_palette(&self, index: u8) -> &Palette {
-        debug_assert!(index < 8);
-        &self.data[index as usize]
+        self.data[a as usize].tick(b);
     }
 
     fn indices(&self) -> (u8, u8) {
-        let index = self.index & 0x1F;
-        (index / 8, index % 8)
+        let index = self.index & 0b0011_1111;
+        ((index & 0b0011_1000) >> 3, index & 0b111)
     }
 }
 
@@ -340,7 +335,8 @@ impl IndexMut<u16> for ColorPalettes {
             0 => &mut self.index,
             1 => {
                 let (a, b) = self.indices();
-                self.index += self.index >> 7;
+                let inc = check_bit_const::<7>(self.index) as u8;
+                self.index += inc;
                 // TODO: If the PPU is in mode 3, this should return a dead byte.
                 &mut self.data[a as usize][b]
             }
@@ -360,7 +356,7 @@ impl Palette {
         self.colors[index as usize].tick();
     }
 
-    pub(crate) fn get_color(&self, index: u8) -> PaletteColor {
+    pub fn get_color(&self, index: u8) -> PaletteColor {
         self.colors[index as usize]
     }
 }
@@ -370,14 +366,14 @@ impl Index<u8> for Palette {
 
     fn index(&self, index: u8) -> &Self::Output {
         debug_assert!(index < 8);
-        &self.colors[(index / 2) as usize][index % 2]
+        &self.colors[(index & 0b110) as usize >> 1][index & 0b1]
     }
 }
 
 impl IndexMut<u8> for Palette {
     fn index_mut(&mut self, index: u8) -> &mut Self::Output {
         debug_assert!(index < 8);
-        &mut self.colors[(index / 2) as usize][index % 2]
+        &mut self.colors[(index & 0b110) as usize >> 1][index & 0b1]
     }
 }
 
@@ -391,15 +387,15 @@ impl PaletteColor {
         self.0[1] &= 0xEF;
     }
 
-    fn r(&self) -> u8 {
+    pub fn r(&self) -> u8 {
         self.0[0] & 0b0001_1111
     }
 
-    fn g(&self) -> u8 {
+    pub fn g(&self) -> u8 {
         ((self.0[0] & 0b1110_0000) >> 5) | ((self.0[1] & 0b0000_0011) << 3)
     }
 
-    fn b(&self) -> u8 {
+    pub fn b(&self) -> u8 {
         (self.0[1] & 0b0111_1100) >> 2
     }
 }
@@ -561,5 +557,31 @@ impl Index<()> for Joypad {
 impl IndexMut<()> for Joypad {
     fn index_mut(&mut self, index: ()) -> &mut Self::Output {
         &mut self.main
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ColorPalettes, Palette, PaletteColor};
+
+    #[test]
+    fn indexing_into_palettes() {
+        let mut palettes = ColorPalettes {
+            index: 0x80,
+            data: std::array::from_fn(|i| Palette {
+                colors: std::array::from_fn(|j| {
+                    PaletteColor([
+                        8 * (i as u8) + 2 * (j as u8),
+                        8 * (i as u8) + 2 * (j as u8) + 1,
+                    ])
+                }),
+            }),
+        };
+        for i in 0..64u16 {
+            println!("{}", palettes.index);
+            println!("{:?}", palettes.data[0]);
+            let data = &mut palettes[1];
+            assert_eq!(i as u8, *data);
+        }
     }
 }
