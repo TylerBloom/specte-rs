@@ -9,6 +9,7 @@ use iced::{
     executor, Alignment, Application, Color, Element, Length, Point, Renderer, Sandbox, Settings,
     Size, Subscription, Theme,
 };
+use spirit::cpu::check_bit_const;
 use spirit::mem::{BgTileDataIndex, BgTileMapAttrIndex, BgTileMapIndex};
 use spirit::ppu::{zip_bits, Pixel};
 use spirit::{Gameboy, StartUpSequence};
@@ -41,39 +42,84 @@ impl Example {
                     .flat_map(pixel_to_bytes)
                     .collect::<Vec<_>>(),
             )),
-            Column::from_vec(
-                (0u8..(144 / 8))
-                    .map(|y| {
-                        Row::from_vec(
-                            (0u8..(160 / 8))
-                                .map(|x| {
-                                    let data = (0..8)
-                                        .flat_map(|dy| (0..8).map(move |dx| (dy, dx)))
-                                        .flat_map(|(dy, dx)| {
-                                            pixel_to_bytes(
-                                                screen[8 * y as usize + dy][8 * x as usize + dx],
-                                            )
-                                        })
-                                        .collect::<Vec<_>>();
-                                    column![
-                                        text(format!("({x:0>2}, {y:0>2})")),
-                                        Image::new(Handle::from_pixels(8, 8, data)),
-                                    ]
-                                    .into()
-                                })
-                                .collect(),
-                        )
-                        .into()
-                    })
-                    .collect(),
-            )
+            row![
+                Column::from_vec(vram_0_to_tiles(self.gb.gb()).map(Into::into).collect()),
+                Column::from_vec(vram_1_to_tiles(self.gb.gb()).map(Into::into).collect()),
+            ],
         ];
         Scrollable::new(col)
-        /*
-        self.gb.gb().ppu.screen.
-        Row::from_vec(children)
-            */
     }
+}
+
+fn print_tile_map(gb: &Gameboy) {
+    let map = if check_bit_const::<3>(gb.mem.io().lcd_control) {
+        println!("The second tile map:");
+        &gb.mem.vram.vram.0[0x1C00..0x2000]
+    } else {
+        println!("The first tile map:");
+        &gb.mem.vram.vram.0[0x1800..0x1C00]
+    };
+    for i in 0..32 {
+        print!("[");
+        for j in 0..32 {
+            print!(" {:0>2X},", map[i*32 + j])
+        }
+        println!("]");
+    }
+}
+
+fn vram_0_to_tiles(gb: &Gameboy) -> impl '_ + Iterator<Item = impl Into<Element<'static, usize>>> {
+    let mut iter = (0..0x17FF)
+        .step_by(16)
+        .map(|i| {
+            tile_data_to_pixels(gb, (&gb.mem.vram.vram.0[i..(i + 16)]).try_into().unwrap())
+        });
+    // print_tile_map(gb);
+    (0..0x20).map(move |_| tiles_into_rows(&mut iter))
+}
+
+fn vram_1_to_tiles(gb: &Gameboy) -> impl '_ + Iterator<Item = impl Into<Element<'static, usize>>> {
+    let mut iter = (0..0x17FF)
+        .step_by(16)
+        .map(|i| tile_data_to_pixels(gb, (&gb.mem.vram.vram.1[i..(i + 16)]).try_into().unwrap()));
+    (0..0x20).map(move |_| tiles_into_rows(&mut iter))
+}
+
+fn tiles_into_rows(iter: impl Iterator<Item = [[Pixel; 8]; 8]>) -> Row<'static, usize> {
+    Row::from_vec(
+        iter.take(0x10)
+            .map(pixels_to_image)
+            .map(Into::into)
+            .collect(),
+    )
+}
+
+fn pixels_to_image(chunk: [[Pixel; 8]; 8]) -> Image<Handle> {
+    Image::new(Handle::from_pixels(
+        8,
+        8,
+        chunk
+            .into_iter()
+            .flatten()
+            .flat_map(pixel_to_bytes)
+            .collect::<Vec<_>>(),
+    ))
+}
+
+fn tile_data_to_pixels(gb: &Gameboy, data: [u8; 16]) -> [[Pixel; 8]; 8] {
+    let mut iter = data
+        .into_iter()
+        .skip(2)
+        .zip(data.into_iter().skip(1).step_by(2))
+        .map(|(lo, hi)| bytes_to_pixels(gb, lo, hi));
+    std::array::from_fn(|_| iter.next().unwrap())
+}
+
+fn bytes_to_pixels(gb: &Gameboy, lo: u8, hi: u8) -> [Pixel; 8] {
+    let palette = gb.mem.io().background_palettes[1u8].clone();
+    let mut iter =
+        zip_bits(hi, lo).map(|c| palette.get_color(c).into());
+    std::array::from_fn(|_| iter.next().unwrap())
 }
 
 fn pixel_to_bytes(Pixel { r, g, b }: Pixel) -> [u8; 4] {

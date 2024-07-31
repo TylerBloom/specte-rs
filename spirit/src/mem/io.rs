@@ -24,7 +24,7 @@ pub struct IoRegisters {
     /// ADDR FF30-FF3F
     wave: [u8; 0x10],
     /// ADDR FF40
-    pub(crate) lcd_control: u8,
+    pub lcd_control: u8,
     /// ADDR FF41
     lcd_status: u8,
     /// A duplicate value of the LCD status register. A reference to this byte is given out when

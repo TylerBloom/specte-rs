@@ -31,7 +31,7 @@ pub struct MemoryMap {
     // The MBC
     mbc: MemoryBankController,
     // The video RAM and Object attribute map
-    vram: VRam,
+    pub vram: VRam,
     // The working RAM
     wram: ([u8; 0x1000], [u8; 0x1000]),
     io: IoRegisters,
@@ -205,7 +205,7 @@ impl Index<u16> for MemoryMap {
         static DEAD_BYTE: u8 = 0;
         match index {
             0x0000..=0x7FFF => &self.mbc[index],
-            n @ 0x8000..=0x9FFF => &self.vram[CpuVramIndex(n)],
+            n @ 0x8000..=0x9FFF => &self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
             n @ 0xA000..=0xBFFF => &self.mbc[n],
             n @ 0xC000..=0xCFFF => &self.wram.0[n as usize - 0xC000],
             n @ 0xD000..=0xDFFF => &self.wram.1[n as usize - 0xD000],
@@ -229,7 +229,7 @@ impl IndexMut<u16> for MemoryMap {
         trace!("Mut index into MemMap: 0x{index:0>4X}");
         match index {
             n @ 0x0000..=0x7FFF => &mut self.mbc[n],
-            n @ 0x8000..=0x9FFF => &mut self.vram[CpuVramIndex(n)],
+            n @ 0x8000..=0x9FFF => &mut self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
             n @ 0xA000..=0xBFFF => &mut self.mbc[n],
             n @ 0xC000..=0xCFFF => &mut self.wram.0[n as usize - 0xC000],
             n @ 0xD000..=0xDFFF => &mut self.wram.1[n as usize - 0xD000],
@@ -302,7 +302,7 @@ pub struct BgTileMapIndex {
 }
 
 struct BgTileMapInnerIndex {
-    pub first_map: bool,
+    pub second_map: bool,
     pub x: u8,
     pub y: u8,
 }
@@ -312,7 +312,7 @@ impl Index<BgTileMapIndex> for MemoryMap {
 
     fn index(&self, BgTileMapIndex { x, y }: BgTileMapIndex) -> &Self::Output {
         let index = BgTileMapInnerIndex {
-            first_map: check_bit_const::<3>(self.io.lcd_control),
+            second_map: check_bit_const::<3>(self.io.lcd_control),
             // We want to ignore the bottom 3 bits
             x: (x & 0xF8).wrapping_add(self.io.bg_position.1 & 0xF8),
             y: (y & 0xF8).wrapping_add(self.io.bg_position.0 & 0xF8),
@@ -335,8 +335,8 @@ impl Index<BgTileMapAttrIndex> for MemoryMap {
     fn index(&self, BgTileMapAttrIndex { mut x, mut y }: BgTileMapAttrIndex) -> &Self::Output {
         let index = BgTileMapAttrIndex {
             // We want to ignore the bottom 3 bits
-            x: (x & 0xF8).wrapping_add(self.io.bg_position.1 & 0xF8),
-            y: (y & 0xF8).wrapping_add(self.io.bg_position.0 & 0xF8),
+            x: x.wrapping_add(self.io.bg_position.1),
+            y: y.wrapping_add(self.io.bg_position.0),
         };
         &self.vram[index]
     }

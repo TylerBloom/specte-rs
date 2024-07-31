@@ -18,7 +18,7 @@ static DEAD_READ_ONLY_BYTE: u8 = 0xFF;
 /// This wrapper type is used to communicate that the VRAM should be indexed into when indexing into VRam.
 /// Since there is state that determines what gets indexed into, this type is used rather than
 /// making the field `pub(crate)`/`pub(super)`.
-pub(super) struct CpuVramIndex(pub u16);
+pub(super) struct CpuVramIndex(pub bool, pub u16);
 
 /// This wrapper type is used to communicate that the OAM should be indexed into when indexing into VRam.
 /// Since there is state that determines what gets indexed into, this type is used rather than
@@ -42,10 +42,10 @@ pub(crate) enum PpuMode {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub(crate) struct VRam {
+pub struct VRam {
     // TODO: This is a GBC emulator, show it needs to support switching between banks 0 and 1.
     /// The main video RAM. Accessible through the address range 0x8000 through 0x9FFF.
-    pub(crate) vram: ([u8; 0x2000], [u8; 0x2000]),
+    pub vram: ([u8; 0x2000], [u8; 0x2000]),
     /// The Object Attribute Map. Accessible through the address range 0xFE00 through 0xFE9F
     pub(crate) oam: [u8; 0xA0],
     /// The status that the PPU is currently in. This mode is set when the PPU is ticked and
@@ -78,24 +78,32 @@ impl VRam {
 impl Index<CpuVramIndex> for VRam {
     type Output = u8;
 
-    fn index(&self, CpuVramIndex(index): CpuVramIndex) -> &Self::Output {
+    fn index(&self, CpuVramIndex(bank, index): CpuVramIndex) -> &Self::Output {
         trace!("Indexing into VRAM @ 0x{index:0>4X}");
         if self.status.is_drawing() {
             &DEAD_READ_ONLY_BYTE
         } else {
-            &self.vram.0[index as usize - 0x8000]
+            if bank {
+                &self.vram.1[index as usize - 0x8000]
+            } else {
+                &self.vram.0[index as usize - 0x8000]
+            }
         }
     }
 }
 
 impl IndexMut<CpuVramIndex> for VRam {
-    fn index_mut(&mut self, CpuVramIndex(index): CpuVramIndex) -> &mut Self::Output {
+    fn index_mut(&mut self, CpuVramIndex(bank, index): CpuVramIndex) -> &mut Self::Output {
         trace!("Mutably indexing into VRAM @ 0x{index:0>4X}");
         if self.status.is_drawing() {
             self.dead_byte = 0xFF;
             &mut self.dead_byte
         } else {
-            &mut self.vram.0[index as usize - 0x8000]
+            if bank {
+                &mut self.vram.1[index as usize - 0x8000]
+            } else {
+                &mut self.vram.0[index as usize - 0x8000]
+            }
         }
     }
 }
@@ -156,10 +164,10 @@ impl Index<ObjTileDataIndex> for VRam {
 impl Index<BgTileMapInnerIndex> for VRam {
     type Output = u8;
 
-    fn index(&self, BgTileMapInnerIndex { first_map, x, y }: BgTileMapInnerIndex) -> &Self::Output {
-        let x = x as usize / 8;
-        let y = y as usize / 8;
-        let index = 0x1800 + (first_map as usize * 0x400) + (y * 32) + x;
+    fn index(&self, BgTileMapInnerIndex { second_map, x, y }: BgTileMapInnerIndex) -> &Self::Output {
+        let x = x as usize >> 3;
+        let y = y as usize >> 3;
+        let index = 0x1800 + (second_map as usize * 0x400) + (y * 32) + x;
         &self.vram.0[index]
     }
 }
@@ -171,7 +179,7 @@ impl Index<BgTileMapAttrIndex> for VRam {
         let x = x as usize / 8;
         let y = y as usize / 8;
         let index = 0x1800 + (y * 32) + x;
-        &self.vram.0[index]
+        &self.vram.1[index]
     }
 }
 

@@ -145,7 +145,7 @@ const fn select_bit<const B: u8>(src: u8) -> u8 {
     src & bit_select::<B>()
 }
 
-pub(crate) const fn check_bit_const<const B: u8>(src: u8) -> bool {
+pub const fn check_bit_const<const B: u8>(src: u8) -> bool {
     (src & bit_select::<B>()) == bit_select::<B>()
 }
 
