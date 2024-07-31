@@ -347,7 +347,10 @@ impl Index<BgTileMapAttrIndex> for MemoryMap {
 /// value returned there. This type is only used by the PPU.
 // TODO: Should the PPU should be forced to go through the `BgTileMapIndex` in order get this
 // index? This is technically correct, but perhaps is too verbose/unwieldy.
-pub struct BgTileDataIndex(pub u8);
+pub struct BgTileDataIndex {
+    pub index: u8,
+    pub attr: u8,
+}
 
 struct BgTileDataInnerIndex {
     unsigned_indexing: bool,
@@ -358,11 +361,11 @@ struct BgTileDataInnerIndex {
 impl Index<BgTileDataIndex> for MemoryMap {
     type Output = [u8; 16];
 
-    fn index(&self, BgTileDataIndex(index): BgTileDataIndex) -> &Self::Output {
+    fn index(&self, BgTileDataIndex { index, attr }: BgTileDataIndex) -> &Self::Output {
         let index = BgTileDataInnerIndex {
             index,
             unsigned_indexing: check_bit_const::<4>(self.io.lcd_control),
-            bank: check_bit_const::<0>(self.io.vram_select),
+            bank: check_bit_const::<3>(attr),
         };
         &self.vram[index]
     }

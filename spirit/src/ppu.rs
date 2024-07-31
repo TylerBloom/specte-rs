@@ -403,13 +403,15 @@ impl PixelFetcher {
                 index,
                 attr,
             } => {
+                let attr = *attr;
+                let index = *index;
                 *self = Self::DataHigh {
                     ticked: false,
                     x: *x,
                     y: *y,
-                    attr: *attr,
-                    index: *index,
-                    lo: mem[BgTileDataIndex(*index)][(*y % 8) as usize * 2],
+                    attr,
+                    index,
+                    lo: mem[BgTileDataIndex { index, attr }][(*y % 8) as usize * 2],
                 }
             }
             PixelFetcher::DataHigh { ticked, .. } if !*ticked => *ticked = true,
@@ -421,13 +423,15 @@ impl PixelFetcher {
                 lo,
                 attr,
             } => {
+                let attr = *attr;
+                let index = *index;
                 *self = Self::Sleep {
                     ticked: false,
                     x: *x,
                     y: *y,
-                    attr: *attr,
+                    attr,
                     lo: *lo,
-                    hi: mem[BgTileDataIndex(*index)][2 * (*y % 8) as usize + 1],
+                    hi: mem[BgTileDataIndex { index, attr }][(*y % 8) as usize * 2 + 1],
                 }
             }
             PixelFetcher::Sleep { ticked, .. } if !*ticked => *ticked = true,

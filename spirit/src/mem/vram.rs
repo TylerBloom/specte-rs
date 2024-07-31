@@ -83,7 +83,7 @@ impl Index<CpuVramIndex> for VRam {
         if self.status.is_drawing() {
             &DEAD_READ_ONLY_BYTE
         } else {
-            if bank {
+            if bank && index < 0x9C00 {
                 &self.vram.1[index as usize - 0x8000]
             } else {
                 &self.vram.0[index as usize - 0x8000]
@@ -99,7 +99,7 @@ impl IndexMut<CpuVramIndex> for VRam {
             self.dead_byte = 0xFF;
             &mut self.dead_byte
         } else {
-            if bank {
+            if bank && index < 0x9C00 {
                 &mut self.vram.1[index as usize - 0x8000]
             } else {
                 &mut self.vram.0[index as usize - 0x8000]
