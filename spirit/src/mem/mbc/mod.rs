@@ -31,13 +31,11 @@ pub enum MemoryBankController {
     ///
     /// See the spec [here](https://gbdev.io/pandocs/nombc.html).
     Direct {
-        // TODO: It is certainly possible that operations that are 2-bytes wide might need to
-        // retrieve data over the ROM/RAM boundary. In that case, these vecs should be combined,
-        // though this is might be a cornercase.
         /// A vec that holds 32 KiB (4,096 bytes).
         rom: Vec<u8>,
         /// A vec that holds 8 KiB (1,024 bytes).
         ram: Vec<u8>,
+        dead_byte: u8,
     },
     /// This memory controller is the first MBC chip and might be wired in two different ways.
     /// By default, this controller supports 512 KiB of ROM and 32 KiB of RAM.
@@ -115,7 +113,11 @@ impl MemoryBankController {
                 let rom = Vec::from(&cart[0x0000..=0x7FFF]);
                 assert_eq!(rom_size, rom.len());
                 let ram = vec![0; ram_size];
-                Self::Direct { rom, ram }
+                Self::Direct {
+                    rom,
+                    ram,
+                    dead_byte: 0,
+                }
             }
             0x01 => Self::MBC1(MBC1::new(rom_size, ram_size as usize, &cart)),
             // TODO: Does the info of this bit need to be passed to the MBC1 constructor?
@@ -152,7 +154,7 @@ impl MemoryBankController {
 
     pub(super) fn direct_overwrite(&mut self, index: u16, val: &mut u8) {
         match self {
-            MemoryBankController::Direct { rom, ram } => {
+            MemoryBankController::Direct { rom, ram, .. } => {
                 if index as usize >= rom.len() {
                     std::mem::swap(&mut ram[(index as usize) - rom.len()], val)
                 } else {
@@ -173,7 +175,7 @@ impl Index<u16> for MemoryBankController {
     fn index(&self, index: u16) -> &Self::Output {
         let index = index as usize;
         match self {
-            MemoryBankController::Direct { rom, ram } => {
+            MemoryBankController::Direct { rom, ram, .. } => {
                 if index < rom.len() {
                     &rom[index]
                 } else {
@@ -194,13 +196,25 @@ impl IndexMut<u16> for MemoryBankController {
         match self {
             // TODO: This should probably panic (or something) if index < rom.len(), i.e. they are
             // trying to write to ROM.
-            MemoryBankController::Direct { rom, ram } => {
+            MemoryBankController::Direct {
+                rom,
+                ram,
+                dead_byte,
+            } => {
+                /*
                 debug_assert!(
                     index + 1 >= rom.len(),
-                    "Could not index into {index:X} because ROM ends as {:?}",
+                    "Could not index into 0x{index:0>4X} because ROM ends at {:0>4X}",
                     rom.len()
                 );
-                &mut ram[index - rom.len()]
+                */
+                match index {
+                    0xA000..0xC000 => &mut ram[index - rom.len()],
+                    _ => {
+                        *dead_byte = 0;
+                        dead_byte
+                    }
+                }
             }
             MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
@@ -213,7 +227,7 @@ impl IndexMut<u16> for MemoryBankController {
 impl Debug for MemoryBankController {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MemoryBankController::Direct { rom, ram } => write!(
+            MemoryBankController::Direct { rom, ram, .. } => write!(
                 f,
                 "Direct {{ rom_size: {}, ram_size: {} }}",
                 rom.len(),

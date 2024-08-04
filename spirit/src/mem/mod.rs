@@ -173,7 +173,7 @@ impl MemoryMap {
     pub fn construct() -> Self {
         let rom = vec![0; 32000];
         let ram = vec![0; 4000];
-        let mbc = MemoryBankController::Direct { rom, ram };
+        let mbc = MemoryBankController::Direct { rom, ram, dead_byte: 0 };
         Self {
             mbc,
             vram: VRam::new(),

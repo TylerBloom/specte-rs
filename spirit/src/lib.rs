@@ -83,7 +83,7 @@ impl Gameboy {
 
     /// Runs the power-up sequence for the gameboy. During this time, the Gameboy remaps part of
     /// the memory to read from the start up sequence.
-    pub fn start_up(&mut self) -> StartUpSequence<'_> {
+    pub fn start_up(self) -> StartUpSequence {
         StartUpSequence::new(self)
     }
 
@@ -188,8 +188,8 @@ impl Drop for StepProcess<'_> {
 }
 
 #[must_use = "Start up sequence is lazy and should be ticked. Dropping this object to complete the startup sequence instantly."]
-pub struct StartUpSequence<'a> {
-    gb: &'a mut Gameboy,
+pub struct StartUpSequence {
+    gb: Gameboy,
     op: Instruction,
     counter: u8,
     done: bool,
@@ -197,14 +197,14 @@ pub struct StartUpSequence<'a> {
     remap_mem: StartUpHeaders,
 }
 
-impl<'b, 'a: 'b> StartUpSequence<'a> {
-    pub fn frame_step(&'b mut self) -> StartUpFrame<'b, 'a> {
+impl StartUpSequence {
+    pub fn frame_step(&mut self) -> StartUpFrame<'_> {
         StartUpFrame::new(self)
     }
 }
 
-impl<'a> StartUpSequence<'a> {
-    fn new(gb: &'a mut Gameboy) -> Self {
+impl StartUpSequence {
+    fn new(mut gb: Gameboy) -> Self {
         let remap_mem = gb.mem.start_up_remap();
         let op = gb.read_op();
         Self {
@@ -261,25 +261,22 @@ impl<'a> StartUpSequence<'a> {
     }
 
     /// Consumes the start-up processor, dropping it immediately.
-    pub fn complete(self) {}
-}
-
-impl Drop for StartUpSequence<'_> {
-    fn drop(&mut self) {
+    pub fn complete(mut self) -> Gameboy {
         while !self.is_complete() {
             self.step()
         }
-        self.gb.mem.start_up_unmap(self.remap_mem)
+        self.gb.mem.start_up_unmap(self.remap_mem);
+        self.gb
     }
 }
 
-pub struct StartUpFrame<'b, 'a: 'b> {
-    seq: &'b mut StartUpSequence<'a>,
+pub struct StartUpFrame<'a> {
+    seq: &'a mut StartUpSequence,
     mode: PpuMode,
 }
 
-impl<'b, 'a: 'b> StartUpFrame<'b, 'a> {
-    fn new(seq: &'b mut StartUpSequence<'a>) -> Self {
+impl<'a> StartUpFrame<'a> {
+    fn new(seq: &'a mut StartUpSequence) -> Self {
         let mode = seq.gb().ppu.state();
         Self { seq, mode }
     }
@@ -306,7 +303,7 @@ impl<'b, 'a: 'b> StartUpFrame<'b, 'a> {
     }
 }
 
-impl<'b, 'a: 'b> Drop for StartUpFrame<'b, 'a> {
+impl<'a> Drop for StartUpFrame<'a> {
     fn drop(&mut self) {
         while !self.is_complete() {
             self.step()
