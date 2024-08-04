@@ -180,7 +180,7 @@ impl Application for Example {
     type Flags = ();
 
     fn new((): ()) -> (Self, iced::Command<Message>) {
-        let gb = Gameboy::new(include_bytes!("../../spirit/tests/roms/acid/which.gb"));
+        let gb = Gameboy::new(include_bytes!("../../spirit/tests/roms/acid/cgb-acid2.gbc"));
         (
             Self {
                 gb: Emulator::StartUp(Some(Box::new(gb.start_up()))),

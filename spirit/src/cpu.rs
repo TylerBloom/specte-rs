@@ -350,8 +350,8 @@ impl Cpu {
                 self.f.c = carry;
                 self.sp = Wrapping(sp);
             }
-            ArithmeticOp::Inc16(reg) => self.update_wide_reg(reg, |value| *value += 1),
-            ArithmeticOp::Dec16(reg) => self.update_wide_reg(reg, |value| *value -= 1),
+            ArithmeticOp::Inc16(reg) => self.update_wide_reg(reg, |value| *value = value.wrapping_add(1)),
+            ArithmeticOp::Dec16(reg) => self.update_wide_reg(reg, |value| *value = value.wrapping_sub(1)),
             ArithmeticOp::Add16(reg) => {
                 let value = self.read_wide_reg(reg);
                 let ptr = self.ptr();
