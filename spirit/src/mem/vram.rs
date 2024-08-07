@@ -157,7 +157,7 @@ impl Index<ObjTileDataIndex> for VRam {
         let bank = if bank { &self.vram.1 } else { &self.vram.0 };
         let index = 16 * index as usize;
         // TODO: This does not check if LCDC bit 2 is set to determine if objects are 8x8 or 8x16.
-        &bank[index..index + 1]
+        &bank[index..index + 16]
     }
 }
 

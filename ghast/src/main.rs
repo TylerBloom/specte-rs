@@ -42,7 +42,7 @@ impl Emulator {
         match self {
             Emulator::StartUp(seq) => seq.as_ref().unwrap().is_complete(),
             // TODO: This should probably check if the GB is halted...
-            Emulator::Ready(gb) => false,
+            Emulator::Ready(gb) => gb.is_halted(),
         }
     }
 
@@ -54,7 +54,11 @@ impl Emulator {
                     *self = Emulator::Ready(seq.take().unwrap().complete())
                 }
             }
-            Emulator::Ready(gb) => gb.next_frame().complete(),
+            Emulator::Ready(gb) => {
+                if !gb.is_halted() {
+                    gb.next_frame().complete()
+                }
+            }
         }
     }
 }
@@ -242,6 +246,6 @@ impl Application for Example {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        iced::time::every(std::time::Duration::from_millis(10)).map(|_| Message::Tick)
+        iced::time::every(std::time::Duration::from_millis(33)).map(|_| Message::Tick)
     }
 }

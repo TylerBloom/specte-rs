@@ -115,6 +115,10 @@ impl Gameboy {
     fn start_up_apply_op(&mut self, op: Instruction) -> Option<Instruction> {
         self.cpu.start_up_execute(op, &mut self.mem)
     }
+
+    pub fn is_halted(&self) -> bool {
+        self.cpu.done
+    }
 }
 
 pub enum ButtonInput {
@@ -154,6 +158,7 @@ impl<'a> StepProcess<'a> {
     /// Processes the current instructions, fetches the next instruction, and undates this process
     /// in-place.
     fn step_and_next(&mut self) {
+        (self.counter..self.op.length(&self.gb.cpu)).for_each(|_| self.gb.tick());
         self.gb.apply_op(self.op);
         self.op = self.gb.read_op();
         self.counter = 0;
@@ -182,7 +187,7 @@ impl<'a> StepProcess<'a> {
 
 impl Drop for StepProcess<'_> {
     fn drop(&mut self) {
-        (self.counter..self.op.length(&self.gb.cpu)).for_each(|_| self.tick());
+        (self.counter..self.op.length(&self.gb.cpu)).for_each(|_| self.gb.tick());
         self.gb.apply_op(self.op);
     }
 }

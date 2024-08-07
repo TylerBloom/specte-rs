@@ -722,7 +722,7 @@ impl Cpu {
                 dest: RegOrPointer::Pointer,
                 src: RegOrPointer::Pointer,
             } => {
-                unreachable!("This should be encoded as a HALT op")
+                self.done = true;
             }
             LoadOp::Basic { dest, src } => self.write_byte(dest, mem, self.copy_byte(mem, src)),
             LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),

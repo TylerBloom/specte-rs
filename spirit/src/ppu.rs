@@ -77,14 +77,15 @@ impl OamObject {
     fn generate_pixels(self, y: u8, mem: &MemoryMap) -> [FiFoPixel; 8] {
         // The given Y needs to be within the bounds of the object. This should be the case
         // already.
-        debug_assert!(y >= self.y);
-        debug_assert!(y < self.y + 8);
+        // debug_assert!(y >= self.y);
+        // debug_assert!(y < self.y + 8);
         let obj = &mem[ObjTileDataIndex(self.tile_index, check_bit_const::<3>(self.attrs))];
-        let mut index = (self.y % 8) as usize;
+        let mut index = self.y % 8;
         if check_bit_const::<6>(self.attrs) {
             // 0 <= index < 8 and we want to invert the space
-            index = !index;
+            index = (!index) & 0x07;
         }
+        let index = index as usize;
         let lo = obj[2 * index];
         let hi = obj[2 * index + 1];
         let mut digest = form_pixels(self.attrs, lo, hi).into_array().unwrap();
@@ -198,7 +199,7 @@ impl ObjectFiFo {
         let mut pixels = std::iter::repeat(FiFoPixel::transparent())
             .take(176)
             .collect::<VecDeque<_>>();
-        let y = y + 16;
+        // let y = y + 16;
         let buffer = pixels.make_contiguous();
         let objects = (0..40)
             .map(|i| &mem[OamObjectIndex(i)])
