@@ -10,7 +10,9 @@ use std::ops::{Index, IndexMut};
 use tracing::{info, trace};
 
 use super::{
-    io::{BgPaletteIndex, ObjPaletteIndex}, BgTileDataIndex, BgTileDataInnerIndex, BgTileMapAttrIndex, BgTileMapIndex, BgTileMapInnerIndex, OamIndex, OamObjectIndex, ObjTileDataIndex
+    io::{BgPaletteIndex, ObjPaletteIndex},
+    BgTileDataIndex, BgTileDataInnerIndex, BgTileMapAttrIndex, BgTileMapIndex, BgTileMapInnerIndex,
+    OamObjectIndex, ObjTileDataIndex,
 };
 
 static DEAD_READ_ONLY_BYTE: u8 = 0xFF;
@@ -164,7 +166,10 @@ impl Index<ObjTileDataIndex> for VRam {
 impl Index<BgTileMapInnerIndex> for VRam {
     type Output = u8;
 
-    fn index(&self, BgTileMapInnerIndex { second_map, x, y }: BgTileMapInnerIndex) -> &Self::Output {
+    fn index(
+        &self,
+        BgTileMapInnerIndex { second_map, x, y }: BgTileMapInnerIndex,
+    ) -> &Self::Output {
         let x = x as usize >> 3;
         let y = y as usize >> 3;
         let index = 0x1800 + (second_map as usize * 0x400) + (y * 32) + x;
@@ -204,11 +209,7 @@ impl Index<BgTileDataInnerIndex> for VRam {
                 0x1000 + (16 * index as usize)
             }
         };
-        let bank = if bank {
-            &self.vram.1
-        } else {
-            &self.vram.0
-        };
+        let bank = if bank { &self.vram.1 } else { &self.vram.0 };
         (&bank[index..index + 16]).try_into().unwrap()
     }
 }

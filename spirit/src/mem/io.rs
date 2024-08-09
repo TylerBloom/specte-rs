@@ -242,7 +242,10 @@ impl IndexMut<u16> for IoRegisters {
             0xFF43 => &mut self.bg_position.1,
             0xFF44 => &mut self.dead_byte, // This register is read-only
             0xFF45 => &mut self.lcd_cmp,
-            0xFF46 => &mut self.oam_dma,
+            0xFF46 => {
+                panic!("OAM DMA transfer not implemented yet!!");
+                // &mut self.oam_dma
+            },
             0xFF47 => &mut self.monochrome_bg_palette,
             0xFF48 => &mut self.monochrome_obj_palettes[0],
             0xFF49 => &mut self.monochrome_obj_palettes[1],

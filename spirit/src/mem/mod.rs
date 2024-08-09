@@ -252,18 +252,6 @@ impl IndexMut<u16> for MemoryMap {
 
 /* --------- Indexing types use by the PPU --------- */
 
-/// A type used to index into the Object Attribute Map. This type is only used by the PPU.
-#[derive(Clone, Copy)]
-pub(crate) struct OamIndex(pub u8);
-
-impl Index<OamIndex> for MemoryMap {
-    type Output = u8;
-
-    fn index(&self, index: OamIndex) -> &Self::Output {
-        todo!()
-    }
-}
-
 /// A type used to index an object inside of the Object Attribute Map. The inner value of the index
 /// notes the object's position in the map and *not* the object's address in memory. This includes
 /// the y pos, x pos, tile index, and attributes of the object. This type is only used by the PPU.

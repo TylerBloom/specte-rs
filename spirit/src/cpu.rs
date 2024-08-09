@@ -350,8 +350,12 @@ impl Cpu {
                 self.f.c = carry;
                 self.sp = Wrapping(sp);
             }
-            ArithmeticOp::Inc16(reg) => self.update_wide_reg(reg, |value| *value = value.wrapping_add(1)),
-            ArithmeticOp::Dec16(reg) => self.update_wide_reg(reg, |value| *value = value.wrapping_sub(1)),
+            ArithmeticOp::Inc16(reg) => {
+                self.update_wide_reg(reg, |value| *value = value.wrapping_add(1))
+            }
+            ArithmeticOp::Dec16(reg) => {
+                self.update_wide_reg(reg, |value| *value = value.wrapping_sub(1))
+            }
             ArithmeticOp::Add16(reg) => {
                 let value = self.read_wide_reg(reg);
                 let ptr = self.ptr();
@@ -721,9 +725,7 @@ impl Cpu {
             LoadOp::Basic {
                 dest: RegOrPointer::Pointer,
                 src: RegOrPointer::Pointer,
-            } => {
-                self.done = true;
-            }
+            } => self.done = true,
             LoadOp::Basic { dest, src } => self.write_byte(dest, mem, self.copy_byte(mem, src)),
             LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),
             LoadOp::Direct(reg, val) => self.write_byte(reg, mem, val),

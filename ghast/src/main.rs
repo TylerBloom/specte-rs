@@ -159,10 +159,8 @@ fn pixels_to_image(chunk: [[Pixel; 8]; 8]) -> Image<Handle> {
 }
 
 fn tile_data_to_pixels(gb: &Gameboy, data: [u8; 16]) -> [[Pixel; 8]; 8] {
-    let mut iter = data
-        .into_iter()
-        .skip(2)
-        .zip(data.into_iter().skip(1).step_by(2))
+    let mut iter = (0..8)
+        .map(|i| (data[2 * i], data[2 * i + 1]))
         .map(|(lo, hi)| bytes_to_pixels(gb, lo, hi));
     std::array::from_fn(|_| iter.next().unwrap())
 }
