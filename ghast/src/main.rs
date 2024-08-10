@@ -22,6 +22,24 @@ pub fn main() -> iced::Result {
     })
 }
 
+/// Scales an image by a set factor, preserving the original ratio.
+fn scale_up_image(image: &[u8], height: usize, width: usize, scale: usize) -> Vec<u8> {
+    assert_eq!(image.len(), 4 * height * width);
+    let true_width = 4 * width;
+    (0..height)
+        .map(|line| &image[(line * true_width)..((line + 1) * true_width)])
+        .flat_map(|line| std::iter::repeat(line).take(scale))
+        .flat_map(|line| {
+            (0..true_width)
+                .step_by(4)
+                .map(|pixel| &line[pixel..pixel + 4])
+        })
+        .flat_map(|pixel| std::iter::repeat(pixel).take(scale))
+        .flatten()
+        .copied()
+        .collect()
+}
+
 // NOTE: The start up sequence is only rarely used. Even though the GB is *much* larger, this will
 // have little impact on performance.
 #[allow(clippy::large_enum_variant)]
@@ -81,16 +99,22 @@ struct Example {
 impl Example {
     fn screen(&self) -> impl Into<Element<Message>> {
         let screen = &self.gb.gb().ppu.screen;
-        let col = column![
-            Image::new(Handle::from_pixels(
-                160,
-                144,
+        const HEIGHT: u32 = 144;
+        const WIDTH: u32 = 160;
+        const SCALE: u32 = 5;
+        let screen =
                 screen
                     .iter()
                     .flatten()
                     .copied()
                     .flat_map(pixel_to_bytes)
-                    .collect::<Vec<_>>(),
+                    .collect::<Vec<_>>();
+        let image = scale_up_image(&screen, HEIGHT as usize, WIDTH as usize, SCALE as usize);
+        let col = column![
+            Image::new(Handle::from_pixels(
+                WIDTH * SCALE,
+                HEIGHT * SCALE,
+                image
             )),
             row![
                 Column::from_vec(vram_0_to_tiles(self.gb.gb()).map(Into::into).collect()),
@@ -245,5 +269,33 @@ impl Application for Example {
 
     fn subscription(&self) -> Subscription<Message> {
         iced::time::every(std::time::Duration::from_millis(33)).map(|_| Message::Tick)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::scale_up_image;
+
+    #[test]
+    fn scales_correctly() {
+        // A blank, 20x10 image
+        let image = (0u8..200).flat_map(|i| [i, i, i, i]).collect::<Vec<_>>();
+        let dup_image = scale_up_image(&image, 10, 20, 1);
+        assert_eq!(image, dup_image);
+        let doubled_image = scale_up_image(&image, 10, 20, 2);
+        assert_eq!(doubled_image.len(), image.len() * 4);
+        for y in 0..20 {
+            println!("{:?}", &doubled_image[160 * y..160 * (y + 1)]);
+        }
+        for y in 0..10 {
+            for x in 0..20 {
+                println!("Accessing ({y}, {x})");
+                let known = image[80 * y + 4 * x];
+                assert_eq!(known, doubled_image[(320 * y) + (8 * x)]);
+                assert_eq!(known, doubled_image[(320 * y) + (8 * x + 4)]);
+                assert_eq!(known, doubled_image[(320 * y + 160) + (8 * x)]);
+                assert_eq!(known, doubled_image[(320 * y + 160) + (8 * x + 4)]);
+            }
+        }
     }
 }
