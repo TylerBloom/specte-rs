@@ -51,6 +51,33 @@ impl Gameboy {
         FrameSequence::new(self)
     }
 
+    pub fn scanline_step(&mut self) {
+        match self.ppu.state() {
+            PpuMode::VBlank => {
+                let mut counter = 0;
+                // Process ops until we see OamScan or have processed a number of ticks equal to
+                // one scan line.
+                loop {
+                    let step = self.step();
+                    counter += step.op_len() as usize;
+                    step.complete();
+                    if counter >= 456 || matches!(self.ppu.state(), PpuMode::OamScan) {
+                        return;
+                    }
+                }
+            }
+            _ => {
+                // process ops until we see OamScan or VBlank
+                loop {
+                    self.step().complete();
+                    if matches!(self.ppu.state(), PpuMode::OamScan | PpuMode::VBlank) {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     pub fn cpu(&self) -> &Cpu {
         &self.cpu
     }
@@ -183,6 +210,10 @@ impl<'a> StepProcess<'a> {
 
     /// Consumes the step processor, dropping it immediately.
     pub fn complete(self) {}
+
+    pub fn op_len(&self) -> u8 {
+        self.op.length(&self.gb.cpu)
+    }
 }
 
 impl Drop for StepProcess<'_> {
@@ -205,6 +236,10 @@ pub struct StartUpSequence {
 impl StartUpSequence {
     pub fn frame_step(&mut self) -> StartUpFrame<'_> {
         StartUpFrame::new(self)
+    }
+
+    pub fn scanline_step(&mut self) {
+        self.gb.scanline_step()
     }
 }
 

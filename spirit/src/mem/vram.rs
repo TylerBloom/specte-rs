@@ -49,7 +49,7 @@ pub struct VRam {
     /// The main video RAM. Accessible through the address range 0x8000 through 0x9FFF.
     pub vram: ([u8; 0x2000], [u8; 0x2000]),
     /// The Object Attribute Map. Accessible through the address range 0xFE00 through 0xFE9F
-    pub(crate) oam: [u8; 0xA0],
+    pub oam: [u8; 0xA0],
     /// The status that the PPU is currently in. This mode is set when the PPU is ticked and
     /// determines how the VRAM and OAM are indexed into.
     status: PpuMode,

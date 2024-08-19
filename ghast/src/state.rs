@@ -44,12 +44,29 @@ impl Emulator {
             }
         }
     }
+
+    fn scanline_step(&mut self) {
+        match self {
+            Emulator::StartUp(seq) => {
+                seq.as_mut().unwrap().scanline_step();
+                if seq.as_ref().unwrap().is_complete() {
+                    *self = Emulator::Ready(seq.take().unwrap().complete())
+                }
+            }
+            Emulator::Ready(gb) => {
+                if !gb.is_halted() {
+                    gb.scanline_step()
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Message {
     Play,
     Pause,
+    ScanLine,
     Step(usize),
     Tick,
 }
@@ -127,6 +144,9 @@ impl Application for Example {
                     self.gb.frame_step()
                 }
             },
+            Message::ScanLine => {
+                self.gb.scanline_step()
+            }
         }
         iced::Command::none()
     }
@@ -138,6 +158,8 @@ impl Application for Example {
                     .on_press(Message::Step(1)),
                 Button::new(text(format!("To frame {}", self.frame + 10)))
                     .on_press(Message::Step(10)),
+                Button::new(text("Next Scanline"))
+                    .on_press(Message::ScanLine),
                 Button::new(text("Run")).on_press(Message::Play),
                 Button::new(text("Pause")).on_press(Message::Pause),
             ],
