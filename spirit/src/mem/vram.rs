@@ -170,8 +170,8 @@ impl Index<BgTileMapInnerIndex> for VRam {
         &self,
         BgTileMapInnerIndex { second_map, x, y }: BgTileMapInnerIndex,
     ) -> &Self::Output {
-        let x = x as usize >> 3;
-        let y = y as usize >> 3;
+        let x = x as usize / 8;
+        let y = y as usize / 8;
         let index = 0x1800 + (second_map as usize * 0x400) + (y * 32) + x;
         &self.vram.0[index]
     }

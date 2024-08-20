@@ -238,7 +238,10 @@ impl IndexMut<u16> for IoRegisters {
             // TODO: Only part of this register can be written to. Only bits 3-6 can be written to.
             // This register needs to be reset when ticked.
             0xFF41 => &mut self.lcd_status_dup,
-            0xFF42 => &mut self.bg_position.0,
+            0xFF42 => {
+                println!("Writing to Y BG position...");
+                &mut self.bg_position.0
+            }
             0xFF43 => &mut self.bg_position.1,
             0xFF44 => &mut self.dead_byte, // This register is read-only
             0xFF45 => &mut self.lcd_cmp,

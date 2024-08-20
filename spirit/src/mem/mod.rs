@@ -173,7 +173,11 @@ impl MemoryMap {
     pub fn construct() -> Self {
         let rom = vec![0; 32000];
         let ram = vec![0; 4000];
-        let mbc = MemoryBankController::Direct { rom, ram, dead_byte: 0 };
+        let mbc = MemoryBankController::Direct {
+            rom,
+            ram,
+            dead_byte: 0,
+        };
         Self {
             mbc,
             vram: VRam::new(),
@@ -299,12 +303,20 @@ impl Index<BgTileMapIndex> for MemoryMap {
     type Output = u8;
 
     fn index(&self, BgTileMapIndex { x, y }: BgTileMapIndex) -> &Self::Output {
+        let y_offset = self.io.bg_position.0;
+        let second_map = check_bit_const::<3>(self.io.lcd_control);
+        if second_map {
+            println!("Using second tile map...");
+        }
         let index = BgTileMapInnerIndex {
             second_map: check_bit_const::<3>(self.io.lcd_control),
             // We want to ignore the bottom 3 bits
-            x: (x & 0xF8).wrapping_add(self.io.bg_position.1 & 0xF8),
-            y: (y & 0xF8).wrapping_add(self.io.bg_position.0 & 0xF8),
+            x: x.wrapping_add(self.io.bg_position.1 & 0xF8),
+            y: y.wrapping_add(self.io.bg_position.0),
         };
+        if self.io.bg_position.0 > 0 {
+            println!("Y offset = {}, Y = {}, 0x{:0>2X}", self.io.bg_position.0, index.y, index.y / 8);
+        }
         &self.vram[index]
     }
 }
@@ -320,10 +332,9 @@ pub struct BgTileMapAttrIndex {
 impl Index<BgTileMapAttrIndex> for MemoryMap {
     type Output = u8;
 
-    fn index(&self, BgTileMapAttrIndex { mut x, mut y }: BgTileMapAttrIndex) -> &Self::Output {
+    fn index(&self, BgTileMapAttrIndex { x, y }: BgTileMapAttrIndex) -> &Self::Output {
         let index = BgTileMapAttrIndex {
-            // We want to ignore the bottom 3 bits
-            x: x.wrapping_add(self.io.bg_position.1),
+            x: x.wrapping_add(self.io.bg_position.1 & 0xF8),
             y: y.wrapping_add(self.io.bg_position.0),
         };
         &self.vram[index]

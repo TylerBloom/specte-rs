@@ -167,6 +167,7 @@ impl PpuInner {
                     mem.request_vblank_int();
                     Self::VBlank { dots: 0 }
                 } else {
+                    println!("Starting next scanline...");
                     Self::OamScan { dots: 0, y }
                 };
             }

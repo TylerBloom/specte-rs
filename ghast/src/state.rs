@@ -7,6 +7,23 @@ use spirit::{Gameboy, StartUpSequence};
 
 use crate::debug::{pixel_to_bytes, Debugger};
 
+pub struct Example {
+    gb: Emulator,
+    frame: usize,
+    count: Option<usize>,
+    dbg: Debugger,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Message {
+    Play,
+    Pause,
+    ScanLine,
+    Step(usize),
+    Tick,
+    PaletteInc,
+}
+
 #[allow(clippy::large_enum_variant)]
 enum Emulator {
     StartUp(Option<Box<StartUpSequence>>),
@@ -62,22 +79,6 @@ impl Emulator {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Message {
-    Play,
-    Pause,
-    ScanLine,
-    Step(usize),
-    Tick,
-}
-
-pub struct Example {
-    gb: Emulator,
-    frame: usize,
-    count: Option<usize>,
-    dbg: Debugger,
-}
-
 impl Example {
     fn screen(&self) -> impl Into<Element<Message>> {
         let gb = self.gb.gb();
@@ -112,7 +113,7 @@ impl Application for Example {
                 gb: Emulator::StartUp(Some(Box::new(gb.start_up()))),
                 count: Some(0),
                 frame: 0,
-                dbg: Debugger,
+                dbg: Debugger(0),
             },
             iced::Command::none(),
         )
@@ -147,6 +148,7 @@ impl Application for Example {
             Message::ScanLine => {
                 self.gb.scanline_step()
             }
+            Message::PaletteInc => self.dbg.inc(),
         }
         iced::Command::none()
     }
@@ -162,6 +164,7 @@ impl Application for Example {
                     .on_press(Message::ScanLine),
                 Button::new(text("Run")).on_press(Message::Play),
                 Button::new(text("Pause")).on_press(Message::Pause),
+                Button::new(text(format!("Change palette from {}", self.dbg.0))).on_press(Message::PaletteInc),
             ],
             self.screen().into(),
         ]
