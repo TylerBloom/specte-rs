@@ -416,8 +416,9 @@ impl Cpu {
             ArithmeticOp::Inc(reg) => {
                 let mut h = false;
                 let val = self.update_byte(reg, mem, |byte| {
-                    h = *byte & 0x0F == 0x0F;
-                    *byte += 1
+                    let b = *byte;
+                    h = b & 0x0F == 0x0F;
+                    *byte = b.wrapping_add(1);
                 });
                 self.f.z = val == 0;
                 self.f.n = false;
@@ -426,8 +427,9 @@ impl Cpu {
             ArithmeticOp::Dec(reg) => {
                 let mut h = false;
                 let val = self.update_byte(reg, mem, |byte| {
-                    h = *byte == 0;
-                    *byte -= 1
+                    let b = *byte;
+                    h = b == 0;
+                    *byte = b.wrapping_sub(1);
                 });
                 self.f.z = val == 0;
                 self.f.n = true;
@@ -517,7 +519,7 @@ impl Cpu {
         mem.clear_interrupt_req(op);
         self.push_pc(mem);
         self.pc = Wrapping(op as u16);
-        panic!("TODO");
+        // panic!("TODO");
     }
 
     fn execute_jump_op(&mut self, op: JumpOp, mem: &mut MemoryMap) {
@@ -582,8 +584,16 @@ impl Cpu {
 
     fn execute_control_op(&mut self, op: ControlOp, mem: &mut MemoryMap) {
         match op {
-            ControlOp::Noop => {}
-            ControlOp::Halt | ControlOp::Stop(_) => self.done = true,
+            ControlOp::Noop => {
+                println!("Doing nothing...");
+            }
+            ControlOp::Halt => {
+                println!("Halting...")
+            }
+            ControlOp::Stop(_) => {
+                println!("Stopping...");
+                self.done = true
+            }
         }
     }
 
@@ -725,7 +735,10 @@ impl Cpu {
             LoadOp::Basic {
                 dest: RegOrPointer::Pointer,
                 src: RegOrPointer::Pointer,
-            } => self.done = true,
+            } => {
+                println!("Halting...");
+                // self.done = true,
+            }
             LoadOp::Basic { dest, src } => self.write_byte(dest, mem, self.copy_byte(mem, src)),
             LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),
             LoadOp::Direct(reg, val) => self.write_byte(reg, mem, val),

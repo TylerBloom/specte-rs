@@ -57,6 +57,8 @@ impl Emulator {
             Emulator::Ready(gb) => {
                 if !gb.is_halted() {
                     gb.next_frame().complete()
+                } else {
+                    println!("Gb is halted...");
                 }
             }
         }

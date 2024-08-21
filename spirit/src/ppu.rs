@@ -167,7 +167,6 @@ impl PpuInner {
                     mem.request_vblank_int();
                     Self::VBlank { dots: 0 }
                 } else {
-                    println!("Starting next scanline...");
                     Self::OamScan { dots: 0, y }
                 };
             }
@@ -203,7 +202,7 @@ impl ObjectFiFo {
         let y = y + 16;
         let buffer = pixels.make_contiguous();
         if check_bit_const::<2>(mem.io().lcd_control) {
-            panic!("OBJ size is 16!!");
+            println!("OBJ size is 16!!");
         }
         let objects = (0..40)
             .map(|i| &mem[OamObjectIndex(i)])
