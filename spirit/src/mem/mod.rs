@@ -278,7 +278,7 @@ impl Index<ObjTileDataIndex> for MemoryMap {
     type Output = [u8];
 
     fn index(&self, index: ObjTileDataIndex) -> &Self::Output {
-        &self.vram[index]
+        &self.vram[(index, check_bit_const::<2>(self.io.lcd_control))]
     }
 }
 
@@ -305,18 +305,12 @@ impl Index<BgTileMapIndex> for MemoryMap {
     fn index(&self, BgTileMapIndex { x, y }: BgTileMapIndex) -> &Self::Output {
         let y_offset = self.io.bg_position.0;
         let second_map = check_bit_const::<3>(self.io.lcd_control);
-        if second_map {
-            println!("Using second tile map...");
-        }
         let index = BgTileMapInnerIndex {
             second_map: check_bit_const::<3>(self.io.lcd_control),
             // We want to ignore the bottom 3 bits
             x: x.wrapping_add(self.io.bg_position.1 & 0xF8),
             y: y.wrapping_add(self.io.bg_position.0),
         };
-        if self.io.bg_position.0 > 0 {
-            println!("Y offset = {}, Y = {}, 0x{:0>2X}", self.io.bg_position.0, index.y, index.y / 8);
-        }
         &self.vram[index]
     }
 }

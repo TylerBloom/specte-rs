@@ -140,26 +140,29 @@ impl IndexMut<CpuOamIndex> for VRam {
 impl Index<OamObjectIndex> for VRam {
     type Output = [u8; 4];
 
-    fn index(&self, OamObjectIndex(mut index): OamObjectIndex) -> &Self::Output {
+    fn index(&self, OamObjectIndex(index): OamObjectIndex) -> &Self::Output {
         // There are only 40 objects in the OAM and this type indexes those object, not their
         // memory address.
         debug_assert!(index < 40);
         let index = 4 * index as usize;
-        (&self.oam[index..index + 4]).try_into().unwrap()
+        (&self.oam[index..(index + 4)]).try_into().unwrap()
     }
 }
 
-impl Index<ObjTileDataIndex> for VRam {
+impl Index<(ObjTileDataIndex, bool)> for VRam {
     /// We return a slice here because the object could be either 8x8 or 8x16, and this is
     /// determined by the state of a LCDC bit. It is the job of the PPU to check the length of the
     /// slice and handle it accordingly.
     type Output = [u8];
 
-    fn index(&self, ObjTileDataIndex(index, bank): ObjTileDataIndex) -> &Self::Output {
+    fn index(
+        &self,
+        (ObjTileDataIndex(index, bank), size): (ObjTileDataIndex, bool),
+    ) -> &Self::Output {
         let bank = if bank { &self.vram.1 } else { &self.vram.0 };
-        let index = 16 * index as usize;
-        // TODO: This does not check if LCDC bit 2 is set to determine if objects are 8x8 or 8x16.
-        &bank[index..index + 16]
+        let start = 16 * index as usize;
+        let end = start + 16 + if size { 16 } else { 0 };
+        &bank[start..end]
     }
 }
 

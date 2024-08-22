@@ -67,7 +67,7 @@ impl OamObject {
     }
 
     fn populate_buffer(self, y: u8, buffer: &mut [FiFoPixel], mem: &MemoryMap) {
-        let x = self.x as usize + 8;
+        let x = self.x as usize;
         self.generate_pixels(y, mem)
             .into_iter()
             .enumerate()
@@ -77,13 +77,22 @@ impl OamObject {
     fn generate_pixels(self, y: u8, mem: &MemoryMap) -> [FiFoPixel; 8] {
         // The given Y needs to be within the bounds of the object. This should be the case
         // already.
+        println!("Obj at ({}, {})", self.x, self.y);
         debug_assert!(y >= self.y);
-        debug_assert!(y < self.y + 8);
         let obj = &mem[ObjTileDataIndex(self.tile_index, check_bit_const::<3>(self.attrs))];
+        assert!([16, 32].contains(&obj.len()), "obj.len () = {}", obj.len());
+        debug_assert!(
+            (y as usize) < ((self.y as usize) + obj.len()),
+            "{y}, {}",
+            self.y
+        );
         let mut index = y - self.y;
         if check_bit_const::<6>(self.attrs) {
-            // 0 <= index < 8 and we want to invert the space
-            index = (!index) & 0x07;
+            // If vertically flipped, we need to reverse the order of the bytes in the obj. Or, we
+            // need to invert our indices. We know that `index` is between 0 and 8 (or 16), so we
+            // can just mask out the upper half of the inverted index to bring it back into range.
+            let mask = if obj.len() == 32 { 0xF } else { 0x7 };
+            index = (!index) & mask;
         }
         let index = index as usize;
         let lo = obj[2 * index];
@@ -201,14 +210,16 @@ impl ObjectFiFo {
             .collect::<VecDeque<_>>();
         let y = y + 16;
         let buffer = pixels.make_contiguous();
-        if check_bit_const::<2>(mem.io().lcd_control) {
-            println!("OBJ size is 16!!");
-        }
+        let range = if check_bit_const::<2>(mem.io().lcd_control) {
+            16
+        } else {
+            8
+        };
         let objects = (0..40)
             .map(|i| &mem[OamObjectIndex(i)])
             // TODO: Right now, we are assuming that all objects are 8x8. We need to add a check for
             // 8x16 objects.
-            .filter(|[y_pos, ..]| *y_pos <= y && *y_pos + 8 > y)
+            .filter(|[y_pos, ..]| *y_pos <= y && *y_pos + range > y)
             .copied()
             .map(OamObject::new)
             .take(10)

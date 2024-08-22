@@ -585,13 +585,13 @@ impl Cpu {
     fn execute_control_op(&mut self, op: ControlOp, mem: &mut MemoryMap) {
         match op {
             ControlOp::Noop => {
-                println!("Doing nothing...");
+                // println!("Doing nothing...");
             }
             ControlOp::Halt => {
-                println!("Halting...")
+                // println!("Halting...")
             }
             ControlOp::Stop(_) => {
-                println!("Stopping...");
+                // println!("Stopping...");
                 self.done = true
             }
         }
@@ -736,7 +736,6 @@ impl Cpu {
                 dest: RegOrPointer::Pointer,
                 src: RegOrPointer::Pointer,
             } => {
-                println!("Halting...");
                 // self.done = true,
             }
             LoadOp::Basic { dest, src } => self.write_byte(dest, mem, self.copy_byte(mem, src)),
