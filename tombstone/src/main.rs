@@ -233,7 +233,7 @@ impl GameBoyLike for Gameboy {
     }
 
     fn is_complete(&self) -> bool {
-        self.cpu().done
+        self.cpu().state
     }
 }
 

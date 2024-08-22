@@ -19,6 +19,50 @@ use crate::{
     mem::MemoryMap,
 };
 
+#[derive(Debug, Default, Hash, Clone, PartialEq, Eq, derive_more::Display)]
+#[display(
+    fmt = "CPU {{ A=0x{:0>2X} F={} B=0x{:0>2X} C=0x{:0>2X} D=0x{:0>2X} E=0x{:0>2X} H=0x{:0>2X} L=0x{:0>2X} SP=0x{:0>2X} PC=0x{:0>2X} IME={} Done={} }}",
+    a,
+    f,
+    b,
+    c,
+    d,
+    e,
+    h,
+    l,
+    sp,
+    pc,
+    ime,
+    state
+)]
+pub struct Cpu {
+    pub a: Wrapping<u8>,
+    pub f: Flags,
+    pub b: Wrapping<u8>,
+    pub c: Wrapping<u8>,
+    pub d: Wrapping<u8>,
+    pub e: Wrapping<u8>,
+    pub h: Wrapping<u8>,
+    pub l: Wrapping<u8>,
+    /// The SP register
+    pub sp: Wrapping<u16>,
+    /// The PC register
+    pub pc: Wrapping<u16>,
+    pub ime: bool,
+    /// Once the gameboy has halted, this flag is set. Note that the gameboy can continue to be
+    /// ticked, but the stack pointer is not moved, so it will continue to cycle without change.
+    pub state: CpuState,
+}
+
+#[derive(Debug, Default, Hash, Clone, Copy, PartialEq, Eq, derive_more::Display)]
+#[repr(u8)]
+pub enum CpuState {
+    #[default]
+    Running = 3,
+    Halted = 1,
+    Stopped = 0,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FullRegister {
     AF,
@@ -77,41 +121,6 @@ impl Flags {
             | bool_to_mask::<5>(self.h)
             | bool_to_mask::<4>(self.c)
     }
-}
-
-#[derive(Debug, Default, Hash, Clone, PartialEq, Eq, derive_more::Display)]
-#[display(
-    fmt = "CPU {{ A=0x{:0>2X} F={} B=0x{:0>2X} C=0x{:0>2X} D=0x{:0>2X} E=0x{:0>2X} H=0x{:0>2X} L=0x{:0>2X} SP=0x{:0>2X} PC=0x{:0>2X} IME={} Done={} }}",
-    a,
-    f,
-    b,
-    c,
-    d,
-    e,
-    h,
-    l,
-    sp,
-    pc,
-    ime,
-    done
-)]
-pub struct Cpu {
-    pub a: Wrapping<u8>,
-    pub f: Flags,
-    pub b: Wrapping<u8>,
-    pub c: Wrapping<u8>,
-    pub d: Wrapping<u8>,
-    pub e: Wrapping<u8>,
-    pub h: Wrapping<u8>,
-    pub l: Wrapping<u8>,
-    /// The SP register
-    pub sp: Wrapping<u16>,
-    /// The PC register
-    pub pc: Wrapping<u16>,
-    pub ime: bool,
-    /// Once the gameboy has halted, this flag is set. Note that the gameboy can continue to be
-    /// ticked, but the stack pointer is not moved, so it will continue to cycle without change.
-    pub done: bool,
 }
 
 const fn bit_select<const B: u8>() -> u8 {
@@ -238,15 +247,8 @@ impl Cpu {
     }
 
     pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
-        let span = info_span!("Executing intruction:");
-        let _guard = span.enter();
-        // info!("{instr}");
-        // info!("Starting execution: {instr}",);
-        // info!("CPU={self}");
-        // TODO: Remove this! This is onlhy for testing before we impl interrupt handling and IO.
-        // mem[0xFF0F] = 0b1;
         let len = instr.size();
-        self.pc += (!self.done as u16) * (len as u16);
+        self.pc += (0x1 & self.state as u16) * (len as u16);
         match instr {
             Instruction::Load(op) => self.execute_load_op(op, mem),
             Instruction::BitShift(op) => self.execute_bit_shift_op(op, mem),
@@ -274,7 +276,6 @@ impl Cpu {
             Instruction::Di => self.disable_interupts(),
             Instruction::Ei => self.enable_interupts(),
         }
-        // info!("Ending execution: {self}",);
     }
 
     fn enable_interupts(&mut self) {
@@ -569,6 +570,7 @@ impl Cpu {
             }
             JumpOp::ReturnAndEnable => {
                 self.enable_interupts();
+                self.state = CpuState::Running;
                 self.pc = Wrapping(self.pop_pc(mem));
             }
             JumpOp::RST00 => rst::<0x00>(self, mem),
@@ -584,16 +586,9 @@ impl Cpu {
 
     fn execute_control_op(&mut self, op: ControlOp, mem: &mut MemoryMap) {
         match op {
-            ControlOp::Noop => {
-                // println!("Doing nothing...");
-            }
-            ControlOp::Halt => {
-                // println!("Halting...")
-            }
-            ControlOp::Stop(_) => {
-                // println!("Stopping...");
-                self.done = true
-            }
+            ControlOp::Noop => {}
+            ControlOp::Halt => self.state = CpuState::Halted,
+            ControlOp::Stop(_) => self.state = CpuState::Stopped,
         }
     }
 
@@ -736,7 +731,7 @@ impl Cpu {
                 dest: RegOrPointer::Pointer,
                 src: RegOrPointer::Pointer,
             } => {
-                // self.done = true,
+                self.state = CpuState::Halted
             }
             LoadOp::Basic { dest, src } => self.write_byte(dest, mem, self.copy_byte(mem, src)),
             LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),

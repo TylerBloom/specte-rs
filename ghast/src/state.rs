@@ -42,7 +42,7 @@ impl Emulator {
         match self {
             Emulator::StartUp(seq) => seq.as_ref().unwrap().is_complete(),
             // TODO: This should probably check if the GB is halted...
-            Emulator::Ready(gb) => gb.is_halted(),
+            Emulator::Ready(gb) => gb.is_stopped(),
         }
     }
 
@@ -55,7 +55,7 @@ impl Emulator {
                 }
             }
             Emulator::Ready(gb) => {
-                if !gb.is_halted() {
+                if !gb.is_stopped() {
                     gb.next_frame().complete()
                 } else {
                     println!("Gb is halted...");
@@ -73,7 +73,7 @@ impl Emulator {
                 }
             }
             Emulator::Ready(gb) => {
-                if !gb.is_halted() {
+                if !gb.is_stopped() {
                     gb.scanline_step()
                 }
             }

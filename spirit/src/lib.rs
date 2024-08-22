@@ -16,7 +16,7 @@
 
 use std::borrow::Cow;
 
-use cpu::{check_bit_const, Cpu};
+use cpu::{check_bit_const, Cpu, CpuState};
 use lookup::Instruction;
 use mem::{vram::PpuMode, MemoryBankController, MemoryMap, StartUpHeaders};
 use ppu::Ppu;
@@ -143,8 +143,16 @@ impl Gameboy {
         self.cpu.start_up_execute(op, &mut self.mem)
     }
 
+    pub fn is_running(&self) -> bool {
+        self.cpu.state == CpuState::Running
+    }
+
     pub fn is_halted(&self) -> bool {
-        self.cpu.done
+        self.cpu.state == CpuState::Halted
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        self.cpu.state == CpuState::Stopped
     }
 }
 
