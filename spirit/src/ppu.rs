@@ -208,22 +208,24 @@ impl ObjectFiFo {
         let mut pixels = std::iter::repeat(FiFoPixel::transparent())
             .take(176)
             .collect::<VecDeque<_>>();
-        let y = y + 16;
-        let buffer = pixels.make_contiguous();
-        let range = if check_bit_const::<2>(mem.io().lcd_control) {
-            16
-        } else {
-            8
-        };
-        let objects = (0..40)
-            .map(|i| &mem[OamObjectIndex(i)])
-            // TODO: Right now, we are assuming that all objects are 8x8. We need to add a check for
-            // 8x16 objects.
-            .filter(|[y_pos, ..]| *y_pos <= y && *y_pos + range > y)
-            .copied()
-            .map(OamObject::new)
-            .take(10)
-            .for_each(|obj| obj.populate_buffer(y, buffer, mem));
+        if check_bit_const::<1>(mem.io().lcd_control) {
+            let y = y + 16;
+            let buffer = pixels.make_contiguous();
+            let range = if check_bit_const::<2>(mem.io().lcd_control) {
+                16
+            } else {
+                8
+            };
+            let objects = (0..40)
+                .map(|i| &mem[OamObjectIndex(i)])
+                // TODO: Right now, we are assuming that all objects are 8x8. We need to add a check for
+                // 8x16 objects.
+                .filter(|[y_pos, ..]| *y_pos <= y && *y_pos + range > y)
+                .copied()
+                .map(OamObject::new)
+                .take(10)
+                .for_each(|obj| obj.populate_buffer(y, buffer, mem));
+        }
         // Discard the front and back 8 pixels
         for _ in 0..8 {
             pixels.pop_front();
