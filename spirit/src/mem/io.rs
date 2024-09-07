@@ -43,7 +43,7 @@ pub struct IoRegisters {
     /// ADDR FF48 & FF49
     monochrome_obj_palettes: [u8; 2],
     /// ADDR FF4A & FF4B
-    window_position: (u8, u8),
+    window_position: [u8; 2],
     /// ADDR FF4F
     // TODO: Only the 0th bit is used. From the docs:
     // """
@@ -197,8 +197,8 @@ impl Index<u16> for IoRegisters {
             0xFF47 => &self.monochrome_bg_palette,
             0xFF48 => &self.monochrome_obj_palettes[0],
             0xFF49 => &self.monochrome_obj_palettes[1],
-            0xFF4A => &self.window_position.0,
-            0xFF4B => &self.window_position.1,
+            0xFF4A => &self.window_position[0],
+            0xFF4B => &self.window_position[1],
             0xFF4F => &self.vram_select,
             0xFF50 => &self.boot_status,
             n @ 0xFF51..=0xFF55 => &self.vram_dma[(n - 0xFF51) as usize],
@@ -248,12 +248,12 @@ impl IndexMut<u16> for IoRegisters {
             0xFF46 => {
                 panic!("OAM DMA transfer not implemented yet!!");
                 // &mut self.oam_dma
-            },
+            }
             0xFF47 => &mut self.monochrome_bg_palette,
             0xFF48 => &mut self.monochrome_obj_palettes[0],
             0xFF49 => &mut self.monochrome_obj_palettes[1],
-            0xFF4A => &mut self.window_position.0,
-            0xFF4B => &mut self.window_position.1,
+            0xFF4A => &mut self.window_position[0],
+            0xFF4B => &mut self.window_position[1],
             0xFF4F => &mut self.vram_select,
             0xFF50 => &mut self.boot_status,
             0xFF4F => &mut self.vram_select,

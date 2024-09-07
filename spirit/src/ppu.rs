@@ -42,149 +42,126 @@ use crate::{
 /// The Pixel Processing Unit
 #[derive(Debug, Hash)]
 pub struct Ppu {
-    // This represents the LCD screen. This will always have a length of 144.
-    // Pixels are pushed from the
-    pub inner: PpuInner,
+    /// Represents the LCD screen. The length of this will always be 144.
     pub screen: Vec<[Pixel; 160]>,
+    /// This FIFO pulls data from the memory map to construct the objects used in a scanline. This
+    /// process is controlled by the `PpuInner` state machine.
+    obj_fifo: ObjectFiFo,
+    /// This FIFO pulls data from the memory map to construct the background and window pixels.
+    /// Like the other FIFO, this is controlled by the `PpuInner`.
+    bg_fifo: BackgroundFiFo,
+    /// The state machine that controls the timings of when memory is locked, data is pulled from
+    /// it, and pixels are mixed and written to the screen.
+    pub inner: PpuInner,
 }
 
-#[derive(Debug, Hash)]
-pub struct OamObject {
-    y: u8,
-    x: u8,
-    tile_index: u8,
-    attrs: u8,
-}
-
-impl OamObject {
-    fn new([y, x, tile_index, attrs]: [u8; 4]) -> Self {
+impl Ppu {
+    pub(crate) fn new() -> Self {
         Self {
-            y,
-            x,
-            tile_index,
-            attrs,
+            inner: PpuInner::default(),
+            screen: vec![[Pixel::new(); 160]; 144],
+            obj_fifo: ObjectFiFo::new(),
+            bg_fifo: BackgroundFiFo::new(),
         }
     }
 
-    fn populate_buffer(self, y: u8, buffer: &mut [FiFoPixel], mem: &MemoryMap) {
-        let x = self.x as usize;
-        self.generate_pixels(y, mem)
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, pixel)| buffer[x + i] = pixel);
+    pub(crate) fn tick(&mut self, mem: &mut MemoryMap) -> bool {
+        self.inner
+            .tick(&mut self.screen, &mut self.obj_fifo, &mut self.bg_fifo, mem)
     }
 
-    fn generate_pixels(self, y: u8, mem: &MemoryMap) -> [FiFoPixel; 8] {
-        // The given Y needs to be within the bounds of the object. This should be the case
-        // already.
-        println!("Obj at ({}, {})", self.x, self.y);
-        debug_assert!(y >= self.y);
-        let obj = &mem[ObjTileDataIndex(self.tile_index, check_bit_const::<3>(self.attrs))];
-        assert!([16, 32].contains(&obj.len()), "obj.len () = {}", obj.len());
-        debug_assert!(
-            (y as usize) < ((self.y as usize) + obj.len()),
-            "{y}, {}",
-            self.y
-        );
-        let mut index = y - self.y;
-        if check_bit_const::<6>(self.attrs) {
-            // If vertically flipped, we need to reverse the order of the bytes in the obj. Or, we
-            // need to invert our indices. We know that `index` is between 0 and 8 (or 16), so we
-            // can just mask out the upper half of the inverted index to bring it back into range.
-            let mask = if obj.len() == 32 { 0xF } else { 0x7 };
-            index = (!index) & mask;
-        }
-        let index = index as usize;
-        let lo = obj[2 * index];
-        let hi = obj[2 * index + 1];
-        let mut digest = form_pixels(self.attrs, lo, hi);
-        if !check_bit_const::<5>(self.attrs) {
-            digest.reverse();
-        }
-        digest.into_array().unwrap()
+    pub(crate) fn state(&self) -> PpuMode {
+        self.inner.state()
+    }
+
+    /// Ticks the PPU until it finishes the current screen drawing sequence. After this, the PPU
+    /// will be ready to start rendering the next screen.
+    pub(crate) fn finish_screen(&mut self, mem: &mut MemoryMap) {
+        while !self.tick(mem) {}
     }
 }
 
 #[derive(Debug, Hash)]
 pub enum PpuInner {
-    OamScan {
-        dots: u8,
-        y: u8,
-    },
-    Drawing {
-        obj_fifo: ObjectFiFo,
-        bg_fifo: BackgroundFiFo,
-        dots: u16,
-        x: u8,
-        y: u8,
-    },
-    HBlank {
-        dots: u16,
-        y: u8,
-    },
-    VBlank {
-        dots: u16,
-    },
+    OamScan { dots: u8 },
+    Drawing { dots: u16 },
+    HBlank { dots: u16 },
+    VBlank { dots: u16 },
 }
 
 impl Default for PpuInner {
     fn default() -> Self {
-        Self::OamScan { dots: 0, y: 0 }
+        Self::OamScan { dots: 0 }
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum StateTransition {
+    Nothing,
+    EnteringOam,
+    EnteringDrawing,
+    EnteringHBlank,
+    EnteringVBlank,
+    ExitingVBlank,
+}
+
 impl PpuInner {
-    fn tick(&mut self, screen: &mut [[Pixel; 160]], mem: &mut MemoryMap) {
+    fn tick(
+        &mut self,
+        screen: &mut [[Pixel; 160]],
+        obj: &mut ObjectFiFo,
+        bg: &mut BackgroundFiFo,
+        mem: &mut MemoryMap,
+    ) -> bool {
         match self {
-            PpuInner::OamScan { dots, y } if *dots == 79 => {
-                *self = Self::Drawing {
-                    bg_fifo: BackgroundFiFo::new(*y),
-                    y: *y,
-                    dots: 0,
-                    x: 0,
-                    obj_fifo: ObjectFiFo::new(*y, mem),
-                };
+            PpuInner::OamScan { dots } if *dots == 79 => {
+                *self = Self::Drawing { dots: 0 };
+                mem.inc_ppu_status(self.state());
             }
-            PpuInner::OamScan { dots, y } => *dots += 1,
-            PpuInner::Drawing { dots, x, y, .. } if *x == 160 => {
-                *self = Self::HBlank { dots: *dots, y: *y };
+            PpuInner::OamScan { dots } => *dots += 1,
+            PpuInner::Drawing { dots, .. } if bg.x == 160 => {
+                *self = Self::HBlank { dots: *dots };
+                mem.inc_ppu_status(self.state());
             }
-            PpuInner::Drawing {
-                bg_fifo,
-                dots,
-                x,
-                y,
-                obj_fifo,
-            } => {
+            PpuInner::Drawing { dots } => {
                 *dots += 1;
-                bg_fifo.tick(mem);
-                let obj_pixel = obj_fifo.pop_pixel();
-                if let Some(pixel) = bg_fifo.pop_pixel() {
-                    screen[*y as usize][*x as usize] = pixel.mix(obj_pixel, mem);
-                    *x += 1;
-                    if *x == 160 {
-                        *self = Self::HBlank { dots: *dots, y: *y };
+                bg.tick(mem);
+                let obj_pixel = obj.pop_pixel();
+                if let Some(pixel) = bg.pop_pixel() {
+                    screen[bg.y as usize][bg.x as usize] = pixel.mix(obj_pixel, mem);
+                    bg.x += 1;
+                    if bg.x == 160 {
+                        *self = Self::HBlank { dots: *dots };
+                        mem.inc_ppu_status(self.state());
                     }
                 }
             }
             // This measures the number of ticks after mode 2 because all modes added together is
             // 456 and mode 2 is always 80 dots
-            PpuInner::HBlank { dots, y } if *dots == 375 => {
+            PpuInner::HBlank { dots } if *dots == 375 => {
                 mem.inc_lcd_y();
-                let y = *y + 1;
-                *self = if y == 144 {
+                bg.next_scanline();
+                if bg.y == 144 {
                     mem.request_vblank_int();
-                    Self::VBlank { dots: 0 }
+                    *self = Self::VBlank { dots: 0 };
+                    mem.inc_ppu_status(self.state());
                 } else {
-                    Self::OamScan { dots: 0, y }
-                };
+                    *self = Self::OamScan { dots: 0 };
+                    mem.inc_ppu_status(self.state());
+                    obj.oam_scan(bg.y, mem);
+                }
             }
             PpuInner::HBlank { dots, .. } => *dots += 1,
             PpuInner::VBlank { dots } if *dots == 4559 => {
-                *self = Self::OamScan { dots: 0, y: 0 };
+                *self = Self::OamScan { dots: 0 };
+                mem.reset_ppu_status();
+                obj.oam_scan(0, mem);
+                bg.reset();
+                return true;
             }
             PpuInner::VBlank { dots, .. } => *dots += 1,
         }
+        false
     }
 
     fn state(&self) -> PpuMode {
@@ -204,13 +181,20 @@ struct ObjectFiFo {
 }
 
 impl ObjectFiFo {
-    fn new(y: u8, mem: &MemoryMap) -> Self {
-        let mut pixels = std::iter::repeat(FiFoPixel::transparent())
+    fn new() -> Self {
+        let pixels = std::iter::repeat(FiFoPixel::transparent())
             .take(176)
             .collect::<VecDeque<_>>();
+        Self { pixels }
+    }
+
+    /// Constructs all of the pixels needed for mixing on this scanline
+    fn oam_scan(&mut self, y: u8, mem: &MemoryMap) {
         if check_bit_const::<1>(mem.io().lcd_control) {
+            self.pixels
+                .extend(std::iter::repeat(FiFoPixel::transparent()).take(176));
             let y = y + 16;
-            let buffer = pixels.make_contiguous();
+            let buffer = self.pixels.make_contiguous();
             let range = if check_bit_const::<2>(mem.io().lcd_control) {
                 16
             } else {
@@ -218,8 +202,6 @@ impl ObjectFiFo {
             };
             let objects = (0..40)
                 .map(|i| &mem[OamObjectIndex(i)])
-                // TODO: Right now, we are assuming that all objects are 8x8. We need to add a check for
-                // 8x16 objects.
                 .filter(|[y_pos, ..]| *y_pos <= y && *y_pos + range > y)
                 .copied()
                 .map(OamObject::new)
@@ -228,10 +210,9 @@ impl ObjectFiFo {
         }
         // Discard the front and back 8 pixels
         for _ in 0..8 {
-            pixels.pop_front();
-            pixels.pop_back();
+            self.pixels.pop_front();
+            self.pixels.pop_back();
         }
-        Self { pixels }
     }
 
     fn pop_pixel(&mut self) -> FiFoPixel {
@@ -242,29 +223,41 @@ impl ObjectFiFo {
 // TODO: This needs to track what model it is in (not VBLANK, though) and pass that to the PPU
 #[derive(Debug, Hash)]
 struct BackgroundFiFo {
-    counter: u8,
-    tile_count: u8,
+    x: u8,
+    y: u8,
     fetcher: PixelFetcher,
+    /// Starts as `false` each frame. Once triggered, every scanline will use the window data while
+    /// the x position of the pixel is large enough and the window is enabled.
+    window_trigger: bool,
     background: InlineVec<FiFoPixel, 8>,
 }
 
 impl BackgroundFiFo {
-    fn new(y: u8) -> Self {
+    fn new() -> Self {
         Self {
-            counter: 0,
-            tile_count: 0,
-            fetcher: PixelFetcher::new(y),
+            fetcher: PixelFetcher::new(),
             background: InlineVec::new(),
+            window_trigger: false,
+            x: 0,
+            y: 0,
         }
     }
 
+    fn next_scanline(&mut self) {
+        self.y += 1;
+        self.x = 0;
+    }
+
+    fn reset(&mut self) {
+        self.fetcher.reset();
+        self.x = 0;
+        self.y = 0;
+        self.window_trigger = false;
+    }
+
     fn tick(&mut self, mem: &MemoryMap) {
-        self.counter += 1;
-        let bg = self.background.is_empty().then(|| {
-            self.tile_count += 1;
-            &mut self.background
-        });
-        self.fetcher.tick(mem, bg);
+        let bg = self.background.is_empty().then(|| &mut self.background);
+        self.fetcher.tick(self.x, self.y, mem, bg);
     }
 
     fn pop_pixel(&mut self) -> Option<FiFoPixel> {
@@ -353,35 +346,25 @@ impl Pixel {
 enum PixelFetcher {
     GetTile {
         ticked: bool,
-        x: u8,
-        y: u8,
     },
     DataLow {
         ticked: bool,
-        x: u8,
-        y: u8,
         attr: u8,
         index: u8,
     },
     DataHigh {
         ticked: bool,
-        x: u8,
-        y: u8,
         attr: u8,
         index: u8,
         lo: u8,
     },
     Sleep {
         ticked: bool,
-        x: u8,
-        y: u8,
         attr: u8,
         lo: u8,
         hi: u8,
     },
     Push {
-        x: u8,
-        y: u8,
         attr: u8,
         lo: u8,
         hi: u8,
@@ -389,26 +372,29 @@ enum PixelFetcher {
 }
 
 impl PixelFetcher {
-    fn new(y: u8) -> Self {
-        Self::GetTile {
-            ticked: false,
-            x: 0,
-            y,
-        }
+    fn new() -> Self {
+        Self::GetTile { ticked: false }
     }
 
-    fn tick(&mut self, mem: &MemoryMap, pixels_out: Option<&mut InlineVec<FiFoPixel, 8>>) {
+    /// Sets the fetcher back to the start for the start of the next frame.
+    fn reset(&mut self) {
+        *self = Self::new()
+    }
+
+    fn tick(
+        &mut self,
+        x: u8,
+        y: u8,
+        mem: &MemoryMap,
+        pixels_out: Option<&mut InlineVec<FiFoPixel, 8>>,
+    ) {
         match self {
             PixelFetcher::GetTile { ticked, .. } if !*ticked => *ticked = true,
-            PixelFetcher::GetTile { ticked, x, y } => {
-                let x = *x;
-                let y = *y;
+            PixelFetcher::GetTile { ticked } => {
                 let index = mem[BgTileMapIndex { x, y }];
                 let attr = mem[BgTileMapAttrIndex { x, y }];
                 *self = Self::DataLow {
                     ticked: false,
-                    x,
-                    y,
                     index,
                     attr,
                 }
@@ -416,8 +402,6 @@ impl PixelFetcher {
             PixelFetcher::DataLow { ticked, .. } if !*ticked => *ticked = true,
             PixelFetcher::DataLow {
                 ticked,
-                x,
-                y,
                 index,
                 attr,
             } => {
@@ -425,18 +409,14 @@ impl PixelFetcher {
                 let index = *index;
                 *self = Self::DataHigh {
                     ticked: false,
-                    x: *x,
-                    y: *y,
                     attr,
                     index,
-                    lo: mem[BgTileDataIndex { index, attr }][(*y % 8) as usize * 2],
+                    lo: mem[BgTileDataIndex { index, attr }][(y % 8) as usize * 2],
                 }
             }
             PixelFetcher::DataHigh { ticked, .. } if !*ticked => *ticked = true,
             PixelFetcher::DataHigh {
                 ticked,
-                x,
-                y,
                 index,
                 lo,
                 attr,
@@ -445,41 +425,87 @@ impl PixelFetcher {
                 let index = *index;
                 *self = Self::Sleep {
                     ticked: false,
-                    x: *x,
-                    y: *y,
                     attr,
                     lo: *lo,
-                    hi: mem[BgTileDataIndex { index, attr }][(*y % 8) as usize * 2 + 1],
+                    hi: mem[BgTileDataIndex { index, attr }][(y % 8) as usize * 2 + 1],
                 }
             }
             PixelFetcher::Sleep { ticked, .. } if !*ticked => *ticked = true,
             PixelFetcher::Sleep {
                 ticked,
-                x,
-                y,
                 lo,
                 hi,
                 attr,
             } => {
                 *self = Self::Push {
-                    x: *x,
-                    y: *y,
                     lo: *lo,
                     hi: *hi,
                     attr: *attr,
                 }
             }
-            PixelFetcher::Push { x, y, lo, hi, attr } => {
+            PixelFetcher::Push { lo, hi, attr } => {
                 if let Some(out) = pixels_out {
                     *out = form_pixels(*attr, *lo, *hi);
-                    *self = Self::GetTile {
-                        ticked: false,
-                        x: *x + 8,
-                        y: *y,
-                    };
+                    *self = Self::GetTile { ticked: false };
                 }
             }
         }
+    }
+}
+#[derive(Debug, Hash)]
+pub struct OamObject {
+    y: u8,
+    x: u8,
+    tile_index: u8,
+    attrs: u8,
+}
+
+impl OamObject {
+    fn new([y, x, tile_index, attrs]: [u8; 4]) -> Self {
+        Self {
+            y,
+            x,
+            tile_index,
+            attrs,
+        }
+    }
+
+    fn populate_buffer(self, y: u8, buffer: &mut [FiFoPixel], mem: &MemoryMap) {
+        let x = self.x as usize;
+        self.generate_pixels(y, mem)
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, pixel)| buffer[x + i] = pixel);
+    }
+
+    fn generate_pixels(self, y: u8, mem: &MemoryMap) -> [FiFoPixel; 8] {
+        // The given Y needs to be within the bounds of the object. This should be the case
+        // already.
+        // println!("Obj at ({}, {})", self.x, self.y);
+        debug_assert!(y >= self.y);
+        let obj = &mem[ObjTileDataIndex(self.tile_index, check_bit_const::<3>(self.attrs))];
+        assert!([16, 32].contains(&obj.len()), "obj.len () = {}", obj.len());
+        debug_assert!(
+            (y as usize) < ((self.y as usize) + obj.len()),
+            "{y}, {}",
+            self.y
+        );
+        let mut index = y - self.y;
+        if check_bit_const::<6>(self.attrs) {
+            // If vertically flipped, we need to reverse the order of the bytes in the obj. Or, we
+            // need to invert our indices. We know that `index` is between 0 and 8 (or 16), so we
+            // can just mask out the upper half of the inverted index to bring it back into range.
+            let mask = if obj.len() == 32 { 0xF } else { 0x7 };
+            index = (!index) & mask;
+        }
+        let index = index as usize;
+        let lo = obj[2 * index];
+        let hi = obj[2 * index + 1];
+        let mut digest = form_pixels(self.attrs, lo, hi);
+        if !check_bit_const::<5>(self.attrs) {
+            digest.reverse();
+        }
+        digest.into_array().unwrap()
     }
 }
 
@@ -501,37 +527,6 @@ pub fn zip_bits(hi: u8, lo: u8) -> impl Iterator<Item = u8> {
         .map(|(hi, lo)| (hi as u8) << 1 | lo as u8)
 }
 
-impl Ppu {
-    pub(crate) fn new() -> Self {
-        Self {
-            inner: PpuInner::default(),
-            screen: vec![[Pixel::new(); 160]; 144],
-        }
-    }
-
-    pub(crate) fn tick(&mut self, mem: &mut MemoryMap) {
-        let span = info_span!("Ticking PPU:");
-        let _guard = span.enter();
-        self.inner.tick(&mut self.screen, mem);
-        mem.inc_ppu_status(self.inner.state());
-    }
-
-    pub(crate) fn state(&self) -> PpuMode {
-        self.inner.state()
-    }
-
-    /// Ticks the PPU until it finishes the current screen drawing sequence. After this, the PPU
-    /// will be ready to start rendering the next screen.
-    pub(crate) fn finish_screen(&mut self, mem: &mut MemoryMap) {
-        let mut state = self.state();
-        while {
-            self.tick(mem);
-            let old = std::mem::replace(&mut state, self.state());
-            !matches!((old, state), (PpuMode::VBlank, PpuMode::OamScan))
-        } {}
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -551,17 +546,17 @@ mod tests {
     #[test]
     fn single_pass_fetcher() {
         let mem = MemoryMap::construct();
-        let mut fetcher = PixelFetcher::new(0);
+        let mut fetcher = PixelFetcher::new();
         let mut counter = 0;
         let mut buffer = InlineVec::new();
         // The buffer should be empty until at least the 7th tick
         for _ in 0..=7 {
             println!("{fetcher:X?}");
-            fetcher.tick(&mem, Some(&mut buffer));
+            fetcher.tick(0, 0, &mem, Some(&mut buffer));
             assert!(buffer.is_empty())
         }
         println!("{fetcher:X?}");
-        fetcher.tick(&mem, Some(&mut buffer));
+        fetcher.tick(0, 0, &mem, Some(&mut buffer));
         assert!(!buffer.is_empty(), "{fetcher:?}");
     }
 
@@ -570,20 +565,20 @@ mod tests {
         println!("{}", std::mem::size_of::<PixelFetcher>());
         println!("{}", std::mem::size_of::<FiFoPixel>());
         let mem = MemoryMap::construct();
-        let mut fetcher = PixelFetcher::new(0);
+        let mut fetcher = PixelFetcher::new();
         let mut counter = 0;
         let mut buffer = InlineVec::new();
         // The buffer should be empty until at least the 7th tick
         for _ in 0..=7 {
             println!("{fetcher:X?}");
-            fetcher.tick(&mem, Some(&mut buffer));
+            fetcher.tick(0, 0, &mem, Some(&mut buffer));
             assert!(buffer.is_empty())
         }
         println!("{fetcher:X?}");
-        fetcher.tick(&mem, None);
+        fetcher.tick(0, 0, &mem, None);
         assert!(buffer.is_empty(), "{fetcher:?}");
         println!("{fetcher:X?}");
-        fetcher.tick(&mem, Some(&mut buffer));
+        fetcher.tick(0, 0, &mem, Some(&mut buffer));
         assert!(!buffer.is_empty(), "{fetcher:?}");
     }
 
@@ -596,7 +591,7 @@ mod tests {
         let mut counter = 0;
         while {
             counter += 1;
-            ppu.tick(&mut screen, &mut mem);
+            // ppu.tick(&mut screen, &mut mem);
             let next_state = ppu.state();
             let digest = !matches!((state, next_state), (PpuMode::HBlank, PpuMode::OamScan));
             state = next_state;
@@ -614,7 +609,7 @@ mod tests {
         let mut counter = 0;
         while {
             counter += 1;
-            ppu.tick(&mut screen, &mut mem);
+            // ppu.tick(&mut screen, &mut mem);
             let next_state = ppu.state();
             let digest = !matches!((state, next_state), (PpuMode::VBlank, PpuMode::OamScan));
             state = next_state;

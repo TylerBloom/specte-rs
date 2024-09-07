@@ -730,9 +730,7 @@ impl Cpu {
             LoadOp::Basic {
                 dest: RegOrPointer::Pointer,
                 src: RegOrPointer::Pointer,
-            } => {
-                self.state = CpuState::Halted
-            }
+            } => self.state = CpuState::Halted,
             LoadOp::Basic { dest, src } => self.write_byte(dest, mem, self.copy_byte(mem, src)),
             LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),
             LoadOp::Direct(reg, val) => self.write_byte(reg, mem, val),

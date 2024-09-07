@@ -130,6 +130,10 @@ impl MemoryMap {
         self.io.inc_lcd_y()
     }
 
+    pub(crate) fn reset_ppu_status(&mut self) {
+        self.vram.reset_status()
+    }
+
     pub(crate) fn inc_ppu_status(&mut self, state: PpuMode) {
         self.vram.inc_status(state)
     }

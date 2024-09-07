@@ -22,9 +22,7 @@ impl Index<u16> for MBC2 {
         match index {
             0x0000..=0x3FFF => todo!("read from rom bank 0"),
             0x4000..=0x7FFF => todo!("read from rom bank 1-F"),
-            i @ 0xA000..=0xBFFF => {
-                &self.ram[(i & 0x01FF) as usize]
-            },
+            i @ 0xA000..=0xBFFF => &self.ram[(i & 0x01FF) as usize],
             _ => unreachable!(),
         }
     }
@@ -38,9 +36,7 @@ impl IndexMut<u16> for MBC2 {
             i @ 0xA000..=0xBFFF if self.ram_enabled == 0x0A => {
                 todo!("Index into RAM")
             }
-            0xA000..=0xBFFF if self.ram_enabled == 0x0A => {
-                &mut self.dead_byte
-            }
+            0xA000..=0xBFFF if self.ram_enabled == 0x0A => &mut self.dead_byte,
             _ => unreachable!(),
         }
     }
