@@ -1,6 +1,7 @@
-use std::{array, collections::VecDeque};
+use std::{array, collections::VecDeque, fmt::Display};
 
 use heapless::Vec as InlineVec;
+use serde::{Deserialize, Serialize};
 use tracing::{info_span, trace};
 
 use crate::{
@@ -43,7 +44,7 @@ use crate::{
 #[derive(Debug, Hash)]
 pub struct Ppu {
     /// Represents the LCD screen. The length of this will always be 144.
-    pub screen: Vec<[Pixel; 160]>,
+    pub screen: Vec<Vec<Pixel>>,
     /// This FIFO pulls data from the memory map to construct the objects used in a scanline. This
     /// process is controlled by the `PpuInner` state machine.
     obj_fifo: ObjectFiFo,
@@ -59,7 +60,7 @@ impl Ppu {
     pub(crate) fn new() -> Self {
         Self {
             inner: PpuInner::default(),
-            screen: vec![[Pixel::new(); 160]; 144],
+            screen: vec![vec![Pixel::new(); 160]; 144],
             obj_fifo: ObjectFiFo::new(),
             bg_fifo: BackgroundFiFo::new(),
         }
@@ -108,7 +109,7 @@ enum StateTransition {
 impl PpuInner {
     fn tick(
         &mut self,
-        screen: &mut [[Pixel; 160]],
+        screen: &mut [Vec<Pixel>],
         obj: &mut ObjectFiFo,
         bg: &mut BackgroundFiFo,
         mem: &mut MemoryMap,
@@ -311,11 +312,17 @@ impl FiFoPixel {
 }
 
 /// The final pixel that is available to the end consumer.
-#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pixel {
     pub r: u8,
     pub g: u8,
     pub b: u8,
+}
+
+impl Display for Pixel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {}, {})", self.r, self.b, self.g)
+    }
 }
 
 impl Pixel {
@@ -585,7 +592,7 @@ mod tests {
     #[test]
     fn test_scan_line_timing() {
         let mut mem = MemoryMap::construct();
-        let mut screen = vec![[Pixel::new(); 160]; 144];
+        let mut screen = vec![vec![Pixel::new(); 160]; 144];
         let mut ppu = PpuInner::default();
         let mut state = ppu.state();
         let mut counter = 0;
@@ -603,7 +610,7 @@ mod tests {
     #[test]
     fn test_frame_render_timing() {
         let mut mem = MemoryMap::construct();
-        let mut screen = vec![[Pixel::new(); 160]; 144];
+        let mut screen = vec![vec![Pixel::new(); 160]; 144];
         let mut ppu = PpuInner::default();
         let mut state = ppu.state();
         let mut counter = 0;
