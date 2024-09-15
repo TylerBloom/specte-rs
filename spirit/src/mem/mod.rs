@@ -45,7 +45,7 @@ pub struct MemoryMap {
     ///  - Bit 3 corresponds to the serial interrupt
     ///  - Bit 4 corresponds to the joypad interrupt
     /// When intexed, this register is at 0xFFFF.
-    ie: u8,
+    pub ie: u8,
     // There is a region of memory that is marked as inaccessible (0xFEA0 through 0xFEFF). Instead
     // of panicking when this area is accessed, a reference to this dead byte is used instead.
     dead_byte: u8,

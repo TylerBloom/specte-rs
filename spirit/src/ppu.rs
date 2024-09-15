@@ -131,9 +131,12 @@ impl PpuInner {
                 if let Some(pixel) = bg.pop_pixel() {
                     screen[bg.y as usize][bg.x as usize] = pixel.mix(obj_pixel, mem);
                     bg.x += 1;
+                    if bg.x % 8 == 0 {
+                    }
                     if bg.x == 160 {
                         *self = Self::HBlank { dots: *dots };
                         mem.inc_ppu_status(self.state());
+                        bg.fetcher.reset();
                     }
                 }
             }
@@ -247,6 +250,8 @@ impl BackgroundFiFo {
     fn next_scanline(&mut self) {
         self.y += 1;
         self.x = 0;
+        // Not needed because it should be ready for the next line.
+        // self.fetcher.next_scanline();
     }
 
     fn reset(&mut self) {
@@ -258,7 +263,7 @@ impl BackgroundFiFo {
 
     fn tick(&mut self, mem: &MemoryMap) {
         let bg = self.background.is_empty().then(|| &mut self.background);
-        self.fetcher.tick(self.x, self.y, mem, bg);
+        self.fetcher.tick(self.y, mem, bg);
     }
 
     fn pop_pixel(&mut self) -> Option<FiFoPixel> {
@@ -353,26 +358,31 @@ impl Pixel {
 enum PixelFetcher {
     GetTile {
         ticked: bool,
+        x: u8,
     },
     DataLow {
         ticked: bool,
         attr: u8,
         index: u8,
+        x: u8,
     },
     DataHigh {
         ticked: bool,
+        x: u8,
         attr: u8,
         index: u8,
         lo: u8,
     },
     Sleep {
         ticked: bool,
+        x: u8,
         attr: u8,
         lo: u8,
         hi: u8,
     },
     Push {
         attr: u8,
+        x: u8,
         lo: u8,
         hi: u8,
     },
@@ -380,7 +390,10 @@ enum PixelFetcher {
 
 impl PixelFetcher {
     fn new() -> Self {
-        Self::GetTile { ticked: false }
+        Self::GetTile {
+            ticked: false,
+            x: 0,
+        }
     }
 
     /// Sets the fetcher back to the start for the start of the next frame.
@@ -388,72 +401,58 @@ impl PixelFetcher {
         *self = Self::new()
     }
 
-    fn tick(
-        &mut self,
-        x: u8,
-        y: u8,
-        mem: &MemoryMap,
-        pixels_out: Option<&mut InlineVec<FiFoPixel, 8>>,
-    ) {
+    fn tick(&mut self, y: u8, mem: &MemoryMap, pixels_out: Option<&mut InlineVec<FiFoPixel, 8>>) {
         match self {
             PixelFetcher::GetTile { ticked, .. } if !*ticked => *ticked = true,
-            PixelFetcher::GetTile { ticked } => {
+            &mut PixelFetcher::GetTile { x, .. } => {
                 let index = mem[BgTileMapIndex { x, y }];
                 let attr = mem[BgTileMapAttrIndex { x, y }];
+                println!("Getting BG tile data for: ({x}, {y})");
                 *self = Self::DataLow {
                     ticked: false,
                     index,
                     attr,
+                    x,
                 }
             }
             PixelFetcher::DataLow { ticked, .. } if !*ticked => *ticked = true,
-            PixelFetcher::DataLow {
-                ticked,
-                index,
-                attr,
-            } => {
-                let attr = *attr;
-                let index = *index;
+            &mut PixelFetcher::DataLow { index, attr, x, .. } => {
                 *self = Self::DataHigh {
                     ticked: false,
                     attr,
                     index,
+                    x,
                     lo: mem[BgTileDataIndex { index, attr }][(y % 8) as usize * 2],
                 }
             }
             PixelFetcher::DataHigh { ticked, .. } if !*ticked => *ticked = true,
-            PixelFetcher::DataHigh {
+            &mut PixelFetcher::DataHigh {
                 ticked,
                 index,
+                x,
                 lo,
                 attr,
             } => {
-                let attr = *attr;
-                let index = *index;
+                let hi = mem[BgTileDataIndex { index, attr }][(y % 8) as usize * 2 + 1];
                 *self = Self::Sleep {
                     ticked: false,
                     attr,
-                    lo: *lo,
-                    hi: mem[BgTileDataIndex { index, attr }][(y % 8) as usize * 2 + 1],
+                    x,
+                    lo,
+                    hi,
                 }
             }
             PixelFetcher::Sleep { ticked, .. } if !*ticked => *ticked = true,
-            PixelFetcher::Sleep {
-                ticked,
-                lo,
-                hi,
-                attr,
-            } => {
-                *self = Self::Push {
-                    lo: *lo,
-                    hi: *hi,
-                    attr: *attr,
-                }
-            }
-            PixelFetcher::Push { lo, hi, attr } => {
+            &mut PixelFetcher::Sleep {
+                lo, x, hi, attr, ..
+            } => *self = Self::Push { x, lo, hi, attr },
+            &mut PixelFetcher::Push { lo, hi, attr, x } => {
                 if let Some(out) = pixels_out {
-                    *out = form_pixels(*attr, *lo, *hi);
-                    *self = Self::GetTile { ticked: false };
+                    *out = form_pixels(attr, lo, hi);
+                    *self = Self::GetTile {
+                        ticked: false,
+                        x: x + 8,
+                    };
                 }
             }
         }
@@ -559,11 +558,11 @@ mod tests {
         // The buffer should be empty until at least the 7th tick
         for _ in 0..=7 {
             println!("{fetcher:X?}");
-            fetcher.tick(0, 0, &mem, Some(&mut buffer));
+            fetcher.tick(0, &mem, Some(&mut buffer));
             assert!(buffer.is_empty())
         }
         println!("{fetcher:X?}");
-        fetcher.tick(0, 0, &mem, Some(&mut buffer));
+        fetcher.tick(0, &mem, Some(&mut buffer));
         assert!(!buffer.is_empty(), "{fetcher:?}");
     }
 
@@ -578,14 +577,14 @@ mod tests {
         // The buffer should be empty until at least the 7th tick
         for _ in 0..=7 {
             println!("{fetcher:X?}");
-            fetcher.tick(0, 0, &mem, Some(&mut buffer));
+            fetcher.tick(0, &mem, Some(&mut buffer));
             assert!(buffer.is_empty())
         }
         println!("{fetcher:X?}");
-        fetcher.tick(0, 0, &mem, None);
+        fetcher.tick(0, &mem, None);
         assert!(buffer.is_empty(), "{fetcher:?}");
         println!("{fetcher:X?}");
-        fetcher.tick(0, 0, &mem, Some(&mut buffer));
+        fetcher.tick(0, &mem, Some(&mut buffer));
         assert!(!buffer.is_empty(), "{fetcher:?}");
     }
 
