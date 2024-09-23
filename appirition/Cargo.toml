@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iced = { version = "0.10.0", features = ["canvas", "palette"] }
+iced = { version = "0.13.1", features = ["canvas", "palette"] }
 palette = "0.7.3"
 spirit = { path = "../spirit" }
