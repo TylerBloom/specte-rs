@@ -1,12 +1,13 @@
 use std::ops::{Index, IndexMut};
 
+use serde::{Deserialize, Serialize};
 use tracing::trace;
 
 use crate::{cpu::check_bit_const, lookup::InterruptOp, ppu::Pixel, ButtonInput};
 
 use super::{vram::PpuMode, MemoryMap};
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct IoRegisters {
     /// ADDR FF00
     pub(super) joypad: Joypad,
@@ -292,7 +293,7 @@ impl Index<ObjPaletteIndex> for IoRegisters {
 }
 
 /// In GBC mode, there are extra palettes for the colors
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ColorPalettes {
     pub(crate) index: u8,
     /// This array is indexed into by the index field.
@@ -352,7 +353,7 @@ impl IndexMut<u16> for ColorPalettes {
 }
 
 /// All of the date for one of the 8 palettes that can be held in memory.
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Palette {
     pub(crate) colors: [PaletteColor; 4],
 }
@@ -385,7 +386,7 @@ impl IndexMut<u8> for Palette {
 
 /// The colors inside a palette are a bit odd. Each color takes up two bytes and represents each
 /// color with 5 bits (in little-endian). The top bit is not used.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct PaletteColor(pub [u8; 2]);
 
 impl PaletteColor {
@@ -432,7 +433,7 @@ impl IndexMut<u8> for PaletteColor {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum TimerControl {
     #[default]
     Disabled,
@@ -462,7 +463,7 @@ pub enum TimerControl {
 /// The solution: Both registers will be synchronized when a tick is processed. Currently, this
 /// happens immediately before the instruction is actually processed, but this would also work if
 /// it happened immediately after too. As long as the tick is applied in the same order everywhere.
-#[derive(Debug, Default, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub(super) struct Joypad {
     main: u8,
     dup: u8,

@@ -41,13 +41,13 @@ impl Debugger {
 fn tile_map_0<M: 'static>(
     gb: &Gameboy,
 ) -> impl '_ + Iterator<Item = impl Into<Element<'static, M>>> {
-    tile_map(&gb.mem.vram.vram.0[0x1800..0x1BFF])
+    tile_map(&gb.mem.vram.vram[0][0x1800..0x1BFF])
 }
 
 fn tile_map_1<M: 'static>(
     gb: &Gameboy,
 ) -> impl '_ + Iterator<Item = impl Into<Element<'static, M>>> {
-    tile_map(&gb.mem.vram.vram.0[0x1C00..0x1FFF])
+    tile_map(&gb.mem.vram.vram[0][0x1C00..0x1FFF])
 }
 
 fn tile_map<M: 'static>(map: &[u8]) -> impl '_ + Iterator<Item = impl Into<Element<'static, M>>> {
@@ -95,10 +95,10 @@ fn oam_obj_repr<M: 'static>(
 fn print_tile_map(gb: &Gameboy) {
     let map = if check_bit_const::<3>(gb.mem.io().lcd_control) {
         println!("The second tile map:");
-        &gb.mem.vram.vram.0[0x1C00..0x2000]
+        &gb.mem.vram.vram[0][0x1C00..0x2000]
     } else {
         println!("The first tile map:");
-        &gb.mem.vram.vram.0[0x1800..0x1C00]
+        &gb.mem.vram.vram[0][0x1800..0x1C00]
     };
     for i in 0..32 {
         print!("[");
@@ -113,14 +113,14 @@ fn vram_0_to_tiles<M: 'static>(
     gb: &Gameboy,
     palette: u8,
 ) -> impl '_ + Iterator<Item = impl Into<Element<'static, M>>> {
-    vram_bank_to_tiles(gb, palette, &gb.mem.vram.vram.0)
+    vram_bank_to_tiles(gb, palette, &gb.mem.vram.vram[0])
 }
 
 fn vram_1_to_tiles<M: 'static>(
     gb: &Gameboy,
     palette: u8,
 ) -> impl '_ + Iterator<Item = impl Into<Element<'static, M>>> {
-    vram_bank_to_tiles(gb, palette, &gb.mem.vram.vram.1)
+    vram_bank_to_tiles(gb, palette, &gb.mem.vram.vram[1])
 }
 
 fn vram_bank_to_tiles<'a, M: 'static>(

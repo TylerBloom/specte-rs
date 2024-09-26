@@ -1,23 +1,20 @@
 use std::fmt::Display;
 
-use spirit::{ppu::Pixel, Gameboy};
+use spirit::{mem::MemoryMap, ppu::Pixel, Gameboy};
 
 static START_UP_SCREENS: &[u8] = include_bytes!("data/start_up_screens.postcard");
 
-/*
 #[test]
 fn generate_frames() {
     let mut gb = Gameboy::new(include_bytes!("roms/acid/cgb-acid2.gbc")).start_up();
-    let mut frames = Vec::new();
+    let mut datums = Vec::new();
     while !gb.is_complete() {
         gb.frame_step().complete();
-        frames.push(gb.gb().ppu.screen.clone());
+        datums.push(gb.gb().mem.clone());
     }
-    let data = postcard::to_allocvec(&frames).unwrap();
-    std::fs::write("tests/data/start_up_screens.postcard", data).unwrap();
+    let data = postcard::to_allocvec(&datums).unwrap();
+    std::fs::write("tests/data/start_up_memory_maps.postcard", data).unwrap();
 }
-*/
-
 #[test]
 fn test_startup_frames() {
     let states: Vec<Vec<Vec<Pixel>>> = postcard::from_bytes(START_UP_SCREENS).unwrap();
@@ -39,6 +36,17 @@ fn test_startup_frames() {
     assert!(gb.is_complete());
 }
 
+#[test]
+fn test_startup_memory_maps() {
+    let states: Vec<MemoryMap> = postcard::from_bytes(START_UP_SCREENS).unwrap();
+    let mut gb = Gameboy::new(include_bytes!("roms/acid/cgb-acid2.gbc")).start_up();
+    for (frame_num, state) in states.into_iter().enumerate() {
+        gb.frame_step().complete();
+        assert_eq!(state, gb.gb().mem, "Mismatched memory map on frame #{frame_num}");
+    }
+    assert!(gb.is_complete());
+}
+
 struct DisplaySlice<'a, T>(&'a [T]);
 
 impl<'a, T> Display for DisplaySlice<'a, T>
@@ -49,7 +57,7 @@ where
         let mut iter = self.0.iter();
         write!(f, "[")?;
         if let Some(val) = iter.next() {
-            write!(f, "{val}");
+            write!(f, "{val}")?;
         }
         iter.try_for_each(|val| write!(f, ", {val}"))?;
         write!(f, "]")

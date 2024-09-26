@@ -17,6 +17,8 @@ pub use mbc::MemoryBankController;
 use mbc::*;
 
 use io::IoRegisters;
+use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use tracing::trace;
 use vram::PpuMode;
 
@@ -26,16 +28,20 @@ pub static START_UP_HEADER: &[u8; 0x900] = include_bytes!("../cgb.bin");
 
 pub type StartUpHeaders = ([u8; 0x100], [u8; 0x700]);
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[serde_as]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryMap {
     // The MBC
     mbc: MemoryBankController,
     // The video RAM and Object attribute map
     pub vram: VRam,
     // The working RAM
-    wram: ([u8; 0x1000], [u8; 0x1000]),
+    #[serde(serialize_with = "crate::utils::serialize_slices_as_one")]
+    #[serde(deserialize_with = "crate::utils::deserialize_slices_as_one")]
+    wram: [[u8; 0x1000]; 2],
     io: IoRegisters,
     // High RAM
+    #[serde_as(as = "serde_with::Bytes")]
     hr: [u8; 0x7F],
     /// The interrupt enable register. Bits 0-4 flag where or not certain interrupt handlers can be
     /// called.
@@ -56,7 +62,7 @@ impl MemoryMap {
         Self {
             mbc: MemoryBankController::new(cart),
             vram: VRam::new(),
-            wram: ([0; 0x1000], [0; 0x1000]),
+            wram: [[0; 0x1000]; 2],
             dead_byte: 0,
             io: IoRegisters::default(),
             hr: [0; 0x7F],
@@ -185,7 +191,7 @@ impl MemoryMap {
         Self {
             mbc,
             vram: VRam::new(),
-            wram: ([0; 0x1000], [0; 0x1000]),
+            wram: [[0; 0x1000]; 2],
             dead_byte: 0,
             io: IoRegisters::default(),
             hr: [0; 0x7F],
@@ -215,11 +221,11 @@ impl Index<u16> for MemoryMap {
             0x0000..=0x7FFF => &self.mbc[index],
             n @ 0x8000..=0x9FFF => &self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
             n @ 0xA000..=0xBFFF => &self.mbc[n],
-            n @ 0xC000..=0xCFFF => &self.wram.0[n as usize - 0xC000],
-            n @ 0xD000..=0xDFFF => &self.wram.1[n as usize - 0xD000],
+            n @ 0xC000..=0xCFFF => &self.wram[0][n as usize - 0xC000],
+            n @ 0xD000..=0xDFFF => &self.wram[1][n as usize - 0xD000],
             // Echo RAM
-            n @ 0xE000..=0xEFFF => &self.wram.0[n as usize - 0xE000],
-            n @ 0xF000..=0xFDFF => &self.wram.1[n as usize - 0xF000],
+            n @ 0xE000..=0xEFFF => &self.wram[0][n as usize - 0xE000],
+            n @ 0xF000..=0xFDFF => &self.wram[1][n as usize - 0xF000],
             n @ 0xFE00..=0xFE9F => &self.vram[CpuOamIndex(n)],
             // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
             // dead byte will be returned instead.
@@ -239,11 +245,11 @@ impl IndexMut<u16> for MemoryMap {
             n @ 0x0000..=0x7FFF => &mut self.mbc[n],
             n @ 0x8000..=0x9FFF => &mut self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
             n @ 0xA000..=0xBFFF => &mut self.mbc[n],
-            n @ 0xC000..=0xCFFF => &mut self.wram.0[n as usize - 0xC000],
-            n @ 0xD000..=0xDFFF => &mut self.wram.1[n as usize - 0xD000],
+            n @ 0xC000..=0xCFFF => &mut self.wram[0][n as usize - 0xC000],
+            n @ 0xD000..=0xDFFF => &mut self.wram[1][n as usize - 0xD000],
             // Echo RAM
-            n @ 0xE000..=0xEFFF => &mut self.wram.0[n as usize - 0xE000],
-            n @ 0xF000..=0xFDFF => &mut self.wram.1[n as usize - 0xF000],
+            n @ 0xE000..=0xEFFF => &mut self.wram[0][n as usize - 0xE000],
+            n @ 0xF000..=0xFDFF => &mut self.wram[1][n as usize - 0xF000],
             n @ 0xFE00..=0xFE9F => &mut self.vram[CpuOamIndex(n)],
             // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
             // dead byte will be returned instead.

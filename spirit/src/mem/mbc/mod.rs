@@ -15,6 +15,7 @@ pub use mbc1::*;
 pub use mbc2::*;
 pub use mbc3::*;
 pub use mbc5::*;
+use serde::{Deserialize, Serialize};
 use tracing::error;
 
 static NINTENDO_LOGO: &[u8] = &[
@@ -23,7 +24,7 @@ static NINTENDO_LOGO: &[u8] = &[
     0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
 ];
 
-#[derive(Hash, Clone, PartialEq, Eq)]
+#[derive(Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MemoryBankController {
     /// There is no external MBC. The game ROM is mapped into the 32 KiB that starts at 0x0000 and
     /// extends to 0x7FFF. An additional 8 KiB of RAM could be connected. This 8 KiB starts at
