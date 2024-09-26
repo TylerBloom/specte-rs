@@ -7,10 +7,14 @@
 
 use std::ops::{Index, IndexMut};
 
+use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use tracing::{info, trace};
 
 use super::{
-    io::{BgPaletteIndex, ObjPaletteIndex}, BgTileDataIndex, BgTileDataInnerIndex, BgTileMapAttrIndex, BgTileMapIndex, BgTileMapInnerIndex, OamIndex, OamObjectIndex, ObjTileDataIndex
+    io::{BgPaletteIndex, ObjPaletteIndex},
+    BgTileDataIndex, BgTileDataInnerIndex, BgTileMapAttrIndex, BgTileMapIndex, BgTileMapInnerIndex,
+    OamObjectIndex, ObjTileDataIndex,
 };
 
 static DEAD_READ_ONLY_BYTE: u8 = 0xFF;
@@ -27,7 +31,18 @@ pub(super) struct CpuOamIndex(pub u16);
 
 #[repr(u8)]
 #[derive(
-    Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, derive_more::IsVariant,
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    Hash,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    derive_more::IsVariant,
+    Serialize,
+    Deserialize,
 )]
 pub(crate) enum PpuMode {
     /// Also refered to as "Mode 2" in the pandocs.
@@ -41,13 +56,17 @@ pub(crate) enum PpuMode {
     VBlank = 3,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[serde_as]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VRam {
     // TODO: This is a GBC emulator, show it needs to support switching between banks 0 and 1.
     /// The main video RAM. Accessible through the address range 0x8000 through 0x9FFF.
-    pub vram: ([u8; 0x2000], [u8; 0x2000]),
+    #[serde(serialize_with = "crate::utils::serialize_slices_as_one")]
+    #[serde(deserialize_with = "crate::utils::deserialize_slices_as_one")]
+    pub vram: [[u8; 0x2000]; 2],
     /// The Object Attribute Map. Accessible through the address range 0xFE00 through 0xFE9F
-    pub(crate) oam: [u8; 0xA0],
+    #[serde_as(as = "serde_with::Bytes")]
+    pub oam: [u8; 0xA0],
     /// The status that the PPU is currently in. This mode is set when the PPU is ticked and
     /// determines how the VRAM and OAM are indexed into.
     status: PpuMode,
@@ -59,7 +78,7 @@ pub struct VRam {
 impl VRam {
     pub(super) fn new() -> Self {
         Self {
-            vram: ([0; 0x2000], [0; 0x2000]),
+            vram: [[0; 0x2000]; 2],
             oam: [0; 0xA0],
             status: PpuMode::default(),
             dead_byte: 0xFF,
@@ -84,9 +103,9 @@ impl Index<CpuVramIndex> for VRam {
             &DEAD_READ_ONLY_BYTE
         } else {
             if bank && index < 0x9C00 {
-                &self.vram.1[index as usize - 0x8000]
+                &self.vram[1][index as usize - 0x8000]
             } else {
-                &self.vram.0[index as usize - 0x8000]
+                &self.vram[0][index as usize - 0x8000]
             }
         }
     }
@@ -100,9 +119,9 @@ impl IndexMut<CpuVramIndex> for VRam {
             &mut self.dead_byte
         } else {
             if bank && index < 0x9C00 {
-                &mut self.vram.1[index as usize - 0x8000]
+                &mut self.vram[1][index as usize - 0x8000]
             } else {
-                &mut self.vram.0[index as usize - 0x8000]
+                &mut self.vram[0][index as usize - 0x8000]
             }
         }
     }
@@ -138,37 +157,43 @@ impl IndexMut<CpuOamIndex> for VRam {
 impl Index<OamObjectIndex> for VRam {
     type Output = [u8; 4];
 
-    fn index(&self, OamObjectIndex(mut index): OamObjectIndex) -> &Self::Output {
+    fn index(&self, OamObjectIndex(index): OamObjectIndex) -> &Self::Output {
         // There are only 40 objects in the OAM and this type indexes those object, not their
         // memory address.
         debug_assert!(index < 40);
         let index = 4 * index as usize;
-        (&self.oam[index..index + 4]).try_into().unwrap()
+        (&self.oam[index..(index + 4)]).try_into().unwrap()
     }
 }
 
-impl Index<ObjTileDataIndex> for VRam {
+impl Index<(ObjTileDataIndex, bool)> for VRam {
     /// We return a slice here because the object could be either 8x8 or 8x16, and this is
     /// determined by the state of a LCDC bit. It is the job of the PPU to check the length of the
     /// slice and handle it accordingly.
     type Output = [u8];
 
-    fn index(&self, ObjTileDataIndex(index, bank): ObjTileDataIndex) -> &Self::Output {
-        let bank = if bank { &self.vram.1 } else { &self.vram.0 };
-        let index = 16 * index as usize;
-        // TODO: This does not check if LCDC bit 2 is set to determine if objects are 8x8 or 8x16.
-        &bank[index..index + 1]
+    fn index(
+        &self,
+        (ObjTileDataIndex(index, bank), size): (ObjTileDataIndex, bool),
+    ) -> &Self::Output {
+        let bank = if bank { &self.vram[1] } else { &self.vram[0] };
+        let start = 16 * index as usize;
+        let end = start + 16 + if size { 16 } else { 0 };
+        &bank[start..end]
     }
 }
 
 impl Index<BgTileMapInnerIndex> for VRam {
     type Output = u8;
 
-    fn index(&self, BgTileMapInnerIndex { second_map, x, y }: BgTileMapInnerIndex) -> &Self::Output {
-        let x = x as usize >> 3;
-        let y = y as usize >> 3;
+    fn index(
+        &self,
+        BgTileMapInnerIndex { second_map, x, y }: BgTileMapInnerIndex,
+    ) -> &Self::Output {
+        let x = x as usize / 8;
+        let y = y as usize / 8;
         let index = 0x1800 + (second_map as usize * 0x400) + (y * 32) + x;
-        &self.vram.0[index]
+        &self.vram[0][index]
     }
 }
 
@@ -179,7 +204,7 @@ impl Index<BgTileMapAttrIndex> for VRam {
         let x = x as usize / 8;
         let y = y as usize / 8;
         let index = 0x1800 + (y * 32) + x;
-        &self.vram.1[index]
+        &self.vram[1][index]
     }
 }
 
@@ -204,11 +229,7 @@ impl Index<BgTileDataInnerIndex> for VRam {
                 0x1000 + (16 * index as usize)
             }
         };
-        let bank = if bank {
-            &self.vram.1
-        } else {
-            &self.vram.0
-        };
+        let bank = if bank { &self.vram[1] } else { &self.vram[0] };
         (&bank[index..index + 16]).try_into().unwrap()
     }
 }

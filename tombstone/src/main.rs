@@ -9,6 +9,7 @@ use ratatui::{
     widgets::{Block, Paragraph},
     Frame, Terminal,
 };
+use spirit::cpu::CpuState;
 use spirit::{cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu, Gameboy, StartUpSequence};
 
 mod command;
@@ -26,11 +27,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut term = Terminal::new(backend)?;
     term.clear()?;
-    let mut gb = Gameboy::new(TMP_ROM);
-    run_until_complete(gb.start_up(), &mut state, &mut term)?;
-    println!("Startup sequence complete!");
+    let mut gb = Gameboy::new(TMP_ROM).start_up();
     run_until_complete(gb, &mut state, &mut term)?;
-    Ok(())
+    println!("Startup sequence complete!");
+    // run_until_complete(gb, &mut state, &mut term)?;
+    // Ok(())
+    todo!()
 }
 
 /// This function abstracts over running the startup sequence and the gameboy itself.
@@ -151,8 +153,8 @@ fn render_interrupts(frame: &mut Frame, state: &mut AppState, area: Rect, mem: &
         .title("Interrupts")
         .title_alignment(ratatui::layout::Alignment::Center);
     let para = Paragraph::new(Text::from_iter([
-        format!("Enabled   : 0b{0:0>8b}"), // , mem.ie),
-        format!("Requested : 0b{0:0>8b}"), // , mem.io.interrupt_flags),
+        format!("Enabled   : 0b{:0>8b}", mem.ie), // , mem.ie),
+        format!("Requested : 0b{:0>8b}", mem.io().interrupt_flags), // , mem.io.interrupt_flags),
     ]))
     .block(block);
     frame.render_widget(para, area);
@@ -233,11 +235,11 @@ impl GameBoyLike for Gameboy {
     }
 
     fn is_complete(&self) -> bool {
-        self.cpu().done
+        self.cpu().state != CpuState::Running
     }
 }
 
-impl<'a> GameBoyLike for StartUpSequence<'a> {
+impl GameBoyLike for StartUpSequence {
     const PROMPT: &'static str = "init";
 
     fn gb(&self) -> &Gameboy {

@@ -1,6 +1,8 @@
 use std::ops::Range;
 
-#[derive(Debug, Hash, Clone, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MBC1 {
     kind: MBC1Kind,
     rom: Vec<u8>,
@@ -101,13 +103,13 @@ impl MBC1 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MBC1Kind {
     Standard,
     Rewired,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BankingMode {
     Simple = 0,
     Advanced = 1,

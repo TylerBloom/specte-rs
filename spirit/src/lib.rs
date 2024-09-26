@@ -16,7 +16,7 @@
 
 use std::borrow::Cow;
 
-use cpu::{check_bit_const, Cpu};
+use cpu::{check_bit_const, Cpu, CpuState};
 use lookup::Instruction;
 use mem::{vram::PpuMode, MemoryBankController, MemoryMap, StartUpHeaders};
 use ppu::Ppu;
@@ -28,6 +28,7 @@ pub mod lookup;
 pub mod mem;
 pub mod ppu;
 pub mod rom;
+pub(crate) mod utils;
 
 /// Represents a Gameboy color with a cartridge inserted.
 #[derive(Debug, Hash)]
@@ -49,6 +50,33 @@ impl Gameboy {
 
     pub fn next_frame(&mut self) -> FrameSequence<'_> {
         FrameSequence::new(self)
+    }
+
+    pub fn scanline_step(&mut self) {
+        match self.ppu.state() {
+            PpuMode::VBlank => {
+                let mut counter = 0;
+                // Process ops until we see OamScan or have processed a number of ticks equal to
+                // one scan line.
+                loop {
+                    let step = self.step();
+                    counter += step.op_len() as usize;
+                    step.complete();
+                    if counter >= 456 || matches!(self.ppu.state(), PpuMode::OamScan) {
+                        return;
+                    }
+                }
+            }
+            _ => {
+                // process ops until we see OamScan or VBlank
+                loop {
+                    self.step().complete();
+                    if matches!(self.ppu.state(), PpuMode::OamScan | PpuMode::VBlank) {
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     pub fn cpu(&self) -> &Cpu {
@@ -115,6 +143,18 @@ impl Gameboy {
     fn start_up_apply_op(&mut self, op: Instruction) -> Option<Instruction> {
         self.cpu.start_up_execute(op, &mut self.mem)
     }
+
+    pub fn is_running(&self) -> bool {
+        self.cpu.state == CpuState::Running
+    }
+
+    pub fn is_halted(&self) -> bool {
+        self.cpu.state == CpuState::Halted
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        self.cpu.state == CpuState::Stopped
+    }
 }
 
 pub enum ButtonInput {
@@ -154,6 +194,7 @@ impl<'a> StepProcess<'a> {
     /// Processes the current instructions, fetches the next instruction, and undates this process
     /// in-place.
     fn step_and_next(&mut self) {
+        (self.counter..self.op.length(&self.gb.cpu)).for_each(|_| self.gb.tick());
         self.gb.apply_op(self.op);
         self.op = self.gb.read_op();
         self.counter = 0;
@@ -178,11 +219,15 @@ impl<'a> StepProcess<'a> {
 
     /// Consumes the step processor, dropping it immediately.
     pub fn complete(self) {}
+
+    pub fn op_len(&self) -> u8 {
+        self.op.length(&self.gb.cpu)
+    }
 }
 
 impl Drop for StepProcess<'_> {
     fn drop(&mut self) {
-        (self.counter..self.op.length(&self.gb.cpu)).for_each(|_| self.tick());
+        (self.counter..self.op.length(&self.gb.cpu)).for_each(|_| self.gb.tick());
         self.gb.apply_op(self.op);
     }
 }
@@ -200,6 +245,10 @@ pub struct StartUpSequence {
 impl StartUpSequence {
     pub fn frame_step(&mut self) -> StartUpFrame<'_> {
         StartUpFrame::new(self)
+    }
+
+    pub fn scanline_step(&mut self) {
+        self.gb.scanline_step()
     }
 }
 

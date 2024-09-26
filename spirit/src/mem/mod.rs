@@ -17,6 +17,8 @@ pub use mbc::MemoryBankController;
 use mbc::*;
 
 use io::IoRegisters;
+use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use tracing::trace;
 use vram::PpuMode;
 
@@ -26,16 +28,20 @@ pub static START_UP_HEADER: &[u8; 0x900] = include_bytes!("../cgb.bin");
 
 pub type StartUpHeaders = ([u8; 0x100], [u8; 0x700]);
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[serde_as]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryMap {
     // The MBC
     mbc: MemoryBankController,
     // The video RAM and Object attribute map
     pub vram: VRam,
     // The working RAM
-    wram: ([u8; 0x1000], [u8; 0x1000]),
+    #[serde(serialize_with = "crate::utils::serialize_slices_as_one")]
+    #[serde(deserialize_with = "crate::utils::deserialize_slices_as_one")]
+    wram: [[u8; 0x1000]; 2],
     io: IoRegisters,
     // High RAM
+    #[serde_as(as = "serde_with::Bytes")]
     hr: [u8; 0x7F],
     /// The interrupt enable register. Bits 0-4 flag where or not certain interrupt handlers can be
     /// called.
@@ -45,7 +51,7 @@ pub struct MemoryMap {
     ///  - Bit 3 corresponds to the serial interrupt
     ///  - Bit 4 corresponds to the joypad interrupt
     /// When intexed, this register is at 0xFFFF.
-    ie: u8,
+    pub ie: u8,
     // There is a region of memory that is marked as inaccessible (0xFEA0 through 0xFEFF). Instead
     // of panicking when this area is accessed, a reference to this dead byte is used instead.
     dead_byte: u8,
@@ -56,7 +62,7 @@ impl MemoryMap {
         Self {
             mbc: MemoryBankController::new(cart),
             vram: VRam::new(),
-            wram: ([0; 0x1000], [0; 0x1000]),
+            wram: [[0; 0x1000]; 2],
             dead_byte: 0,
             io: IoRegisters::default(),
             hr: [0; 0x7F],
@@ -130,6 +136,10 @@ impl MemoryMap {
         self.io.inc_lcd_y()
     }
 
+    pub(crate) fn reset_ppu_status(&mut self) {
+        self.vram.reset_status()
+    }
+
     pub(crate) fn inc_ppu_status(&mut self, state: PpuMode) {
         self.vram.inc_status(state)
     }
@@ -173,11 +183,15 @@ impl MemoryMap {
     pub fn construct() -> Self {
         let rom = vec![0; 32000];
         let ram = vec![0; 4000];
-        let mbc = MemoryBankController::Direct { rom, ram, dead_byte: 0 };
+        let mbc = MemoryBankController::Direct {
+            rom,
+            ram,
+            dead_byte: 0,
+        };
         Self {
             mbc,
             vram: VRam::new(),
-            wram: ([0; 0x1000], [0; 0x1000]),
+            wram: [[0; 0x1000]; 2],
             dead_byte: 0,
             io: IoRegisters::default(),
             hr: [0; 0x7F],
@@ -207,11 +221,11 @@ impl Index<u16> for MemoryMap {
             0x0000..=0x7FFF => &self.mbc[index],
             n @ 0x8000..=0x9FFF => &self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
             n @ 0xA000..=0xBFFF => &self.mbc[n],
-            n @ 0xC000..=0xCFFF => &self.wram.0[n as usize - 0xC000],
-            n @ 0xD000..=0xDFFF => &self.wram.1[n as usize - 0xD000],
+            n @ 0xC000..=0xCFFF => &self.wram[0][n as usize - 0xC000],
+            n @ 0xD000..=0xDFFF => &self.wram[1][n as usize - 0xD000],
             // Echo RAM
-            n @ 0xE000..=0xEFFF => &self.wram.0[n as usize - 0xE000],
-            n @ 0xF000..=0xFDFF => &self.wram.1[n as usize - 0xF000],
+            n @ 0xE000..=0xEFFF => &self.wram[0][n as usize - 0xE000],
+            n @ 0xF000..=0xFDFF => &self.wram[1][n as usize - 0xF000],
             n @ 0xFE00..=0xFE9F => &self.vram[CpuOamIndex(n)],
             // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
             // dead byte will be returned instead.
@@ -231,11 +245,11 @@ impl IndexMut<u16> for MemoryMap {
             n @ 0x0000..=0x7FFF => &mut self.mbc[n],
             n @ 0x8000..=0x9FFF => &mut self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
             n @ 0xA000..=0xBFFF => &mut self.mbc[n],
-            n @ 0xC000..=0xCFFF => &mut self.wram.0[n as usize - 0xC000],
-            n @ 0xD000..=0xDFFF => &mut self.wram.1[n as usize - 0xD000],
+            n @ 0xC000..=0xCFFF => &mut self.wram[0][n as usize - 0xC000],
+            n @ 0xD000..=0xDFFF => &mut self.wram[1][n as usize - 0xD000],
             // Echo RAM
-            n @ 0xE000..=0xEFFF => &mut self.wram.0[n as usize - 0xE000],
-            n @ 0xF000..=0xFDFF => &mut self.wram.1[n as usize - 0xF000],
+            n @ 0xE000..=0xEFFF => &mut self.wram[0][n as usize - 0xE000],
+            n @ 0xF000..=0xFDFF => &mut self.wram[1][n as usize - 0xF000],
             n @ 0xFE00..=0xFE9F => &mut self.vram[CpuOamIndex(n)],
             // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
             // dead byte will be returned instead.
@@ -252,22 +266,10 @@ impl IndexMut<u16> for MemoryMap {
 
 /* --------- Indexing types use by the PPU --------- */
 
-/// A type used to index into the Object Attribute Map. This type is only used by the PPU.
-#[derive(Clone, Copy)]
-pub(crate) struct OamIndex(pub u8);
-
-impl Index<OamIndex> for MemoryMap {
-    type Output = u8;
-
-    fn index(&self, index: OamIndex) -> &Self::Output {
-        todo!()
-    }
-}
-
 /// A type used to index an object inside of the Object Attribute Map. The inner value of the index
 /// notes the object's position in the map and *not* the object's address in memory. This includes
 /// the y pos, x pos, tile index, and attributes of the object. This type is only used by the PPU.
-pub(crate) struct OamObjectIndex(pub u8);
+pub struct OamObjectIndex(pub u8);
 
 impl Index<OamObjectIndex> for MemoryMap {
     type Output = [u8; 4];
@@ -286,7 +288,7 @@ impl Index<ObjTileDataIndex> for MemoryMap {
     type Output = [u8];
 
     fn index(&self, index: ObjTileDataIndex) -> &Self::Output {
-        &self.vram[index]
+        &self.vram[(index, check_bit_const::<2>(self.io.lcd_control))]
     }
 }
 
@@ -311,11 +313,13 @@ impl Index<BgTileMapIndex> for MemoryMap {
     type Output = u8;
 
     fn index(&self, BgTileMapIndex { x, y }: BgTileMapIndex) -> &Self::Output {
+        let y_offset = self.io.bg_position.0;
+        let second_map = check_bit_const::<3>(self.io.lcd_control);
         let index = BgTileMapInnerIndex {
             second_map: check_bit_const::<3>(self.io.lcd_control),
             // We want to ignore the bottom 3 bits
-            x: (x & 0xF8).wrapping_add(self.io.bg_position.1 & 0xF8),
-            y: (y & 0xF8).wrapping_add(self.io.bg_position.0 & 0xF8),
+            x: x.wrapping_add(self.io.bg_position.1 & 0xF8),
+            y: y.wrapping_add(self.io.bg_position.0),
         };
         &self.vram[index]
     }
@@ -332,10 +336,9 @@ pub struct BgTileMapAttrIndex {
 impl Index<BgTileMapAttrIndex> for MemoryMap {
     type Output = u8;
 
-    fn index(&self, BgTileMapAttrIndex { mut x, mut y }: BgTileMapAttrIndex) -> &Self::Output {
+    fn index(&self, BgTileMapAttrIndex { x, y }: BgTileMapAttrIndex) -> &Self::Output {
         let index = BgTileMapAttrIndex {
-            // We want to ignore the bottom 3 bits
-            x: x.wrapping_add(self.io.bg_position.1),
+            x: x.wrapping_add(self.io.bg_position.1 & 0xF8),
             y: y.wrapping_add(self.io.bg_position.0),
         };
         &self.vram[index]

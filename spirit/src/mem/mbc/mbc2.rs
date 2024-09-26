@@ -1,8 +1,12 @@
 use std::ops::{Index, IndexMut};
 
+use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
+
 use crate::cpu::u16_check_bit_const;
 
-#[derive(Debug, Hash, Clone, PartialEq, Eq)]
+#[serde_as]
+#[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MBC2 {
     rom: Vec<u8>,
     // TODO: This can probably be replaced with NonZeroUsize
@@ -10,6 +14,7 @@ pub struct MBC2 {
     // TODO: The built-in RAM only uses the lower 4-bits. There is no good way to model this via
     // indexing, so we are going to rely on the ROM writers to obey this. It might be the case
     // that this needs to be changed.
+    #[serde_as(as = "serde_with::Bytes")]
     ram: Box<[u8; 512]>,
     ram_enabled: u8,
     dead_byte: u8,
@@ -22,9 +27,7 @@ impl Index<u16> for MBC2 {
         match index {
             0x0000..=0x3FFF => todo!("read from rom bank 0"),
             0x4000..=0x7FFF => todo!("read from rom bank 1-F"),
-            i @ 0xA000..=0xBFFF => {
-                &self.ram[(i & 0x01FF) as usize]
-            },
+            i @ 0xA000..=0xBFFF => &self.ram[(i & 0x01FF) as usize],
             _ => unreachable!(),
         }
     }
@@ -38,9 +41,7 @@ impl IndexMut<u16> for MBC2 {
             i @ 0xA000..=0xBFFF if self.ram_enabled == 0x0A => {
                 todo!("Index into RAM")
             }
-            0xA000..=0xBFFF if self.ram_enabled == 0x0A => {
-                &mut self.dead_byte
-            }
+            0xA000..=0xBFFF if self.ram_enabled == 0x0A => &mut self.dead_byte,
             _ => unreachable!(),
         }
     }

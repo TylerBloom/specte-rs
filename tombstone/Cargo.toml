@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 crossterm = "0.28.1"
-ratatui = { version = "0.26.3", features = ["all-widgets"] }
+ratatui = { version = "0.28.1", features = ["all-widgets"] }
 spirit = { path = "../spirit" }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
