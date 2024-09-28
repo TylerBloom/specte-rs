@@ -14,7 +14,9 @@
     clippy::all
 )]
 
-use std::borrow::Cow;
+use std::{borrow::Cow, ops::{Deref, DerefMut}};
+
+use serde::{Deserialize, Serialize};
 
 use cpu::{check_bit_const, Cpu, CpuState};
 use lookup::Instruction;
@@ -31,21 +33,31 @@ pub mod rom;
 pub(crate) mod utils;
 
 /// Represents a Gameboy color with a cartridge inserted.
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Serialize, Deserialize)]
 pub struct Gameboy {
     pub mem: MemoryMap,
     pub ppu: Ppu,
     cpu: Cpu,
 }
 
+#[must_use = "Start up sequence is lazy and should be ticked. Dropping this object to complete the startup sequence instantly."]
+pub struct StartUpSequence {
+    gb: Gameboy,
+    op: Instruction,
+    counter: u8,
+    done: bool,
+    /// The memory that the ROM contains that get mapped over during the startup process.
+    remap_mem: StartUpHeaders,
+}
+
 impl Gameboy {
     /// Takes data that represents the data stored on a game cartridge and uses it to construct the
-    pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
-        Self {
+    pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> StartUpSequence {
+        StartUpSequence::new(Self {
             mem: MemoryMap::new(cart),
             cpu: Cpu::new(),
             ppu: Ppu::new(),
-        }
+        })
     }
 
     pub fn next_frame(&mut self) -> FrameSequence<'_> {
@@ -107,12 +119,6 @@ impl Gameboy {
             }
             (old_pc, op)
         })
-    }
-
-    /// Runs the power-up sequence for the gameboy. During this time, the Gameboy remaps part of
-    /// the memory to read from the start up sequence.
-    pub fn start_up(self) -> StartUpSequence {
-        StartUpSequence::new(self)
     }
 
     /// This returns a state that will track the number of required clock ticks it takes to
@@ -232,16 +238,6 @@ impl Drop for StepProcess<'_> {
     }
 }
 
-#[must_use = "Start up sequence is lazy and should be ticked. Dropping this object to complete the startup sequence instantly."]
-pub struct StartUpSequence {
-    gb: Gameboy,
-    op: Instruction,
-    counter: u8,
-    done: bool,
-    /// The memory that the ROM contains that get mapped over during the startup process.
-    remap_mem: StartUpHeaders,
-}
-
 impl StartUpSequence {
     pub fn frame_step(&mut self) -> StartUpFrame<'_> {
         StartUpFrame::new(self)
@@ -249,6 +245,20 @@ impl StartUpSequence {
 
     pub fn scanline_step(&mut self) {
         self.gb.scanline_step()
+    }
+}
+
+impl Deref for StartUpSequence {
+    type Target = Gameboy;
+
+    fn deref(&self) -> &Self::Target {
+        self.gb()
+    }
+}
+
+impl DerefMut for StartUpSequence {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.gb
     }
 }
 
@@ -409,16 +419,6 @@ mod tests {
 
     #[test_log::test]
     fn start_up_completion() {
-        let mut gb = Gameboy::new(include_bytes!("../tests/roms/acid/which.gb"));
-        gb.start_up().complete();
-    }
-
-    #[test]
-    fn frame_by_frame_start_up() {
-        let mut gb = Gameboy::new(include_bytes!("../tests/roms/acid/which.gb"));
-        let mut seq = gb.start_up();
-        while !seq.is_complete() {
-            seq.frame_step().complete();
-        }
+        Gameboy::new(include_bytes!("../tests/roms/acid/which.gb")).complete();
     }
 }

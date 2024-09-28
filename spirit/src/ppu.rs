@@ -41,7 +41,7 @@ use crate::{
 //    require a hand-roll deser impl or something from a third-party crate.
 
 /// The Pixel Processing Unit
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Serialize, Deserialize)]
 pub struct Ppu {
     /// Represents the LCD screen. The length of this will always be 144.
     pub screen: Vec<Vec<Pixel>>,
@@ -82,7 +82,7 @@ impl Ppu {
     }
 }
 
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Serialize, Deserialize)]
 pub enum PpuInner {
     OamScan { dots: u8 },
     Drawing { dots: u16 },
@@ -179,7 +179,7 @@ impl PpuInner {
 }
 
 // TODO: This needs to track what model it is in (not VBLANK, though) and pass that to the PPU
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Serialize, Deserialize)]
 struct ObjectFiFo {
     pixels: VecDeque<FiFoPixel>,
 }
@@ -225,7 +225,7 @@ impl ObjectFiFo {
 }
 
 // TODO: This needs to track what model it is in (not VBLANK, though) and pass that to the PPU
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Serialize, Deserialize)]
 struct BackgroundFiFo {
     x: u8,
     y: u8,
@@ -271,7 +271,7 @@ impl BackgroundFiFo {
     }
 }
 
-#[derive(Debug, Default, Hash, Clone, Copy)]
+#[derive(Debug, Default, Hash, Clone, Copy, Serialize, Deserialize)]
 pub struct FiFoPixel {
     /// Which color for the selected palette should be used. Ranges from 0 to 3.
     color: u8,
@@ -354,7 +354,7 @@ impl Pixel {
 // TODO: There are various things that can affect how the fetcher indexes into the tile map, the
 // tile data, etc. To get a debuggable build, this is all being ignored and will be impl-ed in the
 // future.
-#[derive(Debug, Hash, Clone, Copy)]
+#[derive(Debug, Hash, Clone, Copy, Serialize, Deserialize)]
 enum PixelFetcher {
     GetTile {
         ticked: bool,

@@ -1,4 +1,4 @@
-use serde::{ser::SerializeSeq, Deserialize, de:::Error, Deserializer, Serializer};
+use serde::{de::Error, ser::SerializeSeq, Deserialize, Deserializer, Serializer};
 
 use heapless::Vec as InlineVec;
 
@@ -22,8 +22,8 @@ pub(crate) fn deserialize_slices_as_one<
 >(
     de: De,
 ) -> Result<[[u8; N]; M], De::Error> {
-    let data = InlineVec::<InlineVec<u8, N>, M>::deserialize(de)?;
-    data.into_array()
+    Ok(InlineVec::<InlineVec<u8, N>, M>::deserialize(de)?
+        .into_array()
         .map_err(|e| De::Error::custom(format!("")))?
-        .map(|data| data.into_array().unwrap())
+        .map(|data| data.into_array().unwrap()))
 }

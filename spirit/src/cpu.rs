@@ -8,6 +8,7 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
+use serde::{Deserialize, Serialize};
 use tracing::{info, info_span, trace};
 
 use crate::{
@@ -19,9 +20,11 @@ use crate::{
     mem::MemoryMap,
 };
 
-#[derive(Debug, Default, Hash, Clone, PartialEq, Eq, derive_more::Display)]
+#[derive(
+    Debug, Default, Hash, Clone, PartialEq, Eq, derive_more::Display, Serialize, Deserialize,
+)]
 #[display(
-    fmt = "CPU {{ A=0x{:0>2X} F={} B=0x{:0>2X} C=0x{:0>2X} D=0x{:0>2X} E=0x{:0>2X} H=0x{:0>2X} L=0x{:0>2X} SP=0x{:0>2X} PC=0x{:0>2X} IME={} Done={} }}",
+    "CPU {{ A=0x{:0>2X} F={} B=0x{:0>2X} C=0x{:0>2X} D=0x{:0>2X} E=0x{:0>2X} H=0x{:0>2X} L=0x{:0>2X} SP=0x{:0>2X} PC=0x{:0>2X} IME={} Done={} }}",
     a,
     f,
     b,
@@ -54,7 +57,9 @@ pub struct Cpu {
     pub state: CpuState,
 }
 
-#[derive(Debug, Default, Hash, Clone, Copy, PartialEq, Eq, derive_more::Display)]
+#[derive(
+    Debug, Default, Hash, Clone, Copy, PartialEq, Eq, derive_more::Display, Serialize, Deserialize,
+)]
 #[repr(u8)]
 pub enum CpuState {
     #[default]
@@ -81,13 +86,15 @@ pub enum RegisterFlags {
     C,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, derive_more::Display)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, derive_more::Display, Serialize, Deserialize,
+)]
 #[display(
-    fmt = "Flags(Z={} N={} H={} C={})",
-    "*z as u8",
-    "*n as u8",
-    "*h as u8",
-    "*c as u8"
+    "Flags(Z={} N={} H={} C={})",
+    *z as u8,
+    *n as u8,
+    *h as u8,
+    *c as u8
 )]
 pub struct Flags {
     /// The zero flag

@@ -3,12 +3,10 @@ name = "spirit"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 # serde_json = { version = "1.0" }
 # hex = { version = "0.4", features = ["serde"] }
-derive_more = "1.0"
+derive_more = { version = "1.0", features = ["full"] }
 array-concat = "0.5.2"
 # once_cell = "1.19"
 tracing = "0.1.40"
