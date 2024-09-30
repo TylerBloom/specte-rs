@@ -86,7 +86,7 @@ impl Example {
         let gb = self.gb.gb();
         let screen = &gb.ppu.screen;
         let col = row![
-            Image::new(Handle::from_pixels(
+            Image::new(Handle::from_rgba(
                 160,
                 144,
                 screen
