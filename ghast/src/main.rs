@@ -1,15 +1,7 @@
-#![allow(unused)]
-
-use iced::{Application, Settings};
-use state::Example;
-
-mod debug;
-mod state;
-mod utils;
+use ghast::state::Emulator;
 
 pub fn main() -> iced::Result {
-    Example::run(Settings {
-        antialiasing: true,
-        ..Settings::default()
-    })
+    iced::application("Specters - Ghast GBC", Emulator::update, Emulator::view)
+        .subscription(Emulator::subscription)
+        .run()
 }

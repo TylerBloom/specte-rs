@@ -3,6 +3,14 @@ name = "ghast"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "ghast"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ghast"
+path = "src/main.rs"
+
 [dependencies]
 iced = { version = "0.13.1", features = ["advanced", "canvas", "image", "tokio"] }
 itertools = "0.13.0"

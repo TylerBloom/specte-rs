@@ -2,6 +2,7 @@
 use std::fmt::Write;
 use std::{error::Error, io::Write as _};
 
+use ratatui::layout::Position;
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout, Rect},
@@ -27,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut term = Terminal::new(backend)?;
     term.clear()?;
-    let mut gb = Gameboy::new(TMP_ROM).start_up();
+    let mut gb = Gameboy::new(TMP_ROM);
     run_until_complete(gb, &mut state, &mut term)?;
     println!("Startup sequence complete!");
     // run_until_complete(gb, &mut state, &mut term)?;
@@ -59,7 +60,7 @@ fn render_frame(frame: &mut Frame, state: &mut AppState, gb: &Gameboy) {
     let sections = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Fill(1), Constraint::Length(40)])
-        .split(frame.size());
+        .split(frame.area());
     let left = sections[0];
     let right = sections[1];
     let left = Layout::default()
@@ -99,7 +100,7 @@ fn render_cli(frame: &mut Frame, state: &mut AppState, area: Rect) {
         .rev()
         .map(|s| s.as_str());
     let para = Paragraph::new(Text::from_iter(iter)).block(block);
-    frame.set_cursor(x, cursor_y);
+    frame.set_cursor_position(Position::new(x, cursor_y));
     frame.render_widget(para, area);
 }
 

@@ -1,5 +1,3 @@
-
-
 /// Scales an image by a set factor, preserving the original ratio.
 fn scale_up_image(image: &[u8], height: usize, width: usize, scale: usize) -> Vec<u8> {
     assert_eq!(image.len(), 4 * height * width);

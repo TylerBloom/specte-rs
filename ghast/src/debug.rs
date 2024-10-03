@@ -1,8 +1,8 @@
 use iced::{
-    widget::{image::Handle, column, row, text, Column, Image, Row},
+    widget::{column, image::Handle, row, text, Column, Image, Row},
     Element,
 };
-use itertools::Itertools;
+
 use spirit::{
     cpu::check_bit_const,
     mem::OamObjectIndex,
@@ -15,7 +15,7 @@ pub struct Debugger(pub u8);
 
 impl Debugger {
     pub fn view<M: 'static>(&self, gb: &Gameboy) -> impl Into<Element<'static, M>> {
-        println!("Screen pos: ({}, {})",  gb.mem[0xFF43], gb.mem[0xFF42]);
+        println!("Screen pos: ({}, {})", gb.mem[0xFF43], gb.mem[0xFF42]);
         row![
             column![
                 Column::from_vec(vram_0_to_tiles(gb, self.0).map(Into::into).collect()).spacing(3),
@@ -62,7 +62,11 @@ fn tile_map<M: 'static>(map: &[u8]) -> impl '_ + Iterator<Item = impl Into<Eleme
             val
         })
         .collect::<Vec<Vec<Element<'static, M>>>>();
-    cols[0].extend((0..32).map(|index| text(format!("{index:0>2X }"))).map(Into::into));
+    cols[0].extend(
+        (0..32)
+            .map(|index| text(format!("{index:0>2X }")))
+            .map(Into::into),
+    );
     map.iter()
         .copied()
         .map(to_str)
@@ -158,7 +162,7 @@ fn tiles_into_rows<M>(iter: impl Iterator<Item = [[Pixel; 8]; 8]>) -> Row<'stati
 }
 
 fn pixels_to_image(chunk: [[Pixel; 8]; 8]) -> Image<Handle> {
-    Image::new(Handle::from_pixels(
+    Image::new(Handle::from_rgba(
         8,
         8,
         chunk
