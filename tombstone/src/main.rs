@@ -1,7 +1,9 @@
 #![allow(dead_code, unused)]
 use std::fmt::Write;
+use std::sync::{Arc, Mutex};
 use std::{error::Error, io::Write as _};
 
+use ghast::state::Emulator;
 use ratatui::layout::Position;
 use ratatui::{
     backend::{Backend, CrosstermBackend},
@@ -14,26 +16,28 @@ use spirit::cpu::CpuState;
 use spirit::{cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu, Gameboy, StartUpSequence};
 
 mod command;
+mod window;
 mod state;
+mod repl;
 use command::*;
 use state::*;
+use tokio::sync::broadcast;
+use window::WindowState;
 
 // TODO: handle ctrl-C and ctrl-d
 
 static TMP_ROM: &[u8] = include_bytes!("../../spirit/tests/roms/acid/which.gb");
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut state = AppState::default();
-    state.mem_start = 0x8000;
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut term = Terminal::new(backend)?;
     term.clear()?;
-    let mut gb = Gameboy::new(TMP_ROM);
-    run_until_complete(gb, &mut state, &mut term)?;
-    println!("Startup sequence complete!");
-    // run_until_complete(gb, &mut state, &mut term)?;
-    // Ok(())
-    todo!()
+    let mut gb = Arc::new(Mutex::new(Emulator::default()));
+    let (send, recv) = broadcast::channel(100);
+    WindowState::new(gb.clone(), recv).run();
+    let mut state = AppState::new(gb);
+    state.mem_start = 0x8000;
+    state.run(&mut state, term)
 }
 
 /// This function abstracts over running the startup sequence and the gameboy itself.
@@ -47,11 +51,6 @@ where
     B: Backend,
 {
     while !gb.is_complete() {
-        term.clear()?;
-        term.draw(|frame| render_frame(frame, state, gb.gb()))?;
-        // print!("{} $ ", GB::PROMPT);
-        // std::io::stdout().flush().unwrap();
-        get_input(state).process(&mut gb);
     }
     Ok(())
 }

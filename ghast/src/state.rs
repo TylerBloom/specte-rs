@@ -30,7 +30,7 @@ enum EmulatorInner {
 }
 
 impl EmulatorInner {
-    fn gb(&self) -> &Gameboy {
+    pub fn gb(&self) -> &Gameboy {
         match self {
             EmulatorInner::StartUp(seq) => seq.as_ref().unwrap().gb(),
             EmulatorInner::Ready(gb) => gb,
@@ -73,7 +73,7 @@ impl EmulatorInner {
 }
 
 impl Emulator {
-    fn screen(&self) -> impl Into<Element<Message>> {
+    fn screen(&self) -> impl Into<Element<'static, Message>> {
         let gb = self.gb.gb();
         let screen = &gb.ppu.screen;
         let col = row![
@@ -134,6 +134,12 @@ impl Emulator {
     }
 
     pub fn view(&self) -> Element<Message> {
+        self.view_owned()
+    }
+
+    /// This function only exists because `view` can not explicitly return an `Element<'static,
+    /// Message>` for... reasons.
+    pub fn view_owned(&self) -> Element<'static, Message> {
         column![
             row![
                 Button::new(text(format!("To frame {}", self.frame + 1)))

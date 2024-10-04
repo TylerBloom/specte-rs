@@ -5,6 +5,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use ghast::state::Emulator;
+use ratatui::{prelude::Backend, Terminal};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{
     fmt::{
@@ -13,6 +15,8 @@ use tracing_subscriber::{
     },
     FmtSubscriber,
 };
+
+use crate::render_frame;
 
 /// This is the app's state which holds all of the CLI data. This includes all previous commands
 /// that were ran and all data to be displayed in the TUI (prompts, inputs, command outputs).
@@ -26,11 +30,11 @@ use tracing_subscriber::{
 /// Unfortunately, subscribers are designed with threading in mind. Even though this application is
 /// strickly single-threaded, we must wrap the buffer in an Arc<Mutex> (rather than an
 /// Rc<RefCell>).
-#[derive(Debug, Default)]
 pub(crate) struct AppState {
     // TODO: Add command history (don't store the actual command, store the string that then get
     // parsed into commands.
     // TODO: We should limit the command and output history. We don't want it to grow forever.
+    gb: Arc<Mutex<Emulator>>,
     pub(crate) cli_history: Vec<String>,
     pub(crate) subscriber:
         Option<FmtSubscriber<DefaultFields, Format<Compact, ()>, LevelFilter, GameboySubscriber>>,
@@ -46,8 +50,33 @@ pub enum Verbosity {
 }
 
 impl AppState {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(gb: Arc<Mutex<Emulator>>) -> Self {
+        Self {
+            gb,
+            cli_history: Vec::new(),
+            subscriber: None,
+            buffer: Arc::new(Mutex::new(Vec::new())),
+            mem_start: 0,
+        }
+    }
+
+    pub fn run<B: Backend>(self, state: &mut AppState, term: &mut Terminal<B>) {
+        loop {
+            term.clear().unwrap();
+            term.draw(|frame| render_frame(frame, state, self.gb.lock().unwrap().gb()))
+                .unwrap();
+            // print!("{} $ ", GB::PROMPT);
+            // std::io::stdout().flush().unwrap();
+            self.get_input().process(&mut *self.gb.lock().unwrap());
+        }
+    }
+
+    fn get_input(&mut self) -> crate::command::Command {
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).unwrap();
+        let cmd = untwine::parse(crate::command::command, input.trim()).unwrap();
+        self.cli_history.push(input);
+        cmd
     }
 
     // TODO: Because the state now tracks the command history and any output from the emulator, we
