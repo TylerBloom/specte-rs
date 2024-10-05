@@ -407,7 +407,6 @@ impl PixelFetcher {
             &mut PixelFetcher::GetTile { x, .. } => {
                 let index = mem[BgTileMapIndex { x, y }];
                 let attr = mem[BgTileMapAttrIndex { x, y }];
-                println!("Getting BG tile data for: ({x}, {y})");
                 *self = Self::DataLow {
                     ticked: false,
                     index,

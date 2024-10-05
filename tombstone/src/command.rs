@@ -105,7 +105,7 @@ pub enum Interrupt {
     VBlank,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum WindowMessage {
     Frames(usize),
     Run,

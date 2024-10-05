@@ -15,7 +15,6 @@ pub struct Debugger(pub u8);
 
 impl Debugger {
     pub fn view<M: 'static>(&self, gb: &Gameboy) -> impl Into<Element<'static, M>> {
-        println!("Screen pos: ({}, {})", gb.mem[0xFF43], gb.mem[0xFF42]);
         row![
             column![
                 Column::from_vec(vram_0_to_tiles(gb, self.0).map(Into::into).collect()).spacing(3),

@@ -240,7 +240,6 @@ impl IndexMut<u16> for IoRegisters {
             // This register needs to be reset when ticked.
             0xFF41 => &mut self.lcd_status_dup,
             0xFF42 => {
-                println!("Writing to Y BG position...");
                 &mut self.bg_position.0
             }
             0xFF43 => &mut self.bg_position.1,
