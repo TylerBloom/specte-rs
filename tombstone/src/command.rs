@@ -11,6 +11,7 @@ use std::{
 
 use clap::{Args, Parser, Subcommand};
 
+use ghast::state::Message;
 use spirit::lookup::{Instruction, JumpOp};
 
 use crate::AppState;
@@ -40,23 +41,32 @@ pub enum Command {
     Index(IndexOptions),
     /// Runs the emulator until some condition is met.
     #[command(subcommand)]
-    Run(RunUntil),
+    Run(RunLength),
     /// Runs the emulator until some condition is met.
     #[command(subcommand)]
     Interrupt(Interrupt),
     #[command(subcommand)]
     Stash(StashOptions),
+    Pause,
 }
 
 #[derive(Subcommand, Clone, Copy)]
 pub enum IndexOptions {
-    Single {
-        addr: usize,
-    },
-    Range {
-        start: usize,
-        end: usize,
-    },
+    Single { addr: usize },
+    Range { start: usize, end: usize },
+}
+
+#[derive(Subcommand, Clone, Copy)]
+pub enum RunLength {
+    #[command(subcommand)]
+    For(RunFor),
+    #[command(subcommand)]
+    Until(RunUntil),
+}
+
+#[derive(Subcommand, Clone, Copy)]
+pub enum RunFor {
+    Frames { count: usize },
 }
 
 #[derive(Subcommand, Clone, Copy)]
@@ -67,6 +77,8 @@ pub enum RunUntil {
     Return,
     /// Runs the emulator until just before `ret` is ran
     Frame,
+    /// Runs the emulator until it receives a pause command
+    Pause,
 }
 
 #[derive(Subcommand, Clone)]
@@ -91,6 +103,25 @@ pub enum StashOptions {
 #[derive(Subcommand, Clone, Copy)]
 pub enum Interrupt {
     VBlank,
+}
+
+#[derive(Clone, Copy)]
+pub enum WindowMessage {
+    Frames(usize),
+    Run,
+    Pause,
+    Redraw,
+}
+
+impl From<WindowMessage> for ghast::state::Message {
+    fn from(value: WindowMessage) -> Self {
+        match value {
+            WindowMessage::Frames(count) => Message::Step(count),
+            WindowMessage::Run => Message::Play,
+            WindowMessage::Pause => Message::Pause,
+            WindowMessage::Redraw => Message::Redraw,
+        }
+    }
 }
 
 #[cfg(test)]

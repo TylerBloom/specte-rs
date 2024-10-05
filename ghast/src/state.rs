@@ -17,6 +17,7 @@ pub struct Emulator {
 pub enum Message {
     Play,
     Pause,
+    Redraw,
     ScanLine,
     Step(usize),
     Tick,
@@ -95,6 +96,9 @@ impl Emulator {
     pub fn gb(&self) -> &Gameboy {
         self.gb.gb()
     }
+
+    pub fn step_instruction(&mut self) {
+    }
 }
 
 impl Default for Emulator {
@@ -134,6 +138,7 @@ impl Emulator {
             },
             Message::ScanLine => self.gb.scanline_step(),
             Message::PaletteInc => self.dbg.inc(),
+            Message::Redraw => { },
         }
     }
 

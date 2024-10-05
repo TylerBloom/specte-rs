@@ -74,6 +74,21 @@ impl AppState {
     }
 
     fn process(&mut self, msg: Command) {
+        match msg {
+            Command::Exit => std::process::exit(0),
+            Command::Step { count } => {
+                let gb = self.gb.lock().unwrap();
+                for _ in 0..count {
+                    gb.gb()
+                }
+            },
+            Command::Info => todo!(),
+            Command::Index(_) => todo!(),
+            Command::Run(_) => todo!(),
+            Command::Interrupt(_) => todo!(),
+            Command::Stash(_) => todo!(),
+            Command::Pause => todo!(),
+        }
         /*
         match msg {
             Command::Info => gb.gb().cpu().to_string(),
