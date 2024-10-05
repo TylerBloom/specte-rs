@@ -33,11 +33,12 @@ fn main() {
     let mut term = Terminal::new(backend).unwrap();
     term.clear().unwrap();
     let mut gb = Arc::new(Mutex::new(Emulator::default()));
-    let (send, recv) = broadcast::channel(100);
+    // let (send, recv) = broadcast::channel(100);
     let mut state = AppState::new(gb.clone());
     state.mem_start = 0x8000;
-    std::thread::spawn(move || state.run(&mut term));
-    WindowState::new(gb, recv).run();
+    let handle = std::thread::spawn(move || state.run(&mut term));
+    // WindowState::new(gb, recv).run();
+    handle.join();
 }
 
 fn render_frame(frame: &mut Frame, gb: &Gameboy) {

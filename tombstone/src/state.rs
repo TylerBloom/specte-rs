@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use clap::Parser;
 use ghast::state::Emulator;
 use ratatui::{prelude::Backend, Terminal};
 use tracing::level_filters::LevelFilter;
@@ -16,7 +17,7 @@ use tracing_subscriber::{
     FmtSubscriber,
 };
 
-use crate::{render_frame, Command};
+use crate::{render_frame, Command, ReplCommand};
 
 /// This is the app's state which holds all of the CLI data. This includes all previous commands
 /// that were ran and all data to be displayed in the TUI (prompts, inputs, command outputs).
@@ -162,9 +163,10 @@ impl AppState {
     fn get_input(&mut self) -> Command {
         let mut input = String::new();
         std::io::stdin().read_line(&mut input).unwrap();
-        let cmd = untwine::parse(crate::command::command, input.trim()).unwrap();
+        let cmd = ReplCommand::try_parse_from(std::iter::once(input.trim())).unwrap();
+        // let cmd = untwine::parse(crate::command::command, input.trim()).unwrap();
         self.cli_history.push(input);
-        cmd
+        cmd.command
     }
 
     // TODO: Because the state now tracks the command history and any output from the emulator, we

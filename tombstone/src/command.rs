@@ -9,127 +9,58 @@ use std::{
     str::FromStr,
 };
 
+use clap::{Args, Parser, Subcommand};
+
 use spirit::lookup::{Instruction, JumpOp};
 
 use crate::AppState;
-use untwine::{parse, ParserError};
 
-#[derive(Debug)]
-pub enum CommandParserError {
-    Number,
-    Command,
+#[derive(Parser)]
+#[command(multicall = true)]
+pub struct ReplCommand {
+    #[command(subcommand)]
+    pub command: Command,
 }
 
-impl From<Vec<(Range<usize>, Self)>> for CommandParserError {
-    fn from(_: Vec<(Range<usize>, Self)>) -> Self {
-        Self::Command
-    }
-}
-
-impl From<ParserError> for CommandParserError {
-    fn from(value: ParserError) -> Self {
-        Self::Command
-    }
-}
-
-impl From<ParseIntError> for CommandParserError {
-    fn from(_: ParseIntError) -> Self {
-        Self::Number
-    }
-}
-
-untwine::parser! {
-    [error = CommandParserError]
-    ws = #{char::is_ascii_whitespace}+;
-    number: <"0x" | "0b">? rest=<.*> -> usize { rest.parse()? }
-    range: start=number ".." end=number -> Range<usize> { start..end }
-    step: "step" ws count=number -> Command { Command::Step(count as usize) }
-    info: "info" -> Command { Command::Info }
-    index_number: "index" ws number=number -> Command { Command::Index(IndexOptions::Single(number)) }
-    index_range: "index" ws range=range -> Command { Command::Index(IndexOptions::Range(range)) }
-    top_run: "run" ws "until" ws rest=<.*> -> Command { Command::Run(parse(run, rest)?) }
-    interrupt: "interrupt" -> Command { Command::Interrupt(todo!()) }
-    top_stash: "stash" ws rest=<.*> -> Command { Command::Stash(parse(stash, rest)?) }
-    help: "help" -> Command { todo!() }
-    exit: "exit" -> Command { todo!() }
-    pub command = (step | info | index_number | index_range | top_run | interrupt | top_stash | help | exit) -> Command;
-}
-
-untwine::parser! {
-    [error=CommandParserError]
-    ws = #{char::is_ascii_whitespace}+;
-    load_direct: "load " ws rest=<.*> -> StashOptions { StashOptions::Load(rest.to_owned()) }
-    load_from: "load from" ws file=<.*> -> StashOptions { StashOptions::LoadFrom(file.parse().unwrap()) }
-    save: "save" ws file=<.*> -> StashOptions { StashOptions::Save((!file.is_empty()).then(|| file.parse().unwrap())) }
-    export: "export" ws file=<.*> ws rest=<.*> -> StashOptions { StashOptions::Export(file.parse().unwrap(), (!rest.is_empty()).then(|| rest.to_owned())) }
-    remove: "remove" ws rest=<.*> -> StashOptions { StashOptions::Remove((!rest.is_empty()).then(|| rest.to_owned())) }
-    pub stash = (save | load_from | load_direct | export | remove) -> StashOptions;
-}
-
-untwine::parser! {
-    [error=CommandParserError]
-    ws = #{char::is_ascii_whitespace}+;
-    until_loop: "loop" -> RunUntil { RunUntil::Loop }
-    until_return: "return" -> RunUntil { RunUntil::Return }
-    until_frame: "frame" -> RunUntil { RunUntil::Frame }
-    pub run = (until_loop | until_return | until_frame) -> RunUntil;
-}
-
-pub(crate) fn get_input(state: &mut AppState) -> Command {
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input).unwrap();
-    let cmd = parse(command, input.trim()).unwrap();
-    state.cli_history.push(input);
-    cmd
-}
-
-pub(crate) enum Command {
-    // TODO: Add a commands:
-    //  - help
-    //  - something to visualize the surrounding ops
-    //  - exit
-    //  - to set verbosity level
-    // Index should be formatted more nicely, like hexdump
-    /// Steps the emulator forward N operations.
-    Step(usize),
-    /// Prints the current state of the CPU.
+// TODO: Add a commands:
+//  - help
+//  - something to visualize the surrounding ops
+//  - to set verbosity level
+// Index should be formatted more nicely, like hexdump
+#[derive(Subcommand)]
+pub enum Command {
+    /// Exits the debugger
+    Exit,
+    Step {
+        count: usize,
+    },
     Info,
     /// Prints a section of the MemoryMap.
+    #[command(subcommand)]
     Index(IndexOptions),
     /// Runs the emulator until some condition is met.
+    #[command(subcommand)]
     Run(RunUntil),
     /// Runs the emulator until some condition is met.
+    #[command(subcommand)]
     Interrupt(Interrupt),
-    /// Commands that work with copies of the current state of the emulator.
+    #[command(subcommand)]
     Stash(StashOptions),
 }
 
-pub(crate) enum StashOptions {
-    /// Save a snapshot of the current state. If no string is provided, it is given a number equal
-    /// to the number of saved snapshots.
-    Save(Option<String>),
-    /// Take a snapshot of a saved state and make it the current state.
-    Load(String),
-    /// Save a snapshot to file. If the name of a state is not provided, the current state is
-    /// exported with an assumed name.
-    Export(PathBuf, Option<String>),
-    /// Removes a snapshot held in memory.
-    Remove(Option<String>),
-    /// Load a state from a file and make it the current state.
-    LoadFrom(PathBuf),
+#[derive(Subcommand, Clone, Copy)]
+pub enum IndexOptions {
+    Single {
+        addr: usize,
+    },
+    Range {
+        start: usize,
+        end: usize,
+    },
 }
 
-pub(crate) enum Interrupt {
-    VBlank,
-}
-
-pub(crate) enum IndexOptions {
-    Single(usize),
-    Range(Range<usize>),
-}
-
-/// Encodes the conditions used by the run command
-pub(crate) enum RunUntil {
+#[derive(Subcommand, Clone, Copy)]
+pub enum RunUntil {
     /// Runs the emulator until an infinite loop is detected.
     Loop,
     /// Runs the emulator until just before `ret` is ran
@@ -138,78 +69,43 @@ pub(crate) enum RunUntil {
     Frame,
 }
 
-fn parse_int(s: &str) -> Result<usize, String> {
-    let err = || format!("Unable to parse {s:?} into an integer.");
-    match s.parse() {
-        Ok(val) => Ok(val),
-        Err(_) => {
-            if let Some(s) = s.strip_prefix("0x") {
-                usize::from_str_radix(s, 16).map_err(|_| err())
-            } else if let Some(s) = s.strip_prefix("0b") {
-                usize::from_str_radix(s, 2).map_err(|_| err())
-            } else {
-                Err(err())
-            }
-        }
-    }
+#[derive(Subcommand, Clone)]
+pub enum StashOptions {
+    /// Save a snapshot of the current state. If no string is provided, it is given a number equal
+    /// to the number of saved snapshots.
+    Save { file: Option<String> },
+    /// Take a snapshot of a saved state and make it the current state.
+    Load { file: String },
+    /// Save a snapshot to file. If the name of a state is not provided, the current state is
+    /// exported with an assumed name.
+    Export {
+        state: Option<String>,
+        file: PathBuf,
+    },
+    /// Removes a snapshot held in memory.
+    Remove { state: Option<String> },
+    /// Load a state from a file and make it the current state.
+    LoadFrom { file: PathBuf },
 }
 
-impl FromStr for Command {
-    type Err = Cow<'static, str>;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some(s) = s.strip_prefix("step") {
-            let i = parse_int(s.trim())? as usize;
-            Ok(Self::Step(i))
-        } else if s.strip_prefix("info").is_some() {
-            Ok(Self::Info)
-        } else if let Some(s) = s.strip_prefix("index") {
-            s.trim().parse().map(Self::Index)
-        } else if let Some(s) = s.strip_prefix("run") {
-            s.trim().parse().map(Self::Run)
-        } else if let Some(s) = s.strip_prefix("interrupt") {
-            s.trim().parse().map(Self::Interrupt)
-        } else {
-            Err("Unknown command!".into())
-        }
-    }
+#[derive(Subcommand, Clone, Copy)]
+pub enum Interrupt {
+    VBlank,
 }
 
-impl FromStr for IndexOptions {
-    type Err = Cow<'static, str>;
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split_once("..") {
-            Some((start, end)) => {
-                let start = parse_int(start)?;
-                let end = parse_int(end)?;
-                Ok(Self::Range(start..end))
-            }
-            None => parse_int(s).map(Self::Single).map_err(Into::into),
-        }
-    }
-}
+    use std::error::Error;
 
-impl FromStr for RunUntil {
-    type Err = Cow<'static, str>;
+    use super::ReplCommand;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "until loop" => Ok(Self::Loop),
-            "until return" => Ok(Self::Return),
-            _ => Err(format!("Unknown argument to `run`: {s:?}").into()),
-        }
-    }
-}
-
-impl FromStr for Interrupt {
-    type Err = Cow<'static, str>;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.trim() == "vblank" {
-            Ok(Interrupt::VBlank)
-        } else {
-            Err(format!("Unknown argument to `interrupt`: {s:?}").into())
-        }
+    #[test]
+    fn parse_commands() -> Result<(), Box<dyn Error>> {
+        ReplCommand::try_parse_from(std::iter::once("info"))?;
+        ReplCommand::try_parse_from("step 10".split_whitespace())?;
+        assert!(ReplCommand::try_parse_from(std::iter::once("step")).is_err());
+        Ok(())
     }
 }
