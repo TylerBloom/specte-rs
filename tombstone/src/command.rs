@@ -11,11 +11,11 @@ use std::{
 
 use spirit::lookup::{Instruction, JumpOp};
 
-use crate::{AppState, GameBoyLike};
+use crate::AppState;
 use untwine::{parse, ParserError};
 
 #[derive(Debug)]
-enum CommandParserError {
+pub enum CommandParserError {
     Number,
     Command,
 }
@@ -102,91 +102,6 @@ pub(crate) enum Command {
     Interrupt(Interrupt),
     /// Commands that work with copies of the current state of the emulator.
     Stash(StashOptions),
-}
-
-impl Command {
-    pub(crate) fn process<GB: GameBoyLike>(self, gb: &mut GB) -> String {
-        match self {
-            Command::Info => gb.gb().cpu().to_string(),
-            Command::Step(n) => {
-                (0..n).any(|_| {
-                    gb.step();
-                    gb.is_complete()
-                });
-                String::new()
-            }
-            Command::Index(opts) => match opts {
-                IndexOptions::Single(i) => format!("ADDR=0x{i:0>4X} -> {:0>2X}", gb.gb().mem[i as u16]),
-                IndexOptions::Range(mut rng) => {
-                    let mut digest = format!("ADDR=0x{:0>4X}..0x{:0>4X}", rng.start, rng.end);
-                    digest.push('[');
-                    if let Some(i) = rng.next() {
-                        write!(digest, "0x{:0>2}", gb.gb().mem[i as u16]).unwrap();
-                    }
-                    for i in rng {
-                        write!(digest, ", 0x{:0>2}", gb.gb().mem[i as u16]);
-                    }
-                    digest.push(']');
-                    digest
-                }
-            },
-            Command::Run(until) => match until {
-                RunUntil::Loop => {
-                    let mut ops = Vec::new();
-                    let mut cpu_map: HashMap<_, HashMap<u64, usize>> = HashMap::new();
-                    let mut index = 0;
-                    while !gb.is_complete() {
-                        let cpu = gb.gb().cpu().clone();
-                        let ptr = cpu.pc.0;
-                        ops.push((cpu, ptr, gb.next_op()));
-                        match cpu_map.entry(gb.gb().cpu().clone()) {
-                            Entry::Occupied(mut entry) => {
-                                let mut hasher = DefaultHasher::new();
-                                gb.gb().mem.hash(&mut hasher);
-                                match entry.get_mut().entry(hasher.finish()) {
-                                    Entry::Vacant(entry) => {
-                                        entry.insert(ops.len());
-                                    }
-                                    Entry::Occupied(entry) => {
-                                        index = *entry.get();
-                                        break;
-                                    }
-                                }
-                            }
-                            Entry::Vacant(entry) => {
-                                entry.insert(HashMap::new());
-                            }
-                        }
-                        gb.step()
-                    }
-                    if !gb.is_complete() {
-                        let mut digest = "Infinite loop detected! Here are the instructions and CPU states in the loop:".to_string();
-                        for (state, ptr, op) in &ops[index..] {
-                            writeln!(digest, "\n{state}");
-                            write!(digest, "0x{ptr:0>4X} -> {op}");
-                        }
-                        digest
-                    } else {
-                        "No loop detect during start up!".to_owned()
-                    }
-                }
-                RunUntil::Return => {
-                    while !matches!(gb.next_op(), Instruction::Jump(JumpOp::Return)) {
-                        gb.step()
-                    }
-                    "End of subroutine. Next operation is `ret`.".to_owned()
-                }
-                RunUntil::Frame => {
-                    gb.step_frame();
-                    "Starting new frame".to_owned()
-                }
-            },
-            Command::Stash(_stash) => {
-                todo!()
-            }
-            Command::Interrupt(_interrupt) => todo!(),
-        }
-    }
 }
 
 pub(crate) enum StashOptions {

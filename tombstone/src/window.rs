@@ -16,15 +16,13 @@ impl WindowState {
     }
 
     pub fn run(self) {
-        std::thread::spawn(move || {
-            iced::application(
-                "Specters - Tombstone GBC Debugger",
-                WindowState::update,
-                WindowState::view,
-            )
-            .subscription(WindowState::subscription)
-            .run_with(move || (self, Task::none()))
-        });
+        iced::application(
+            "Specters - Tombstone GBC Debugger",
+            WindowState::update,
+            WindowState::view,
+        )
+        .subscription(WindowState::subscription)
+        .run_with(move || (self, Task::none()));
     }
 
     fn update(&mut self, msg: Message) {

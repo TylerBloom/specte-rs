@@ -15,10 +15,10 @@ use ratatui::{
 use spirit::cpu::CpuState;
 use spirit::{cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu, Gameboy, StartUpSequence};
 
-mod command;
-mod window;
-mod state;
+pub mod command;
 mod repl;
+mod state;
+mod window;
 use command::*;
 use state::*;
 use tokio::sync::broadcast;
@@ -28,34 +28,19 @@ use window::WindowState;
 
 static TMP_ROM: &[u8] = include_bytes!("../../spirit/tests/roms/acid/which.gb");
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
     let backend = CrosstermBackend::new(std::io::stdout());
-    let mut term = Terminal::new(backend)?;
-    term.clear()?;
+    let mut term = Terminal::new(backend).unwrap();
+    term.clear().unwrap();
     let mut gb = Arc::new(Mutex::new(Emulator::default()));
     let (send, recv) = broadcast::channel(100);
-    WindowState::new(gb.clone(), recv).run();
-    let mut state = AppState::new(gb);
+    let mut state = AppState::new(gb.clone());
     state.mem_start = 0x8000;
-    state.run(&mut state, term)
+    std::thread::spawn(move || state.run(&mut term));
+    WindowState::new(gb, recv).run();
 }
 
-/// This function abstracts over running the startup sequence and the gameboy itself.
-fn run_until_complete<GB, B>(
-    mut gb: GB,
-    state: &mut AppState,
-    term: &mut Terminal<B>,
-) -> Result<(), Box<dyn Error>>
-where
-    GB: GameBoyLike,
-    B: Backend,
-{
-    while !gb.is_complete() {
-    }
-    Ok(())
-}
-
-fn render_frame(frame: &mut Frame, state: &mut AppState, gb: &Gameboy) {
+fn render_frame(frame: &mut Frame, gb: &Gameboy) {
     let sections = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Fill(1), Constraint::Length(40)])
@@ -75,21 +60,22 @@ fn render_frame(frame: &mut Frame, state: &mut AppState, gb: &Gameboy) {
             Constraint::Fill(1),
         ])
         .split(right);
-    render_cli(frame, state, left[0]);
-    // render_pc_area(frame, state, left[1], gb);
-    render_mem(frame, state, left[1], &gb.mem);
-    render_cpu(frame, state, right[0], gb.cpu());
-    render_ppu(frame, state, right[1], &gb.ppu);
-    render_interrupts(frame, state, right[2], &gb.mem);
-    render_stack(frame, state, right[3], &gb.mem);
-    // render_mem(frame, state, right[2]);
+    render_cli(frame, left[0]);
+    // render_pc_area(frame, left[1], gb);
+    render_mem(frame, left[1], &gb.mem);
+    render_cpu(frame, right[0], gb.cpu());
+    render_ppu(frame, right[1], &gb.ppu);
+    render_interrupts(frame, right[2], &gb.mem);
+    render_stack(frame, right[3], &gb.mem);
+    // render_mem(frame, right[2]);
 }
 
-fn render_cli(frame: &mut Frame, state: &mut AppState, area: Rect) {
+fn render_cli(frame: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .title("CLI")
         .title_alignment(ratatui::layout::Alignment::Center);
     let Rect { x, y, height, .. } = block.inner(area);
+    /*
     let cursor_y = y + std::cmp::min(state.cli_history.len(), (height - 1) as usize) as u16;
     let iter = state
         .cli_history
@@ -98,12 +84,13 @@ fn render_cli(frame: &mut Frame, state: &mut AppState, area: Rect) {
         .take((height - 1) as usize)
         .rev()
         .map(|s| s.as_str());
-    let para = Paragraph::new(Text::from_iter(iter)).block(block);
-    frame.set_cursor_position(Position::new(x, cursor_y));
+    */
+    let para = Paragraph::new(Text::from_iter(std::iter::once(String::new()))).block(block);
+    frame.set_cursor_position(Position::new(x, 0));
     frame.render_widget(para, area);
 }
 
-fn render_pc_area(frame: &mut Frame, state: &mut AppState, area: Rect, gb: &Gameboy) {
+fn render_pc_area(frame: &mut Frame, area: Rect, gb: &Gameboy) {
     let block = Block::bordered()
         .title(format!(" PC Area {} ", area.width))
         .title_alignment(ratatui::layout::Alignment::Center);
@@ -119,7 +106,7 @@ fn render_pc_area(frame: &mut Frame, state: &mut AppState, area: Rect, gb: &Game
 
 /* This is the right column. In order, the CPU, PPU, Interrupts, and then the stack are rendered */
 
-fn render_cpu(frame: &mut Frame, state: &mut AppState, area: Rect, cpu: &Cpu) {
+fn render_cpu(frame: &mut Frame, area: Rect, cpu: &Cpu) {
     let block = Block::bordered()
         .title("CPU")
         .title_alignment(ratatui::layout::Alignment::Center);
@@ -140,7 +127,7 @@ fn render_cpu(frame: &mut Frame, state: &mut AppState, area: Rect, cpu: &Cpu) {
     frame.render_widget(para, area);
 }
 
-fn render_ppu(frame: &mut Frame, state: &mut AppState, area: Rect, ppu: &Ppu) {
+fn render_ppu(frame: &mut Frame, area: Rect, ppu: &Ppu) {
     let block = Block::bordered()
         .title("PPU")
         .title_alignment(ratatui::layout::Alignment::Center);
@@ -148,7 +135,7 @@ fn render_ppu(frame: &mut Frame, state: &mut AppState, area: Rect, ppu: &Ppu) {
     frame.render_widget(para, area);
 }
 
-fn render_interrupts(frame: &mut Frame, state: &mut AppState, area: Rect, mem: &MemoryMap) {
+fn render_interrupts(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
     let block = Block::bordered()
         .title("Interrupts")
         .title_alignment(ratatui::layout::Alignment::Center);
@@ -160,7 +147,7 @@ fn render_interrupts(frame: &mut Frame, state: &mut AppState, area: Rect, mem: &
     frame.render_widget(para, area);
 }
 
-fn render_stack(frame: &mut Frame, state: &mut AppState, area: Rect, mem: &MemoryMap) {
+fn render_stack(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
     let block = Block::bordered()
         .title("Stack")
         .title_alignment(ratatui::layout::Alignment::Center);
@@ -175,11 +162,12 @@ fn render_stack(frame: &mut Frame, state: &mut AppState, area: Rect, mem: &Memor
 
 // TODO: Move mem
 
-fn render_mem(frame: &mut Frame, state: &mut AppState, area: Rect, mem: &MemoryMap) {
+fn render_mem(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
     let block = Block::bordered()
         .title("Memory")
         .title_alignment(ratatui::layout::Alignment::Center);
-    let mem_start = state.mem_start & 0xFFF0;
+    // let mem_start = state.mem_start & 0xFFF0;
+    let mem_start = 0x8000;
     let lines = area.height - 2;
     let mut buffer = vec![0; 16 * lines as usize];
     (mem_start..)
@@ -199,66 +187,4 @@ fn render_mem(frame: &mut Frame, state: &mut AppState, area: Rect, mem: &MemoryM
     }
     let para = Paragraph::new(data).block(block);
     frame.render_widget(para, area);
-}
-
-trait GameBoyLike {
-    const PROMPT: &'static str;
-
-    fn gb(&self) -> &Gameboy;
-
-    fn next_op(&self) -> Instruction;
-
-    fn step(&mut self);
-
-    fn step_frame(&mut self);
-
-    fn is_complete(&self) -> bool;
-}
-
-impl GameBoyLike for Gameboy {
-    const PROMPT: &'static str = "running";
-
-    fn gb(&self) -> &Gameboy {
-        self
-    }
-
-    fn next_op(&self) -> Instruction {
-        self.cpu().read_op(&self.mem)
-    }
-
-    fn step(&mut self) {
-        self.step().complete()
-    }
-
-    fn step_frame(&mut self) {
-        self.next_frame().complete()
-    }
-
-    fn is_complete(&self) -> bool {
-        self.cpu().state != CpuState::Running
-    }
-}
-
-impl GameBoyLike for StartUpSequence {
-    const PROMPT: &'static str = "init";
-
-    fn gb(&self) -> &Gameboy {
-        self.gb()
-    }
-
-    fn next_op(&self) -> Instruction {
-        *self.next_op()
-    }
-
-    fn step(&mut self) {
-        self.step()
-    }
-
-    fn step_frame(&mut self) {
-        self.frame_step().complete()
-    }
-
-    fn is_complete(&self) -> bool {
-        self.is_complete()
-    }
 }

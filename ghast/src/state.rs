@@ -91,6 +91,10 @@ impl Emulator {
         ];
         Scrollable::new(col)
     }
+
+    pub fn gb(&self) -> &Gameboy {
+        self.gb.gb()
+    }
 }
 
 impl Default for Emulator {
