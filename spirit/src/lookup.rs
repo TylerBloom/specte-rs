@@ -320,7 +320,7 @@ impl ControlOp {
         match self {
             ControlOp::Noop => 4,
             ControlOp::Stop(_) => 4,
-            ControlOp::Halt => todo!(),
+            ControlOp::Halt => 4,
         }
     }
 
@@ -329,7 +329,7 @@ impl ControlOp {
         match self {
             ControlOp::Noop => 1,
             ControlOp::Stop(_) => 2,
-            ControlOp::Halt => todo!(),
+            ControlOp::Halt => 1,
         }
     }
 }
@@ -422,6 +422,10 @@ impl LoadOp {
     /// Returns the number of ticks to will take to complete this instruction.
     pub fn length(&self) -> u8 {
         match self {
+            LoadOp::Basic {
+                dest: RegOrPointer::Pointer,
+                src: RegOrPointer::Pointer,
+            } => 4,
             LoadOp::Basic {
                 dest: RegOrPointer::Pointer,
                 ..

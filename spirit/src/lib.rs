@@ -30,7 +30,8 @@ pub mod lookup;
 pub mod mem;
 pub mod ppu;
 pub mod rom;
-pub(crate) mod utils;
+#[doc(hidden)]
+pub mod utils;
 
 /// Represents a Gameboy color with a cartridge inserted.
 #[derive(Debug, Hash, Serialize, Deserialize)]

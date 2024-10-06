@@ -3,7 +3,6 @@ use std::{
     cell::RefCell,
     collections::HashSet,
     hash::{Hash, Hasher},
-    num::Wrapping,
     ops::{Add, Index, IndexMut},
     sync::{Mutex, OnceLock},
 };
@@ -18,6 +17,7 @@ use crate::{
         SomeByte, WideReg, WideRegWithoutSP,
     },
     mem::MemoryMap,
+    utils::Wrapping,
 };
 
 #[derive(
@@ -63,9 +63,9 @@ pub struct Cpu {
 #[repr(u8)]
 pub enum CpuState {
     #[default]
-    Running = 3,
-    Halted = 1,
-    Stopped = 0,
+    Running = 0x11,
+    Halted = 0x01,
+    Stopped = 0x00,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -254,6 +254,17 @@ impl Cpu {
     }
 
     pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
+        if matches!(
+            instr,
+            Instruction::Load(LoadOp::Basic {
+                dest: RegOrPointer::Pointer,
+                src: RegOrPointer::Pointer,
+            }) | Instruction::ControlOp(ControlOp::Halt)
+        ) {
+            println!("Executing HALT instr");
+        } else {
+            println!("Not executing HALT instr");
+        }
         let len = instr.size();
         self.pc += (0x1 & self.state as u16) * (len as u16);
         match instr {
@@ -509,15 +520,15 @@ impl Cpu {
     fn push_pc(&mut self, mem: &mut MemoryMap) {
         let [hi, lo] = self.pc_bytes();
         mem[self.sp.0] = hi;
-        self.sp -= 1;
+        self.sp -= 1u16;
         mem[self.sp.0] = lo;
-        self.sp -= 1;
+        self.sp -= 1u16;
     }
 
     fn pop_pc(&mut self, mem: &mut MemoryMap) -> u16 {
-        self.sp += 1;
+        self.sp += 1u16;
         let lo = mem[self.sp.0];
-        self.sp += 1;
+        self.sp += 1u16;
         let hi = mem[self.sp.0];
         u16::from_be_bytes([hi, lo])
     }
@@ -594,7 +605,7 @@ impl Cpu {
     fn execute_control_op(&mut self, op: ControlOp, mem: &mut MemoryMap) {
         match op {
             ControlOp::Noop => {}
-            ControlOp::Halt => self.state = CpuState::Halted,
+            ControlOp::Halt => self.halt(),
             ControlOp::Stop(_) => self.state = CpuState::Stopped,
         }
     }
@@ -732,12 +743,17 @@ impl Cpu {
         }
     }
 
+    fn halt(&mut self) {
+        self.state = CpuState::Halted;
+        self.pc -= Wrapping(ControlOp::Halt.size() as u16);
+    }
+
     fn execute_load_op(&mut self, op: LoadOp, mem: &mut MemoryMap) {
         match op {
             LoadOp::Basic {
                 dest: RegOrPointer::Pointer,
                 src: RegOrPointer::Pointer,
-            } => self.state = CpuState::Halted,
+            } => self.halt(),
             LoadOp::Basic { dest, src } => self.write_byte(dest, mem, self.copy_byte(mem, src)),
             LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),
             LoadOp::Direct(reg, val) => self.write_byte(reg, mem, val),
@@ -773,9 +789,9 @@ impl Cpu {
                     WideRegWithoutSP::AF => [self.a.0, self.f.as_byte()],
                 };
                 mem[self.sp.0] = a;
-                self.sp -= 1;
+                self.sp -= 1u16;
                 mem[self.sp.0] = b;
-                self.sp -= 1;
+                self.sp -= 1u16;
             }
             LoadOp::LoadHigh(val) => {
                 trace!("LoadHigh(0x{val:0>2X})");

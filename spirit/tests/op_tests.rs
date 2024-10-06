@@ -1,9 +1,8 @@
-use std::num::Wrapping;
-
 use spirit::{
     cpu::Cpu,
     lookup::{BitShiftOp, HalfRegister, Instruction, LoadAPointer, LoadOp, RegOrPointer},
     mem::MemoryMap,
+    utils::Wrapping,
 };
 
 const WRAM: u16 = 0xC000;
