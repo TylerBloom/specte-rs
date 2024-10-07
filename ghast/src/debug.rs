@@ -10,23 +10,16 @@ use spirit::{
     Gameboy,
 };
 
+use crate::utils::pixel_to_bytes;
+
 /// Contains all of the data to extract out debug info from the GB.
 pub struct Debugger(pub u8);
 
 impl Debugger {
     pub fn view<M: 'static>(&self, gb: &Gameboy) -> impl Into<Element<'static, M>> {
-        row![
-            column![
-                Column::from_vec(vram_0_to_tiles(gb, self.0).map(Into::into).collect()).spacing(3),
-                Row::from_vec(tile_map_0(gb).map(Into::into).collect()).spacing(3),
-            ]
-            .spacing(8),
-            column![
-                Column::from_vec(vram_1_to_tiles(gb, self.0,).map(Into::into).collect()).spacing(3),
-                Row::from_vec(tile_map_1(gb).map(Into::into).collect()).spacing(3),
-            ]
-            .spacing(3),
-            Column::from_vec(oam_data(gb).map(Into::into).collect()).spacing(3),
+        column![
+            Column::from_vec(vram_0_to_tiles(gb, self.0).map(Into::into).collect()).spacing(3),
+            Column::from_vec(vram_1_to_tiles(gb, self.0,).map(Into::into).collect()).spacing(3),
         ]
         .spacing(8)
     }
@@ -183,8 +176,4 @@ fn bytes_to_pixels(gb: &Gameboy, palette: u8, lo: u8, hi: u8) -> [Pixel; 8] {
     let palette = gb.mem.io().background_palettes[palette].clone();
     let mut iter = zip_bits(hi, lo).map(|c| palette.get_color(c).into());
     std::array::from_fn(|_| iter.next().unwrap())
-}
-
-pub fn pixel_to_bytes(Pixel { r, g, b }: Pixel) -> [u8; 4] {
-    [r * 8, g * 8, b * 8, 255]
 }

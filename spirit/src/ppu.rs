@@ -131,8 +131,7 @@ impl PpuInner {
                 if let Some(pixel) = bg.pop_pixel() {
                     screen[bg.y as usize][bg.x as usize] = pixel.mix(obj_pixel, mem);
                     bg.x += 1;
-                    if bg.x % 8 == 0 {
-                    }
+                    if bg.x % 8 == 0 {}
                     if bg.x == 160 {
                         *self = Self::HBlank { dots: *dots };
                         mem.inc_ppu_status(self.state());
@@ -195,6 +194,7 @@ impl ObjectFiFo {
     /// Constructs all of the pixels needed for mixing on this scanline
     fn oam_scan(&mut self, y: u8, mem: &MemoryMap) {
         if check_bit_const::<1>(mem.io().lcd_control) {
+            self.pixels.clear();
             self.pixels
                 .extend(std::iter::repeat(FiFoPixel::transparent()).take(176));
             let y = y + 16;
@@ -480,7 +480,8 @@ impl OamObject {
         self.generate_pixels(y, mem)
             .into_iter()
             .enumerate()
-            .for_each(|(i, pixel)| buffer[x + i] = pixel);
+            // FIXME: This corrects an off-by-3 error seen, but why does the error exist?
+            .for_each(|(i, pixel)| buffer[x + i + 24] = pixel);
     }
 
     fn generate_pixels(self, y: u8, mem: &MemoryMap) -> [FiFoPixel; 8] {

@@ -254,17 +254,6 @@ impl Cpu {
     }
 
     pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
-        if matches!(
-            instr,
-            Instruction::Load(LoadOp::Basic {
-                dest: RegOrPointer::Pointer,
-                src: RegOrPointer::Pointer,
-            }) | Instruction::ControlOp(ControlOp::Halt)
-        ) {
-            println!("Executing HALT instr");
-        } else {
-            println!("Not executing HALT instr");
-        }
         let len = instr.size();
         self.pc += (0x1 & self.state as u16) * (len as u16);
         match instr {

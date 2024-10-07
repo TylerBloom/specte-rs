@@ -4,7 +4,10 @@ use iced::{
 };
 use spirit::{Gameboy, StartUpSequence};
 
-use crate::debug::{pixel_to_bytes, Debugger};
+use crate::{
+    debug::Debugger,
+    utils::{pixel_to_bytes, scale_up_image, screen_to_image_scaled},
+};
 
 pub struct Emulator {
     gb: EmulatorInner,
@@ -73,20 +76,14 @@ impl EmulatorInner {
 
 impl Emulator {
     fn screen(&self) -> impl Into<Element<'static, Message>> {
+        const SCALE: usize = 4;
         let gb = self.gb.gb();
         let screen = &gb.ppu.screen;
+        let (width, height, image) = screen_to_image_scaled(screen, SCALE);
+        assert_eq!(width * height * 4, image.len() as u32);
         let col = row![
-            Image::new(Handle::from_rgba(
-                160,
-                144,
-                screen
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .flat_map(pixel_to_bytes)
-                    .collect::<Vec<_>>(),
-            )),
             self.dbg.view(gb).into(),
+            Image::new(Handle::from_rgba(width, height, image)),
         ];
         Scrollable::new(col)
     }
@@ -95,8 +92,7 @@ impl Emulator {
         self.gb.gb()
     }
 
-    pub fn step_instruction(&mut self) {
-    }
+    pub fn step_instruction(&mut self) {}
 }
 
 impl Default for Emulator {
@@ -136,7 +132,7 @@ impl Emulator {
             },
             Message::ScanLine => self.gb.scanline_step(),
             Message::PaletteInc => self.dbg.inc(),
-            Message::Redraw => { },
+            Message::Redraw => {}
         }
     }
 
