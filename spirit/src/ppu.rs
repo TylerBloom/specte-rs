@@ -210,6 +210,14 @@ impl ObjectFiFo {
                 .copied()
                 .map(OamObject::new)
                 .take(10)
+                // TODO: This is a better way to do this. We should collect into a heapless::Vec
+                // and just call `.rev()` on the iter. Unforetunely, the heapless vec iter doesn't
+                // impl this :"(
+                .collect::<Vec<_>>()
+                .into_iter()
+                // We reverse here because the top objects have priority over the lower ones should
+                // they overlap.
+                .rev()
                 .for_each(|obj| obj.populate_buffer(y, buffer, mem));
         }
         // Discard the front and back 8 pixels

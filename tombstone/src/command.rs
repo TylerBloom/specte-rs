@@ -12,7 +12,11 @@ use std::{
 use clap::{Args, Parser, Subcommand};
 
 use ghast::state::Message;
-use spirit::lookup::{Instruction, JumpOp};
+use indexmap::IndexSet;
+use spirit::{
+    lookup::{Instruction, JumpOp},
+    ppu::Pixel,
+};
 
 use crate::AppState;
 
@@ -72,13 +76,22 @@ pub enum RunFor {
 #[derive(Subcommand, Clone, Copy)]
 pub enum RunUntil {
     /// Runs the emulator until an infinite loop is detected.
-    Loop,
+    #[command(subcommand)]
+    Loop(LoopKind),
     /// Runs the emulator until just before `ret` is ran
     Return,
     /// Runs the emulator until just before `ret` is ran
     Frame,
     /// Runs the emulator until it receives a pause command
     Pause,
+}
+
+#[derive(Subcommand, Clone, Copy)]
+pub enum LoopKind {
+    /// Run instructions until repeat CPU + memory states are seen.
+    CpuAndMem,
+    /// Run instructions until repeat screens are seen.
+    Screen,
 }
 
 #[derive(Subcommand, Clone)]
@@ -105,8 +118,9 @@ pub enum Interrupt {
     VBlank,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum WindowMessage {
+    DuplicateScreens(IndexSet<Vec<Vec<Pixel>>>),
     Frames(usize),
     Run,
     Pause,
@@ -120,6 +134,9 @@ impl From<WindowMessage> for ghast::state::Message {
             WindowMessage::Run => Message::Play,
             WindowMessage::Pause => Message::Pause,
             WindowMessage::Redraw => Message::Redraw,
+            WindowMessage::DuplicateScreens(screens) => {
+                Message::Screens(screens.into_iter().collect())
+            }
         }
     }
 }

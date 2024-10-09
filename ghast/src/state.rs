@@ -1,8 +1,8 @@
 use iced::{
-    widget::{column, image::Handle, row, text, Button, Image, Scrollable},
+    widget::{column, image::Handle, row, text, Button, Column, Image, Scrollable},
     Alignment, Element, Subscription,
 };
-use spirit::{Gameboy, StartUpSequence};
+use spirit::{ppu::Pixel, Gameboy, StartUpSequence};
 
 use crate::{
     debug::Debugger,
@@ -14,9 +14,10 @@ pub struct Emulator {
     frame: usize,
     count: Option<usize>,
     dbg: Debugger,
+    duplicated_screens: Option<Vec<Vec<Vec<Pixel>>>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Message {
     Play,
     Pause,
@@ -25,6 +26,7 @@ pub enum Message {
     Step(usize),
     Tick,
     PaletteInc,
+    Screens(Vec<Vec<Vec<Pixel>>>),
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -76,15 +78,21 @@ impl EmulatorInner {
 
 impl Emulator {
     fn screen(&self) -> impl Into<Element<'static, Message>> {
+        #[allow(clippy::ptr_arg)]
+        fn create_image(screen: &Vec<Vec<Pixel>>) -> Image {
+            let (width, height, image) = screen_to_image_scaled(screen, SCALE);
+            assert_eq!(width * height * 4, image.len() as u32);
+            Image::new(Handle::from_rgba(width, height, image))
+        }
         const SCALE: usize = 4;
         let gb = self.gb.gb();
-        let screen = &gb.ppu.screen;
-        let (width, height, image) = screen_to_image_scaled(screen, SCALE);
-        assert_eq!(width * height * 4, image.len() as u32);
-        let col = row![
-            self.dbg.view(gb).into(),
-            Image::new(Handle::from_rgba(width, height, image)),
-        ];
+        let screen: Element<'static, Message> = match self.duplicated_screens.as_ref() {
+            Some(screens) => {
+                Column::from_vec(screens.iter().map(create_image).map(Into::into).collect::<Vec<_>>()).spacing(8).into()
+            }
+            None => create_image(&gb.ppu.screen).into(),
+        };
+        let col = row![self.dbg.view(gb).into(), screen];
         Scrollable::new(col)
     }
 
@@ -92,7 +100,9 @@ impl Emulator {
         self.gb.gb()
     }
 
-    pub fn step_instruction(&mut self) {}
+    pub fn next_screen(&mut self) {
+        self.gb.frame_step()
+    }
 }
 
 impl Default for Emulator {
@@ -103,6 +113,7 @@ impl Default for Emulator {
             count: Some(0),
             frame: 0,
             dbg: Debugger(0),
+            duplicated_screens: None,
         }
     }
 }
@@ -110,11 +121,17 @@ impl Default for Emulator {
 impl Emulator {
     pub fn update(&mut self, msg: Message) {
         match msg {
-            Message::Play => self.count = None,
+            Message::Play => {
+                self.duplicated_screens = None;
+                self.count = None;
+            },
             Message::Pause => self.count = Some(0),
             Message::Step(count) => {
                 if let Some(c) = self.count.as_mut() {
                     *c += count
+                }
+                if self.duplicated_screens.is_some() {
+                    self.count = Some(0);
                 }
             }
             Message::Tick => match self.count.as_mut() {
@@ -122,17 +139,32 @@ impl Emulator {
                     if *c > 0 {
                         *c -= 1;
                         self.frame += 1;
+                        if let Some(screens) = self.duplicated_screens.as_ref() {
+                            if screens.len() == self.frame {
+                                self.frame = 0;
+                            }
+                        }
                         self.gb.frame_step();
                     }
                 }
                 None => {
                     self.frame += 1;
+                    if let Some(screens) = self.duplicated_screens.as_ref() {
+                        if screens.len() == self.frame {
+                            self.frame = 0;
+                        }
+                    }
                     self.gb.frame_step()
                 }
             },
             Message::ScanLine => self.gb.scanline_step(),
             Message::PaletteInc => self.dbg.inc(),
             Message::Redraw => {}
+            Message::Screens(screens) => {
+                self.frame = 0;
+                self.count = Some(0);
+                self.duplicated_screens = Some(screens)
+            }
         }
     }
 
@@ -145,9 +177,9 @@ impl Emulator {
     pub fn view_owned(&self) -> Element<'static, Message> {
         column![
             row![
-                Button::new(text(format!("To frame {}", self.frame + 1)))
+                Button::new(text(self.to_frame_text(1)))
                     .on_press(Message::Step(1)),
-                Button::new(text(format!("To frame {}", self.frame + 10)))
+                Button::new(text(self.to_frame_text(10)))
                     .on_press(Message::Step(10)),
                 Button::new(text("Next Scanline")).on_press(Message::ScanLine),
                 Button::new(text("Run")).on_press(Message::Play),
@@ -161,6 +193,13 @@ impl Emulator {
         .spacing(20)
         .align_x(Alignment::Center)
         .into()
+    }
+
+    fn to_frame_text(&self, inc: usize) -> String {
+        match self.duplicated_screens.as_ref() {
+            Some(screens) => format!("To frame {}/{}", self.frame + inc, screens.len()),
+            None => format!("To frame {}", self.frame + inc),
+        }
     }
 
     pub fn subscription(&self) -> Subscription<Message> {

@@ -2,6 +2,7 @@ use clap::Parser;
 use crossterm::execute;
 use crossterm::terminal::LeaveAlternateScreen;
 use ghast::state::Emulator;
+use indexmap::IndexSet;
 use ratatui::layout::Position;
 use ratatui::{
     backend::{Backend, CrosstermBackend},
@@ -30,7 +31,7 @@ use tracing_subscriber::{
     FmtSubscriber,
 };
 
-use crate::{Command, ReplCommand, RunFor, RunLength, RunUntil, WindowMessage};
+use crate::{Command, LoopKind, ReplCommand, RunFor, RunLength, RunUntil, WindowMessage};
 
 /// This is the app's state which holds all of the CLI data. This includes all previous commands
 /// that were ran and all data to be displayed in the TUI (prompts, inputs, command outputs).
@@ -105,7 +106,10 @@ impl AppState {
                     }
                 },
                 RunLength::Until(until) => match until {
-                    RunUntil::Loop => todo!(),
+                    RunUntil::Loop(kind) => match kind {
+                        LoopKind::CpuAndMem => todo!(),
+                        LoopKind::Screen => self.loop_screen(),
+                    },
                     RunUntil::Return => todo!(),
                     RunUntil::Frame => todo!(),
                     RunUntil::Pause => {
@@ -203,6 +207,20 @@ impl AppState {
             Command::Interrupt(_interrupt) => todo!(),
         }
         */
+    }
+
+    /// Runs the emulator screen by screen collecting them until a duplicate is seen. The
+    /// collection is sent to the UI state to be rendered.
+    fn loop_screen(&mut self) {
+        let mut screens = IndexSet::new();
+        let mut gb = self.gb.lock().unwrap();
+        loop {
+            if !screens.insert(gb.gb().ppu.screen.clone()) {
+                break
+            }
+            gb.next_screen();
+        }
+        self.outbound.send(WindowMessage::DuplicateScreens(screens));
     }
 
     fn render_frame(&mut self, frame: &mut Frame) {
