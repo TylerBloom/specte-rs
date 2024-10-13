@@ -527,7 +527,6 @@ impl Cpu {
         mem.clear_interrupt_req(op);
         self.push_pc(mem);
         self.pc = Wrapping(op as u16);
-        // panic!("TODO");
     }
 
     fn execute_jump_op(&mut self, op: JumpOp, mem: &mut MemoryMap) {
