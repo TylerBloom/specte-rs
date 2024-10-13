@@ -34,6 +34,9 @@ pub struct ReplCommand {
 // Index should be formatted more nicely, like hexdump
 #[derive(Subcommand)]
 pub enum Command {
+    /// This is a no-op command as it doesn't change the state but it re-renders the TUI. This is
+    /// only triggered if crossterm detects that the terminal has changed sized.
+    Redraw,
     /// Exits the debugger
     Exit,
     Step {

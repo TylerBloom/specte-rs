@@ -1,4 +1,5 @@
 use clap::Parser;
+use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::LeaveAlternateScreen;
 use ghast::state::Emulator;
@@ -22,6 +23,7 @@ use std::{
 };
 use std::{error::Error, io::Write as _};
 use tokio::sync::broadcast::Sender;
+use std::sync::mpsc;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{
     fmt::{
@@ -50,12 +52,75 @@ pub(crate) struct AppState {
     // parsed into commands.
     // TODO: We should limit the command and output history. We don't want it to grow forever.
     gb: Arc<Mutex<Emulator>>,
+    processor: CommandProcessor,
     outbound: Sender<WindowMessage>,
     pub(crate) cli_history: Vec<String>,
     pub(crate) subscriber:
         Option<FmtSubscriber<DefaultFields, Format<Compact, ()>, LevelFilter, GameboySubscriber>>,
     buffer: Arc<Mutex<Vec<u8>>>,
     pub(crate) mem_start: u16,
+}
+
+pub struct CommandProcessor {
+    inbound: mpsc::Receiver<CrosstermEvent>,
+    index: usize,
+    buffer: String,
+}
+
+impl CommandProcessor {
+    fn next_event(&mut self, cli_history: &mut Vec<String>) -> Option<Command> {
+        match self.inbound.recv().unwrap() {
+            CrosstermEvent::Resize(_, _) => Some(Command::Redraw),
+            CrosstermEvent::Paste(data) => {
+                self.buffer.push_str(&data);
+                None
+            }
+            CrosstermEvent::Key(key) if matches!(key.kind, KeyEventKind::Press) => match key.code {
+                KeyCode::Backspace => {
+                    self.buffer.pop();
+                    None
+                }
+                KeyCode::Enter => {
+                    let cmd = ReplCommand::try_parse_from(self.buffer.split_whitespace()).ok();
+                    cli_history.push(std::mem::take(&mut self.buffer));
+                    self.index = 0;
+                    cmd.map(|cmd| cmd.command)
+                }
+                KeyCode::Up if self.index < cli_history.len() => {
+                    self.index = std::cmp::min(self.index + 1, cli_history.len());
+                    self.buffer.clone_from(&cli_history[self.index - 1]);
+                    None
+                },
+                KeyCode::Down if self.index > 0 => {
+                    self.index -= 1;
+                    if self.index == 0 {
+                        self.buffer.clear();
+                    } else {
+                        self.buffer.clone_from(&cli_history[self.index- 1]);
+                    }
+                    None
+                }
+                KeyCode::Char(c) => {
+                    if key.modifiers.contains(KeyModifiers::CONTROL) {
+                        if c == 'c' {
+                            cli_history.push(std::mem::take(&mut self.buffer));
+                            return None;
+                        } else if c == 'd' {
+                            return Some(Command::Exit);
+                        }
+                    }
+                    self.buffer.push(c);
+                    None
+                }
+                // Not used (yet)
+                _ => None,
+            },
+            CrosstermEvent::Key(_) => None,
+            CrosstermEvent::Mouse(_) => None,
+            CrosstermEvent::FocusGained => None,
+            CrosstermEvent::FocusLost => None,
+        }
+    }
 }
 
 /// This captures the different levels of verbosity, current, there is only two, but others will be
@@ -66,7 +131,11 @@ pub enum Verbosity {
 }
 
 impl AppState {
-    pub fn new(gb: Arc<Mutex<Emulator>>, outbound: Sender<WindowMessage>) -> Self {
+    pub fn new(
+        gb: Arc<Mutex<Emulator>>,
+        inbound: mpsc::Receiver<CrosstermEvent>,
+        outbound: Sender<WindowMessage>,
+    ) -> Self {
         Self {
             gb,
             cli_history: Vec::new(),
@@ -74,22 +143,32 @@ impl AppState {
             buffer: Arc::new(Mutex::new(Vec::new())),
             mem_start: 0,
             outbound,
+            processor: CommandProcessor {
+                inbound,
+                index: 0,
+                buffer: String::new(),
+            }
         }
     }
 
-    pub fn run<B: Backend>(mut self, term: &mut Terminal<B>) {
+    pub fn run<B: Backend>(mut self, mut term: Terminal<B>) {
+        self.draw(&mut term);
         loop {
-            term.clear().unwrap();
-            term.draw(|frame| self.render_frame(frame)).unwrap();
-            // print!("{} $ ", GB::PROMPT);
-            // std::io::stdout().flush().unwrap();
-            let message = self.get_input();
-            self.process(message);
+            if let Some(cmd) = self.processor.next_event(&mut self.cli_history) {
+                self.process(cmd);
+            }
+            self.draw(&mut term);
         }
     }
 
-    fn process(&mut self, msg: Command) {
-        match msg {
+    fn draw<B: Backend>(&self, term: &mut Terminal<B>) {
+        term.clear().unwrap();
+        term.draw(|frame| self.render_frame(frame)).unwrap();
+    }
+
+    fn process(&mut self, cmd: Command) {
+        match cmd {
+            Command::Redraw => {}
             Command::Exit => {
                 execute!(std::io::stdout(), LeaveAlternateScreen);
                 std::process::exit(0)
@@ -216,14 +295,14 @@ impl AppState {
         let mut gb = self.gb.lock().unwrap();
         loop {
             if !screens.insert(gb.gb().ppu.screen.clone()) {
-                break
+                break;
             }
             gb.next_screen();
         }
         self.outbound.send(WindowMessage::DuplicateScreens(screens));
     }
 
-    fn render_frame(&mut self, frame: &mut Frame) {
+    fn render_frame(&self, frame: &mut Frame) {
         let gb = self.gb.lock().unwrap();
         let gb = gb.gb();
         let sections = Layout::default()
@@ -245,13 +324,14 @@ impl AppState {
                 Constraint::Fill(1),
             ])
             .split(right);
-        render_cli(frame, &self.cli_history, left[0]);
+        render_cli(frame, &self.processor.buffer, &self.cli_history, left[0]);
         // render_pc_area(frame, left[1], gb);
         render_mem(frame, left[1], &gb.mem);
         render_cpu(frame, right[0], gb.cpu());
         render_ppu(frame, right[1], &gb.ppu);
         render_interrupts(frame, right[2], &gb.mem);
-        render_stack(frame, right[3], &gb.mem);
+        // render_stack(frame, right[3], &gb.mem);
+        render_pc_area(frame, right[3], gb);
     }
 
     fn get_input(&mut self) -> Command {
@@ -322,7 +402,7 @@ impl<'a> io::Write for &'a GameboySubscriber {
     }
 }
 
-fn render_cli(frame: &mut Frame, history: &[String], area: Rect) {
+fn render_cli(frame: &mut Frame, user_input: &str, history: &[String], area: Rect) {
     let block = Block::bordered()
         .title("CLI")
         .title_alignment(ratatui::layout::Alignment::Center);
@@ -333,9 +413,11 @@ fn render_cli(frame: &mut Frame, history: &[String], area: Rect) {
         .rev()
         .take((height - 1) as usize)
         .rev()
-        .map(|s| s.as_str());
+        .map(|s| s.as_str())
+        .chain(std::iter::once(user_input))
+        ;
     let para = Paragraph::new(Text::from_iter(iter)).block(block);
-    frame.set_cursor_position(Position::new(x, cursor_y));
+    frame.set_cursor_position(Position::new(x + user_input.len() as u16, cursor_y));
     frame.render_widget(para, area);
 }
 
@@ -346,7 +428,11 @@ fn render_pc_area(frame: &mut Frame, area: Rect, gb: &Gameboy) {
     let len = area.height - 2;
     let para = Paragraph::new(Text::from_iter(
         gb.op_iter()
-            .map(|(pc, op)| format!("0x{pc:0>4X} -> {op}\n"))
+            .map(|(pc, op)| if pc == gb.cpu().pc.0 {
+                format!("PC > 0x{pc:0>4X} -> {op}\n")
+            } else {
+                format!("     0x{pc:0>4X} -> {op}\n")
+            })
             .take(len as usize),
     ))
     .block(block);
