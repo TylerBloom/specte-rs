@@ -87,6 +87,8 @@ pub enum RunUntil {
     Frame,
     /// Runs the emulator until it receives a pause command
     Pause,
+    /// Run the emulator until an interupt is requested.
+    Interupt
 }
 
 #[derive(Subcommand, Clone, Copy)]

@@ -15,6 +15,7 @@ use ratatui::{
 use spirit::cpu::CpuState;
 use spirit::{cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu, Gameboy, StartUpSequence};
 use std::fmt::Write;
+use std::sync::mpsc;
 use std::{
     cell::RefCell,
     io,
@@ -23,7 +24,6 @@ use std::{
 };
 use std::{error::Error, io::Write as _};
 use tokio::sync::broadcast::Sender;
-use std::sync::mpsc;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{
     fmt::{
@@ -90,13 +90,13 @@ impl CommandProcessor {
                     self.index = std::cmp::min(self.index + 1, cli_history.len());
                     self.buffer.clone_from(&cli_history[self.index - 1]);
                     None
-                },
+                }
                 KeyCode::Down if self.index > 0 => {
                     self.index -= 1;
                     if self.index == 0 {
                         self.buffer.clear();
                     } else {
-                        self.buffer.clone_from(&cli_history[self.index- 1]);
+                        self.buffer.clone_from(&cli_history[self.index - 1]);
                     }
                     None
                 }
@@ -147,7 +147,7 @@ impl AppState {
                 inbound,
                 index: 0,
                 buffer: String::new(),
-            }
+            },
         }
     }
 
@@ -174,7 +174,8 @@ impl AppState {
                 std::process::exit(0)
             }
             Command::Step { count } => {
-                todo!()
+                let mut gb = self.gb.lock().unwrap();
+                (0..count).for_each(|_| gb.step_op());
             }
             Command::Info => todo!(),
             Command::Index(_) => todo!(),
@@ -193,6 +194,13 @@ impl AppState {
                     RunUntil::Frame => todo!(),
                     RunUntil::Pause => {
                         self.outbound.send(WindowMessage::Run).unwrap();
+                    }
+                    RunUntil::Interupt => {
+                        let mut gb = self.gb.lock().unwrap();
+                        let ints = gb.gb().mem.io().interrupt_flags;
+                        while gb.gb().mem.io().interrupt_flags == ints {
+                            gb.step_op();
+                        }
                     }
                 },
             },
@@ -414,8 +422,7 @@ fn render_cli(frame: &mut Frame, user_input: &str, history: &[String], area: Rec
         .take((height - 1) as usize)
         .rev()
         .map(|s| s.as_str())
-        .chain(std::iter::once(user_input))
-        ;
+        .chain(std::iter::once(user_input));
     let para = Paragraph::new(Text::from_iter(iter)).block(block);
     frame.set_cursor_position(Position::new(x + user_input.len() as u16, cursor_y));
     frame.render_widget(para, area);
@@ -423,15 +430,17 @@ fn render_cli(frame: &mut Frame, user_input: &str, history: &[String], area: Rec
 
 fn render_pc_area(frame: &mut Frame, area: Rect, gb: &Gameboy) {
     let block = Block::bordered()
-        .title(format!(" PC Area {} ", area.width))
+        .title(" PC Area ")
         .title_alignment(ratatui::layout::Alignment::Center);
-    let len = area.height - 2;
+    let len = block.inner(area).height;
     let para = Paragraph::new(Text::from_iter(
         gb.op_iter()
-            .map(|(pc, op)| if pc == gb.cpu().pc.0 {
-                format!("PC > 0x{pc:0>4X} -> {op}\n")
-            } else {
-                format!("     0x{pc:0>4X} -> {op}\n")
+            .map(|(pc, op)| {
+                if pc == gb.cpu().pc.0 {
+                    format!("PC > 0x{pc:0>4X} -> {op}\n")
+                } else {
+                    format!("     0x{pc:0>4X} -> {op}\n")
+                }
             })
             .take(len as usize),
     ))

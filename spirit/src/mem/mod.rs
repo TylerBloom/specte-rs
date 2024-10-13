@@ -132,16 +132,16 @@ impl MemoryMap {
         self.io.tick();
     }
 
-    pub(crate) fn inc_lcd_y(&mut self) {
-        self.io.inc_lcd_y()
-    }
-
     pub(crate) fn reset_ppu_status(&mut self) {
         self.vram.reset_status()
     }
 
     pub(crate) fn inc_ppu_status(&mut self, state: PpuMode) {
         self.vram.inc_status(state)
+    }
+
+    pub(crate) fn inc_lcd_y(&mut self) {
+        self.io.inc_lcd_y()
     }
 
     pub fn request_vblank_int(&mut self) {

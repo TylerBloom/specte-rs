@@ -133,6 +133,7 @@ impl PpuInner {
                     bg.x += 1;
                     if bg.x % 8 == 0 {}
                     if bg.x == 160 {
+                        mem.request_lcd_int();
                         *self = Self::HBlank { dots: *dots };
                         mem.inc_ppu_status(self.state());
                         bg.fetcher.reset();

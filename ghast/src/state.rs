@@ -59,6 +59,15 @@ impl EmulatorInner {
         }
     }
 
+    fn step_op(&mut self) {
+        match self {
+            EmulatorInner::StartUp(gb) => gb.as_mut().unwrap().step(),
+            EmulatorInner::Ready(gb) => {
+                gb.step().complete();
+            },
+        }
+    }
+
     fn scanline_step(&mut self) {
         match self {
             EmulatorInner::StartUp(seq) => {
@@ -102,6 +111,10 @@ impl Emulator {
 
     pub fn next_screen(&mut self) {
         self.gb.frame_step()
+    }
+
+    pub fn step_op(&mut self) {
+        self.gb.step_op()
     }
 }
 

@@ -109,10 +109,12 @@ impl IoRegisters {
         self.joypad.tick();
         self.lcd_status = (0b0000_0111 & self.lcd_status) | (0b0111_1000 & self.lcd_status_dup);
         self.lcd_status_dup = self.lcd_status;
+        /* TODO: Should this be set here?? The PPU should set this.
         if self.lcd_y == self.lcd_cmp {
             // TODO: I think this should only be called if that interrupt is enabled...
             self.request_lcd_int();
         }
+        */
         let byte = &mut self.timer_div[0];
         *byte = byte.wrapping_add(1);
         if self.tac.update_and_tick(self.timer_div[3]) {
