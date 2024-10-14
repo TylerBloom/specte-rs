@@ -1,6 +1,7 @@
 #![allow(dead_code, unused)]
+
 use std::fmt::Write;
-use std::panic::PanicInfo;
+use std::panic::PanicHookInfo;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{error::Error, io::Write as _};
@@ -74,7 +75,7 @@ fn create_input_thread(sender: mpsc::Sender<Event>) {
 
 /// A panic hook to properly restore the terminal in the case of a panic. Originally based on
 /// [spotify-tui's implementation](https://github.com/Rigellute/spotify-tui/blob/master/src/main.rs).
-fn panic_hook(panic_info: &PanicInfo<'_>) {
+fn panic_hook(panic_info: &PanicHookInfo<'_>) {
     let mut stdout = std::io::stdout();
 
     let msg = match panic_info.payload().downcast_ref::<&'static str>() {

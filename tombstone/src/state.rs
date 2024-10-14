@@ -14,6 +14,7 @@ use ratatui::{
 };
 use spirit::cpu::CpuState;
 use spirit::{cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu, Gameboy, StartUpSequence};
+use std::cell::Cell;
 use std::fmt::Write;
 use std::sync::mpsc;
 use std::{
@@ -59,68 +60,15 @@ pub(crate) struct AppState {
         Option<FmtSubscriber<DefaultFields, Format<Compact, ()>, LevelFilter, GameboySubscriber>>,
     buffer: Arc<Mutex<Vec<u8>>>,
     pub(crate) mem_start: u16,
+    /// Tracks where the user input is at. This used to maintain the input data.
+    cursor_position: Cell<Position>,
 }
 
 pub struct CommandProcessor {
     inbound: mpsc::Receiver<CrosstermEvent>,
     index: usize,
     buffer: String,
-}
-
-impl CommandProcessor {
-    fn next_event(&mut self, cli_history: &mut Vec<String>) -> Option<Command> {
-        match self.inbound.recv().unwrap() {
-            CrosstermEvent::Resize(_, _) => Some(Command::Redraw),
-            CrosstermEvent::Paste(data) => {
-                self.buffer.push_str(&data);
-                None
-            }
-            CrosstermEvent::Key(key) if matches!(key.kind, KeyEventKind::Press) => match key.code {
-                KeyCode::Backspace => {
-                    self.buffer.pop();
-                    None
-                }
-                KeyCode::Enter => {
-                    let cmd = ReplCommand::try_parse_from(self.buffer.split_whitespace()).ok();
-                    cli_history.push(std::mem::take(&mut self.buffer));
-                    self.index = 0;
-                    cmd.map(|cmd| cmd.command)
-                }
-                KeyCode::Up if self.index < cli_history.len() => {
-                    self.index = std::cmp::min(self.index + 1, cli_history.len());
-                    self.buffer.clone_from(&cli_history[self.index - 1]);
-                    None
-                }
-                KeyCode::Down if self.index > 0 => {
-                    self.index -= 1;
-                    if self.index == 0 {
-                        self.buffer.clear();
-                    } else {
-                        self.buffer.clone_from(&cli_history[self.index - 1]);
-                    }
-                    None
-                }
-                KeyCode::Char(c) => {
-                    if key.modifiers.contains(KeyModifiers::CONTROL) {
-                        if c == 'c' {
-                            cli_history.push(std::mem::take(&mut self.buffer));
-                            return None;
-                        } else if c == 'd' {
-                            return Some(Command::Exit);
-                        }
-                    }
-                    self.buffer.push(c);
-                    None
-                }
-                // Not used (yet)
-                _ => None,
-            },
-            CrosstermEvent::Key(_) => None,
-            CrosstermEvent::Mouse(_) => None,
-            CrosstermEvent::FocusGained => None,
-            CrosstermEvent::FocusLost => None,
-        }
-    }
+    last_longest_input: usize,
 }
 
 /// This captures the different levels of verbosity, current, there is only two, but others will be
@@ -147,7 +95,9 @@ impl AppState {
                 inbound,
                 index: 0,
                 buffer: String::new(),
+                last_longest_input: 0,
             },
+            cursor_position: Cell::new(Position::default()),
         }
     }
 
@@ -156,14 +106,35 @@ impl AppState {
         loop {
             if let Some(cmd) = self.processor.next_event(&mut self.cli_history) {
                 self.process(cmd);
+                self.draw(&mut term);
             }
-            self.draw(&mut term);
+            self.draw_input_line(&mut term);
         }
     }
 
+    /// Draws the entire TUI
     fn draw<B: Backend>(&self, term: &mut Terminal<B>) {
         term.clear().unwrap();
         term.draw(|frame| self.render_frame(frame)).unwrap();
+    }
+
+    /// (Re)Draws the line that users input. This allows the input to be rendered without needing
+    /// to rerender the entire TUI.
+    fn draw_input_line<B: Backend>(&self, term: &mut Terminal<B>) {
+        let mut pos = self.cursor_position.get();
+        term.set_cursor_position(pos);
+        let mut stdout = std::io::stdout();
+        let input = self
+            .processor
+            .buffer
+            .chars()
+            .chain(std::iter::repeat(' '))
+            .take(self.processor.last_longest_input)
+            .collect::<String>();
+        write!(stdout, "{input}").unwrap();
+        stdout.flush().unwrap();
+        pos.x += self.processor.buffer.len() as u16;
+        term.set_cursor_position(pos);
     }
 
     fn process(&mut self, cmd: Command) {
@@ -332,7 +303,8 @@ impl AppState {
                 Constraint::Fill(1),
             ])
             .split(right);
-        render_cli(frame, &self.processor.buffer, &self.cli_history, left[0]);
+        self.cursor_position
+            .set(render_cli(frame, &self.cli_history, left[0]));
         // render_pc_area(frame, left[1], gb);
         render_mem(frame, left[1], &gb.mem);
         render_cpu(frame, right[0], gb.cpu());
@@ -340,15 +312,6 @@ impl AppState {
         render_interrupts(frame, right[2], &gb.mem);
         // render_stack(frame, right[3], &gb.mem);
         render_pc_area(frame, right[3], gb);
-    }
-
-    fn get_input(&mut self) -> Command {
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input).unwrap();
-        let cmd = ReplCommand::try_parse_from(input.split_whitespace()).unwrap();
-        // let cmd = untwine::parse(crate::command::command, input.trim()).unwrap();
-        self.cli_history.push(input);
-        cmd.command
     }
 
     // TODO: Because the state now tracks the command history and any output from the emulator, we
@@ -410,7 +373,7 @@ impl<'a> io::Write for &'a GameboySubscriber {
     }
 }
 
-fn render_cli(frame: &mut Frame, user_input: &str, history: &[String], area: Rect) {
+fn render_cli(frame: &mut Frame, history: &[String], area: Rect) -> Position {
     let block = Block::bordered()
         .title("CLI")
         .title_alignment(ratatui::layout::Alignment::Center);
@@ -421,11 +384,13 @@ fn render_cli(frame: &mut Frame, user_input: &str, history: &[String], area: Rec
         .rev()
         .take((height - 1) as usize)
         .rev()
-        .map(|s| s.as_str())
-        .chain(std::iter::once(user_input));
+        .map(|s| s.as_str());
+    //  .chain(std::iter::once(user_input));
     let para = Paragraph::new(Text::from_iter(iter)).block(block);
-    frame.set_cursor_position(Position::new(x + user_input.len() as u16, cursor_y));
+    let pos = Position::new(x, cursor_y);
+    frame.set_cursor_position(pos);
     frame.render_widget(para, area);
+    pos
 }
 
 fn render_pc_area(frame: &mut Frame, area: Rect, gb: &Gameboy) {
@@ -529,4 +494,71 @@ fn render_mem(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
     }
     let para = Paragraph::new(data).block(block);
     frame.render_widget(para, area);
+}
+
+impl CommandProcessor {
+    fn update_last_longest(&mut self) {
+        self.last_longest_input = std::cmp::max(self.last_longest_input, self.buffer.len());
+    }
+
+    fn next_event(&mut self, cli_history: &mut Vec<String>) -> Option<Command> {
+        match self.inbound.recv().unwrap() {
+            CrosstermEvent::Resize(_, _) => Some(Command::Redraw),
+            CrosstermEvent::Paste(data) => {
+                self.buffer.push_str(&data);
+                self.update_last_longest();
+                None
+            }
+            CrosstermEvent::Key(key) if matches!(key.kind, KeyEventKind::Press) => match key.code {
+                KeyCode::Backspace => {
+                    self.buffer.pop();
+                    None
+                }
+                KeyCode::Enter => {
+                    let cmd = ReplCommand::try_parse_from(self.buffer.split_whitespace()).ok();
+                    cli_history.push(std::mem::take(&mut self.buffer));
+                    self.index = 0;
+                    self.last_longest_input = 0;
+                    cmd.map(|cmd| cmd.command)
+                }
+                KeyCode::Up if self.index < cli_history.len() => {
+                    self.index = std::cmp::min(self.index + 1, cli_history.len());
+                    self.buffer
+                        .clone_from(&cli_history[cli_history.len() - self.index]);
+                    self.update_last_longest();
+                    None
+                }
+                KeyCode::Down if self.index > 0 => {
+                    self.index -= 1;
+                    if self.index == 0 {
+                        self.buffer.clear();
+                    } else {
+                        self.buffer
+                            .clone_from(&cli_history[cli_history.len() - self.index]);
+                    }
+                    self.update_last_longest();
+                    None
+                }
+                KeyCode::Char(c) => {
+                    if key.modifiers.contains(KeyModifiers::CONTROL) {
+                        if c == 'c' {
+                            cli_history.push(std::mem::take(&mut self.buffer));
+                            return None;
+                        } else if c == 'd' {
+                            return Some(Command::Exit);
+                        }
+                    }
+                    self.buffer.push(c);
+                    self.update_last_longest();
+                    None
+                }
+                // Not used (yet)
+                _ => None,
+            },
+            CrosstermEvent::Key(_) => None,
+            CrosstermEvent::Mouse(_) => None,
+            CrosstermEvent::FocusGained => None,
+            CrosstermEvent::FocusLost => None,
+        }
+    }
 }
