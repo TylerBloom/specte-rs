@@ -34,9 +34,9 @@ pub struct IoRegisters {
     /// ADDR FF42 & FF43
     pub(crate) bg_position: (u8, u8),
     /// ADDR FF44 (set by the PPU)
-    lcd_y: u8,
+    pub(crate) lcd_y: u8,
     /// ADDR FF45
-    lcd_cmp: u8,
+    pub(crate) lcd_cmp: u8,
     /// ADDR FF46
     oam_dma: u8,
     /// ADDR FF47

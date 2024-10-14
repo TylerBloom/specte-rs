@@ -54,6 +54,9 @@ pub struct Ppu {
     /// The state machine that controls the timings of when memory is locked, data is pulled from
     /// it, and pixels are mixed and written to the screen.
     pub inner: PpuInner,
+    /// Signals if the PPU has been ticked sinced created. This is used to track if the PPU needs
+    /// to be reset if the LCD is turned off.
+    ticked: bool,
 }
 
 impl Ppu {
@@ -63,14 +66,20 @@ impl Ppu {
             screen: vec![vec![Pixel::new(); 160]; 144],
             obj_fifo: ObjectFiFo::new(),
             bg_fifo: BackgroundFiFo::new(),
+            ticked: false,
         }
     }
 
     pub(crate) fn tick(&mut self, mem: &mut MemoryMap) -> bool {
         if check_bit_const::<7>(mem.io().lcd_control) {
+            self.ticked = true;
             self.inner
                 .tick(&mut self.screen, &mut self.obj_fifo, &mut self.bg_fifo, mem)
         } else {
+            if self.ticked {
+                mem.io_mut().lcd_y = 0;
+                *self = Self::new();
+            }
             true
         }
     }
@@ -147,6 +156,8 @@ impl PpuInner {
             // 456 and mode 2 is always 80 dots
             PpuInner::HBlank { dots } if *dots == 375 => {
                 bg.next_scanline();
+                mem.inc_lcd_y();
+                assert_eq!(bg.y, mem.io().lcd_y);
                 if bg.y == 144 {
                     mem.request_vblank_int();
                     *self = Self::VBlank { dots: 0 };
@@ -155,7 +166,6 @@ impl PpuInner {
                     *self = Self::OamScan { dots: 0 };
                     mem.inc_ppu_status(self.state());
                     obj.oam_scan(bg.y, mem);
-                    mem.inc_lcd_y();
                 }
             }
             PpuInner::HBlank { dots, .. } => *dots += 1,
@@ -164,6 +174,7 @@ impl PpuInner {
                 mem.reset_ppu_status();
                 obj.oam_scan(0, mem);
                 bg.reset();
+                mem.io_mut().lcd_y = 0;
                 return true;
             }
             PpuInner::VBlank { dots, .. } => *dots += 1,
