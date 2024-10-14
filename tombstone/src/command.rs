@@ -83,7 +83,7 @@ pub enum RunUntil {
     Loop(LoopKind),
     /// Runs the emulator until just before `ret` is ran
     Return,
-    /// Runs the emulator until just before `ret` is ran
+    /// Runs the emulator until the next frame is ready
     Frame,
     /// Runs the emulator until it receives a pause command
     Pause,

@@ -191,7 +191,7 @@ impl AppState {
                         LoopKind::Screen => self.loop_screen(),
                     },
                     RunUntil::Return => todo!(),
-                    RunUntil::Frame => todo!(),
+                    RunUntil::Frame => self.gb.lock().unwrap().next_screen(),
                     RunUntil::Pause => {
                         self.outbound.send(WindowMessage::Run).unwrap();
                     }

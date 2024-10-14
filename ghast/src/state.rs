@@ -43,7 +43,7 @@ impl EmulatorInner {
         }
     }
 
-    fn frame_step(&mut self) {
+    pub fn frame_step(&mut self) {
         match self {
             EmulatorInner::StartUp(seq) => {
                 seq.as_mut().unwrap().frame_step().complete();

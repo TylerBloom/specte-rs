@@ -140,6 +140,10 @@ impl MemoryMap {
         self.vram.inc_status(state)
     }
 
+    pub(crate) fn reset_lcd_y(&mut self) {
+        self.io.reset_lcd_y()
+    }
+
     pub(crate) fn inc_lcd_y(&mut self) {
         self.io.inc_lcd_y()
     }

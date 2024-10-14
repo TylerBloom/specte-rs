@@ -67,8 +67,12 @@ impl Ppu {
     }
 
     pub(crate) fn tick(&mut self, mem: &mut MemoryMap) -> bool {
-        self.inner
-            .tick(&mut self.screen, &mut self.obj_fifo, &mut self.bg_fifo, mem)
+        if check_bit_const::<7>(mem.io().lcd_control) {
+            self.inner
+                .tick(&mut self.screen, &mut self.obj_fifo, &mut self.bg_fifo, mem)
+        } else {
+            true
+        }
     }
 
     pub(crate) fn state(&self) -> PpuMode {
@@ -133,7 +137,6 @@ impl PpuInner {
                     bg.x += 1;
                     if bg.x % 8 == 0 {}
                     if bg.x == 160 {
-                        mem.request_lcd_int();
                         *self = Self::HBlank { dots: *dots };
                         mem.inc_ppu_status(self.state());
                         bg.fetcher.reset();
@@ -143,7 +146,6 @@ impl PpuInner {
             // This measures the number of ticks after mode 2 because all modes added together is
             // 456 and mode 2 is always 80 dots
             PpuInner::HBlank { dots } if *dots == 375 => {
-                mem.inc_lcd_y();
                 bg.next_scanline();
                 if bg.y == 144 {
                     mem.request_vblank_int();
@@ -153,6 +155,7 @@ impl PpuInner {
                     *self = Self::OamScan { dots: 0 };
                     mem.inc_ppu_status(self.state());
                     obj.oam_scan(bg.y, mem);
+                    mem.inc_lcd_y();
                 }
             }
             PpuInner::HBlank { dots, .. } => *dots += 1,

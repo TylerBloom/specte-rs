@@ -136,6 +136,13 @@ impl IoRegisters {
     /// Called by the PPU when it finishes a scan line
     pub(crate) fn inc_lcd_y(&mut self) {
         self.lcd_y = (self.lcd_y + 1) % 154;
+        if self.lcd_y == self.lcd_cmp {
+            self.request_lcd_int();
+        }
+    }
+
+    pub(crate) fn reset_lcd_y(&mut self) {
+        self.lcd_y = 0;
     }
 
     // TODO: It is somewhat unclear to me if the IE register acts like a barrier to interrupts or
