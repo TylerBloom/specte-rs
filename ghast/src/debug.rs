@@ -5,12 +5,12 @@ use iced::{
 
 use spirit::{
     cpu::check_bit_const,
-    mem::OamObjectIndex,
+    mem::{OamObjectIndex, ObjTileDataIndex},
     ppu::{zip_bits, Pixel},
     Gameboy,
 };
 
-use crate::utils::pixel_to_bytes;
+use crate::utils::{pixel_to_bytes, screen_to_image_scaled};
 
 /// Contains all of the data to extract out debug info from the GB.
 pub struct Debugger(pub u8);
@@ -18,6 +18,7 @@ pub struct Debugger(pub u8);
 impl Debugger {
     pub fn view<M: 'static>(&self, gb: &Gameboy) -> impl Into<Element<'static, M>> {
         column![
+            Column::from_vec(oam_data(gb).map(Into::into).collect()).spacing(3),
             Column::from_vec(vram_0_to_tiles(gb, self.0).map(Into::into).collect()).spacing(3),
             Column::from_vec(vram_1_to_tiles(gb, self.0,).map(Into::into).collect()).spacing(3),
         ]
@@ -79,11 +80,14 @@ fn oam_obj_repr<M: 'static>(
     gb: &Gameboy,
     [y, x, index, attrs]: [u8; 4],
 ) -> impl Into<Element<'static, M>> {
+    let obj: [u8; 16] = (&gb.mem[ObjTileDataIndex(index, false)]).try_into().unwrap();
+    let pixels = tile_data_to_pixels(gb, 1, obj);
     row![
         text(format!("y: {y}, ")),
         text(format!("x: {x}, ")),
         text(format!("index: 0x{index:0>2X}, ")),
         text(format!("attrs: 0b{attrs:0>8b}")),
+        pixels_to_image(pixels),
     ]
     .spacing(3)
 }
@@ -154,15 +158,13 @@ fn tiles_into_rows<M>(iter: impl Iterator<Item = [[Pixel; 8]; 8]>) -> Row<'stati
 }
 
 fn pixels_to_image(chunk: [[Pixel; 8]; 8]) -> Image<Handle> {
-    Image::new(Handle::from_rgba(
-        8,
-        8,
-        chunk
-            .into_iter()
-            .flatten()
-            .flat_map(pixel_to_bytes)
-            .collect::<Vec<_>>(),
-    ))
+    const SCALE: usize = 4;
+    let chunk = chunk.map(|mut row| {
+        row.reverse();
+        row
+    });
+    let (width, height, image) = screen_to_image_scaled(&chunk, SCALE);
+    Image::new(Handle::from_rgba(width, height, image))
 }
 
 fn tile_data_to_pixels(gb: &Gameboy, palette: u8, data: [u8; 16]) -> [[Pixel; 8]; 8] {

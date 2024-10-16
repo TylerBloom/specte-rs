@@ -282,7 +282,7 @@ impl Index<OamObjectIndex> for MemoryMap {
     }
 }
 
-pub(crate) struct ObjTileDataIndex(pub u8, pub bool);
+pub struct ObjTileDataIndex(pub u8, pub bool);
 
 impl Index<ObjTileDataIndex> for MemoryMap {
     /// We return a slice here because the object could be either 8x8 or 8x16, and this is

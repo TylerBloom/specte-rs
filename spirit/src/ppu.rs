@@ -220,6 +220,9 @@ impl ObjectFiFo {
                 8
             };
             let objects = (0..40)
+                // std::iter::once(0)
+                // .skip(1)
+                // .step_by(2)
                 .map(|i| &mem[OamObjectIndex(i)])
                 .filter(|[y_pos, ..]| *y_pos <= y && *y_pos + range > y)
                 .copied()
@@ -504,7 +507,7 @@ impl OamObject {
             .into_iter()
             .enumerate()
             // FIXME: This corrects an off-by-3 error seen, but why does the error exist?
-            .for_each(|(i, pixel)| buffer[x + i + 24] = pixel);
+            .for_each(|(i, pixel)| buffer[x + i  + 24] = pixel);
     }
 
     fn generate_pixels(self, y: u8, mem: &MemoryMap) -> [FiFoPixel; 8] {
@@ -513,7 +516,7 @@ impl OamObject {
         // println!("Obj at ({}, {})", self.x, self.y);
         debug_assert!(y >= self.y);
         let obj = &mem[ObjTileDataIndex(self.tile_index, check_bit_const::<3>(self.attrs))];
-        assert!([16, 32].contains(&obj.len()), "obj.len () = {}", obj.len());
+        debug_assert!([16, 32].contains(&obj.len()), "obj.len () = {}", obj.len());
         debug_assert!(
             (y as usize) < ((self.y as usize) + obj.len()),
             "{y}, {}",

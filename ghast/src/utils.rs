@@ -5,16 +5,16 @@ pub fn screen_to_image(screen: &[Vec<Pixel>]) -> (u32, u32, Vec<u8>) {
     screen_to_image_scaled(screen, 1)
 }
 
-const SCREEN_WIDTH: usize = 160;
-const SCREEN_HEIGHT: usize = 144;
-
 /// Returns an scaled up version of the emulator's screen
-pub fn screen_to_image_scaled(screen: &[Vec<Pixel>], scale: usize) -> (u32, u32, Vec<u8>) {
-    let mut digest = vec![0; SCREEN_WIDTH * scale * 4 * SCREEN_HEIGHT * scale];
+pub fn screen_to_image_scaled(screen: &[impl AsRef<[Pixel]>], scale: usize) -> (u32, u32, Vec<u8>) {
+    let width = screen[0].as_ref().len();
+    let height = screen.len();
+    let mut digest = vec![0; width * scale * 4 * height * scale];
     for offset in 0..scale {
         for (i, row) in screen.iter().enumerate() {
-            let index = ((i * scale + offset)  * (4 * SCREEN_WIDTH * scale));
-            row.iter()
+            let index = ((i * scale + offset) * (4 * width * scale));
+            row.as_ref()
+                .iter()
                 .copied()
                 .flat_map(|pixel| std::iter::repeat(pixel).take(scale))
                 .flat_map(pixel_to_bytes)
@@ -22,11 +22,7 @@ pub fn screen_to_image_scaled(screen: &[Vec<Pixel>], scale: usize) -> (u32, u32,
                 .for_each(|(j, b)| digest[index + j] = b);
         }
     }
-    (
-        (SCREEN_WIDTH * scale) as u32,
-        (SCREEN_HEIGHT * scale) as u32,
-        digest,
-    )
+    ((width * scale) as u32, (height * scale) as u32, digest)
 }
 
 fn fill_enlarge_pixel_area(x: usize, y: usize, pixel: Pixel, buffer: &mut [u8]) {
