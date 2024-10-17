@@ -194,48 +194,53 @@ impl PpuInner {
 
 // TODO: This needs to track what model it is in (not VBLANK, though) and pass that to the PPU
 #[derive(Debug, Hash, Serialize, Deserialize)]
-struct ObjectFiFo {
-    pixels: VecDeque<FiFoPixel>,
+pub struct ObjectFiFo {
+    pixels: VecDeque<ObjectPixel>,
 }
 
 impl ObjectFiFo {
     fn new() -> Self {
-        let pixels = std::iter::repeat(FiFoPixel::transparent())
+        let pixels = std::iter::repeat(ObjectPixel::transparent())
             .take(176)
             .collect::<VecDeque<_>>();
         Self { pixels }
     }
 
+    pub fn scan_objs(y: u8, mem: &MemoryMap) -> impl Iterator<Item = OamObject> {
+        let y = y + 16;
+        let range = if check_bit_const::<2>(mem.io().lcd_control) {
+            16
+        } else {
+            8
+        };
+        (0..40)
+            // std::iter::once(0)
+            // .skip(1)
+            // .step_by(2)
+            .map(|i| &mem[OamObjectIndex(i)])
+            .filter(|[y_pos, ..]| *y_pos <= y && *y_pos + range > y)
+            .copied()
+            .map(OamObject::new)
+            .take(10)
+            // TODO: This is a better way to do this. We should collect into a heapless::Vec
+            // and just call `.rev()` on the iter. Unforetunely, the heapless vec iter doesn't
+            // impl this :"(
+            .collect::<Vec<_>>()
+            .into_iter()
+            // We reverse here because the top objects have priority over the lower ones should
+            // they overlap.
+            .rev()
+    }
+
     /// Constructs all of the pixels needed for mixing on this scanline
     fn oam_scan(&mut self, y: u8, mem: &MemoryMap) {
+        self.pixels.clear();
+        self.pixels
+            .extend(std::iter::repeat(ObjectPixel::transparent()).take(176));
         if check_bit_const::<1>(mem.io().lcd_control) {
-            self.pixels.clear();
-            self.pixels
-                .extend(std::iter::repeat(FiFoPixel::transparent()).take(176));
             let y = y + 16;
             let buffer = self.pixels.make_contiguous();
-            let range = if check_bit_const::<2>(mem.io().lcd_control) {
-                16
-            } else {
-                8
-            };
-            let objects = (0..40)
-                // std::iter::once(0)
-                // .skip(1)
-                // .step_by(2)
-                .map(|i| &mem[OamObjectIndex(i)])
-                .filter(|[y_pos, ..]| *y_pos <= y && *y_pos + range > y)
-                .copied()
-                .map(OamObject::new)
-                .take(10)
-                // TODO: This is a better way to do this. We should collect into a heapless::Vec
-                // and just call `.rev()` on the iter. Unforetunely, the heapless vec iter doesn't
-                // impl this :"(
-                .collect::<Vec<_>>()
-                .into_iter()
-                // We reverse here because the top objects have priority over the lower ones should
-                // they overlap.
-                .rev()
+            Self::scan_objs(y, mem)
                 .for_each(|obj| obj.populate_buffer(y, buffer, mem));
         }
         // Discard the front and back 8 pixels
@@ -245,8 +250,10 @@ impl ObjectFiFo {
         }
     }
 
-    fn pop_pixel(&mut self) -> FiFoPixel {
-        self.pixels.pop_front().unwrap_or(FiFoPixel::transparent())
+    fn pop_pixel(&mut self) -> ObjectPixel {
+        self.pixels
+            .pop_front()
+            .unwrap_or(ObjectPixel::transparent())
     }
 }
 
@@ -259,7 +266,7 @@ struct BackgroundFiFo {
     /// Starts as `false` each frame. Once triggered, every scanline will use the window data while
     /// the x position of the pixel is large enough and the window is enabled.
     window_trigger: bool,
-    background: InlineVec<FiFoPixel, 8>,
+    background: InlineVec<BgPixel, 8>,
 }
 
 impl BackgroundFiFo {
@@ -292,53 +299,78 @@ impl BackgroundFiFo {
         self.fetcher.tick(self.y, mem, bg);
     }
 
-    fn pop_pixel(&mut self) -> Option<FiFoPixel> {
+    fn pop_pixel(&mut self) -> Option<BgPixel> {
         self.background.pop()
     }
 }
 
 #[derive(Debug, Default, Hash, Clone, Copy, Serialize, Deserialize)]
-pub struct FiFoPixel {
+pub struct BgPixel {
     /// Which color for the selected palette should be used. Ranges from 0 to 3.
     color: u8,
     /// Color palette to use. Ranges from 0 to 7.
     palette: u8,
-    // TODO: For now, this is ignored
-    sprite_priority: bool,
-    // TODO: For now, this is ignored
-    bg_priority: bool,
+    priority: bool,
 }
 
-impl FiFoPixel {
-    fn new(color: u8, palette: u8) -> Self {
-        Self {
-            color,
-            palette,
-            sprite_priority: false,
-            bg_priority: false,
-        }
-    }
+#[derive(Debug, Default, Hash, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct ObjectPixel {
+    /// Which color for the selected palette should be used. Ranges from 0 to 3.
+    color: u8,
+    /// Color palette to use. Ranges from 0 to 7.
+    palette: u8,
+    priority: bool,
+}
 
+impl BgPixel {
     /// This is the same as `Self::default`, but with a clearer name
     #[inline]
     const fn transparent() -> Self {
         Self {
             color: 0,
             palette: 0,
-            sprite_priority: false,
-            bg_priority: false,
+            priority: false,
         }
     }
 
-    fn mix(self, obj: Self, mem: &MemoryMap) -> Pixel {
-        // TODO: The pixels carry the data to determine this, but that is not being properly
-        // determined yet.
+    fn mix(self, obj: ObjectPixel, mem: &MemoryMap) -> Pixel {
         if obj.color == 0 {
-            mem[BgPaletteIndex(self.palette)].get_color(self.color)
-        } else {
+            return mem[BgPaletteIndex(self.palette)]
+                .get_color(self.color)
+                .into();
+        }
+        if !check_bit_const::<0>(mem.io().lcd_control) {
             mem[ObjPaletteIndex(obj.palette)].get_color(obj.color)
+        } else {
+            if self.priority || obj.priority {
+                if self.color > 0 && self.color < 4 {
+                    mem[BgPaletteIndex(self.palette)].get_color(self.color)
+                } else {
+                    mem[ObjPaletteIndex(obj.palette)].get_color(obj.color)
+                }
+            } else {
+                mem[ObjPaletteIndex(obj.palette)].get_color(obj.color)
+            }
         }
         .into()
+    }
+}
+
+impl ObjectPixel {
+    /// This is the same as `Self::default`, but with a clearer name
+    #[inline]
+    const fn transparent() -> Self {
+        Self {
+            color: 0,
+            palette: 0,
+            priority: true,
+        }
+    }
+
+    pub fn as_pixel(self, mem: &MemoryMap) -> Pixel {
+        mem[ObjPaletteIndex(self.palette)]
+            .get_color(self.color)
+            .into()
     }
 }
 
@@ -427,7 +459,7 @@ impl PixelFetcher {
         *self = Self::new()
     }
 
-    fn tick(&mut self, y: u8, mem: &MemoryMap, pixels_out: Option<&mut InlineVec<FiFoPixel, 8>>) {
+    fn tick(&mut self, y: u8, mem: &MemoryMap, pixels_out: Option<&mut InlineVec<BgPixel, 8>>) {
         match self {
             PixelFetcher::GetTile { ticked, .. } if !*ticked => *ticked = true,
             &mut PixelFetcher::GetTile { x, .. } => {
@@ -442,12 +474,17 @@ impl PixelFetcher {
             }
             PixelFetcher::DataLow { ticked, .. } if !*ticked => *ticked = true,
             &mut PixelFetcher::DataLow { index, attr, x, .. } => {
+                let mut y = y % 8;
+                if check_bit_const::<6>(attr) {
+                    y = (!y) & 0x07;
+                }
+                let y = y as usize * 2;
                 *self = Self::DataHigh {
                     ticked: false,
                     attr,
                     index,
                     x,
-                    lo: mem[BgTileDataIndex { index, attr }][(y % 8) as usize * 2],
+                    lo: mem[BgTileDataIndex { index, attr }][y],
                 }
             }
             PixelFetcher::DataHigh { ticked, .. } if !*ticked => *ticked = true,
@@ -458,7 +495,12 @@ impl PixelFetcher {
                 lo,
                 attr,
             } => {
-                let hi = mem[BgTileDataIndex { index, attr }][(y % 8) as usize * 2 + 1];
+                let mut y = y % 8;
+                if check_bit_const::<6>(attr) {
+                    y = (!y) & 0x07;
+                }
+                let y = y as usize * 2;
+                let hi = mem[BgTileDataIndex { index, attr }][y + 1];
                 *self = Self::Sleep {
                     ticked: false,
                     attr,
@@ -473,7 +515,17 @@ impl PixelFetcher {
             } => *self = Self::Push { x, lo, hi, attr },
             &mut PixelFetcher::Push { lo, hi, attr, x } => {
                 if let Some(out) = pixels_out {
-                    *out = form_pixels(attr, lo, hi);
+                    let mut new_out = zip_bits(hi, lo)
+                        .map(|color| BgPixel {
+                            color,
+                            palette: attr & 0x7,
+                            priority: check_bit_const::<7>(attr),
+                        })
+                        .collect::<InlineVec<_, 8>>();
+                    if check_bit_const::<5>(attr) {
+                        new_out.reverse();
+                    }
+                    *out = new_out;
                     *self = Self::GetTile {
                         ticked: false,
                         x: x + 8,
@@ -483,16 +535,16 @@ impl PixelFetcher {
         }
     }
 }
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Clone, Copy)]
 pub struct OamObject {
-    y: u8,
+    pub y: u8,
     x: u8,
     tile_index: u8,
     attrs: u8,
 }
 
 impl OamObject {
-    fn new([y, x, tile_index, attrs]: [u8; 4]) -> Self {
+    pub fn new([y, x, tile_index, attrs]: [u8; 4]) -> Self {
         Self {
             y,
             x,
@@ -501,16 +553,22 @@ impl OamObject {
         }
     }
 
-    fn populate_buffer(self, y: u8, buffer: &mut [FiFoPixel], mem: &MemoryMap) {
+    fn populate_buffer(self, y: u8, buffer: &mut [ObjectPixel], mem: &MemoryMap) {
         let x = self.x as usize;
         self.generate_pixels(y, mem)
             .into_iter()
             .enumerate()
+            .filter(|(i, pixel)| pixel != &ObjectPixel::transparent())
             // FIXME: This corrects an off-by-3 error seen, but why does the error exist?
-            .for_each(|(i, pixel)| buffer[x + i  + 24] = pixel);
+            .for_each(|(i, pixel)| {
+                if y < 20 {
+                    println!("Adding OBJ pixel at ({}, {y})", x + i);
+                }
+                buffer[x + i + 16] = pixel
+            });
     }
 
-    fn generate_pixels(self, y: u8, mem: &MemoryMap) -> [FiFoPixel; 8] {
+    pub fn generate_pixels(self, y: u8, mem: &MemoryMap) -> [ObjectPixel; 8] {
         // The given Y needs to be within the bounds of the object. This should be the case
         // already.
         // println!("Obj at ({}, {})", self.x, self.y);
@@ -533,23 +591,18 @@ impl OamObject {
         let index = index as usize;
         let lo = obj[2 * index];
         let hi = obj[2 * index + 1];
-        let mut digest = form_pixels(self.attrs, lo, hi);
+        let mut digest = zip_bits(hi, lo)
+            .map(|color| ObjectPixel {
+                color,
+                palette: self.attrs & 0x7,
+                priority: check_bit_const::<7>(self.attrs),
+            })
+            .collect::<InlineVec<_, 8>>();
         if !check_bit_const::<5>(self.attrs) {
             digest.reverse();
         }
         digest.into_array().unwrap()
     }
-}
-
-fn form_pixels(attr: u8, lo: u8, hi: u8) -> InlineVec<FiFoPixel, 8> {
-    zip_bits(hi, lo)
-        .map(|color| FiFoPixel {
-            color,
-            palette: attr & 0x7,
-            sprite_priority: false,
-            bg_priority: false,
-        })
-        .collect()
 }
 
 /// Used to generate pixel color indications, which have a color depth of 2.
@@ -567,11 +620,11 @@ mod tests {
             vram::PpuMode,
             MemoryMap,
         },
-        ppu::{Pixel, Ppu},
+        ppu::{ObjectPixel, Pixel, Ppu},
     };
     use heapless::Vec as InlineVec;
 
-    use super::{zip_bits, FiFoPixel, PixelFetcher, PpuInner};
+    use super::{zip_bits, PixelFetcher, PpuInner};
 
     // Test that the fetcher can get the pixel data, populate the buffer at the right time, and
     // reset itself.
@@ -595,7 +648,7 @@ mod tests {
     #[test]
     fn delayed_fetcher_push() {
         println!("{}", std::mem::size_of::<PixelFetcher>());
-        println!("{}", std::mem::size_of::<FiFoPixel>());
+        println!("{}", std::mem::size_of::<ObjectPixel>());
         let mem = MemoryMap::construct();
         let mut fetcher = PixelFetcher::new();
         let mut counter = 0;

@@ -6,7 +6,7 @@ use iced::{
 use spirit::{
     cpu::check_bit_const,
     mem::{OamObjectIndex, ObjTileDataIndex},
-    ppu::{zip_bits, Pixel},
+    ppu::{zip_bits, OamObject, Pixel},
     Gameboy,
 };
 
@@ -76,18 +76,26 @@ fn oam_data<M: 'static>(gb: &Gameboy) -> impl '_ + Iterator<Item = impl Into<Ele
         .map(|obj| oam_obj_repr(gb, obj))
 }
 
-fn oam_obj_repr<M: 'static>(
-    gb: &Gameboy,
-    [y, x, index, attrs]: [u8; 4],
-) -> impl Into<Element<'static, M>> {
-    let obj: [u8; 16] = (&gb.mem[ObjTileDataIndex(index, false)]).try_into().unwrap();
-    let pixels = tile_data_to_pixels(gb, 1, obj);
+fn oam_obj_repr<M: 'static>(gb: &Gameboy, obj_data: [u8; 4]) -> impl Into<Element<'static, M>> {
+    let [y, x, index, attrs] = obj_data;
+    let obj: [u8; 16] = (&gb.mem[ObjTileDataIndex(index, false)])
+        .try_into()
+        .unwrap();
+    let expected_pixels = tile_data_to_pixels(gb, 4, obj);
+    let obj = OamObject::new(obj_data);
+    let actual_pixels = std::array::from_fn(|y| {
+        let mut digest = obj.generate_pixels(obj.y + y as u8, &gb.mem)
+            .map(|p| p.as_pixel(&gb.mem));
+        digest.reverse();
+        digest
+    });
     row![
         text(format!("y: {y}, ")),
         text(format!("x: {x}, ")),
         text(format!("index: 0x{index:0>2X}, ")),
         text(format!("attrs: 0b{attrs:0>8b}")),
-        pixels_to_image(pixels),
+        pixels_to_image(expected_pixels),
+        pixels_to_image(actual_pixels),
     ]
     .spacing(3)
 }
