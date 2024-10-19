@@ -44,7 +44,7 @@ pub struct IoRegisters {
     /// ADDR FF48 & FF49
     monochrome_obj_palettes: [u8; 2],
     /// ADDR FF4A & FF4B
-    window_position: [u8; 2],
+    pub(crate) window_position: [u8; 2],
     /// ADDR FF4F
     // TODO: Only the 0th bit is used. From the docs:
     // """

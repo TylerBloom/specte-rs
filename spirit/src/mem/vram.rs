@@ -177,7 +177,7 @@ impl Index<(ObjTileDataIndex, bool)> for VRam {
         (ObjTileDataIndex(index, bank), size): (ObjTileDataIndex, bool),
     ) -> &Self::Output {
         let bank = if bank { &self.vram[1] } else { &self.vram[0] };
-        let start = 16 * index as usize;
+        let start = 16 * (index & (!(size as u8))) as usize;
         let end = start + 16 + if size { 16 } else { 0 };
         &bank[start..end]
     }

@@ -316,13 +316,33 @@ impl Index<BgTileMapIndex> for MemoryMap {
     type Output = u8;
 
     fn index(&self, BgTileMapIndex { x, y }: BgTileMapIndex) -> &Self::Output {
-        let y_offset = self.io.bg_position.0;
-        let second_map = check_bit_const::<3>(self.io.lcd_control);
         let index = BgTileMapInnerIndex {
             second_map: check_bit_const::<3>(self.io.lcd_control),
             // We want to ignore the bottom 3 bits
             x: x.wrapping_add(self.io.bg_position.1 & 0xF8),
             y: y.wrapping_add(self.io.bg_position.0),
+        };
+        &self.vram[index]
+    }
+}
+
+pub struct WindowTileMapIndex {
+    pub x: u8,
+    pub y: u8,
+}
+
+impl Index<WindowTileMapIndex> for MemoryMap {
+    type Output = u8;
+
+    fn index(&self, WindowTileMapIndex { x, y }: WindowTileMapIndex) -> &Self::Output {
+        // We use the BG index here because the only difference between Window and BG data is how
+        // we calculate the X and Y (and transparently... TBD on if that's an issue)
+        let index = BgTileMapInnerIndex {
+            second_map: check_bit_const::<3>(self.io.lcd_control),
+            // TODO: Not sure if this needs to be wrapping. Also, how are the X and Y bounds (< 143
+            // and 166, respectively) are honored. Probably should be controlled on writes...
+            x: x.wrapping_add(self.io.window_position[1]),
+            y: y.wrapping_add(self.io.window_position[0]),
         };
         &self.vram[index]
     }
@@ -343,6 +363,25 @@ impl Index<BgTileMapAttrIndex> for MemoryMap {
         let index = BgTileMapAttrIndex {
             x: x.wrapping_add(self.io.bg_position.1 & 0xF8),
             y: y.wrapping_add(self.io.bg_position.0),
+        };
+        &self.vram[index]
+    }
+}
+
+pub struct WindowTileMapAttrIndex {
+    pub x: u8,
+    pub y: u8,
+}
+
+impl Index<WindowTileMapAttrIndex> for MemoryMap {
+    type Output = u8;
+
+    fn index(&self, WindowTileMapAttrIndex { x, y }: WindowTileMapAttrIndex) -> &Self::Output {
+        let index = BgTileMapAttrIndex {
+            // TODO: Not sure if this needs to be wrapping. Also, how are the X and Y bounds (< 143
+            // and 166, respectively) are honored. Probably should be controlled on writes...
+            x: x.wrapping_add(self.io.window_position[1]),
+            y: y.wrapping_add(self.io.window_position[0]),
         };
         &self.vram[index]
     }
@@ -372,6 +411,24 @@ impl Index<BgTileDataIndex> for MemoryMap {
             index,
             unsigned_indexing: check_bit_const::<4>(self.io.lcd_control),
             bank: check_bit_const::<3>(attr),
+        };
+        &self.vram[index]
+    }
+}
+
+pub struct WindowTileDataIndex {
+    pub index: u8,
+    pub attr: u8,
+}
+
+impl Index<WindowTileDataIndex> for MemoryMap {
+    type Output = [u8; 16];
+
+    fn index(&self, WindowTileDataIndex { index, attr }: WindowTileDataIndex) -> &Self::Output {
+        let index = BgTileDataInnerIndex {
+            index,
+            unsigned_indexing: check_bit_const::<4>(self.io.lcd_control),
+            bank: check_bit_const::<6>(attr),
         };
         &self.vram[index]
     }

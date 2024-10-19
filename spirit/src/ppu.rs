@@ -10,23 +10,12 @@ use crate::{
         io::{BgPaletteIndex, ObjPaletteIndex},
         vram::{PpuMode, VRam},
         BgTileDataIndex, BgTileMapAttrIndex, BgTileMapIndex, MemoryMap, OamObjectIndex,
-        ObjTileDataIndex,
+        ObjTileDataIndex, WindowTileDataIndex, WindowTileMapAttrIndex, WindowTileMapIndex,
     },
 };
 
-// Notes:
-// A tile is 16 bytes, which means that each line is 2 bytes.
-// Every pixel has a color-depth of 2. The nth bit of the first byte holds the nth pixel's least
-// significant bit of the color depth. The most significant bit is in the corresponding bit of
-// second byte.
-
 // Plan of attack:
-//  - Implement indexing into VRAM
-//  - Disregard rendering everything except the background. Also ignore all scrolling effects
-//  - Make it possible to draw to a GUI (i.e. add the plumbing and signalling)!!
-//  - Add in sprite/object rendering
 //  - Add in window rendering
-//  - Add in scrolling effects
 
 // TODO:
 // 1) There is a gap (12 ticks) between the start of mode 3 and when the first pixel can be output.
@@ -238,10 +227,8 @@ impl ObjectFiFo {
         self.pixels
             .extend(std::iter::repeat(ObjectPixel::transparent()).take(176));
         if check_bit_const::<1>(mem.io().lcd_control) {
-            let y = y + 16;
             let buffer = self.pixels.make_contiguous();
-            Self::scan_objs(y, mem)
-                .for_each(|obj| obj.populate_buffer(y, buffer, mem));
+            Self::scan_objs(y, mem).for_each(|obj| obj.populate_buffer(y + 16, buffer, mem));
         }
         // Discard the front and back 8 pixels
         for _ in 0..8 {
@@ -265,8 +252,16 @@ struct BackgroundFiFo {
     fetcher: PixelFetcher,
     /// Starts as `false` each frame. Once triggered, every scanline will use the window data while
     /// the x position of the pixel is large enough and the window is enabled.
-    window_trigger: bool,
     background: InlineVec<BgPixel, 8>,
+    window: Window,
+}
+
+#[derive(Debug, Default, Hash, Serialize, Deserialize)]
+struct Window {
+    /// Tracks if the top left corner of the window has been hit this frame.
+    triggered: bool,
+    /// Counts the number of vertical lines that have been rendered.
+    line_count: u8,
 }
 
 impl BackgroundFiFo {
@@ -274,7 +269,7 @@ impl BackgroundFiFo {
         Self {
             fetcher: PixelFetcher::new(),
             background: InlineVec::new(),
-            window_trigger: false,
+            window: Window::default(),
             x: 0,
             y: 0,
         }
@@ -291,12 +286,15 @@ impl BackgroundFiFo {
         self.fetcher.reset();
         self.x = 0;
         self.y = 0;
-        self.window_trigger = false;
+        self.window = Window::default();
     }
 
     fn tick(&mut self, mem: &MemoryMap) {
         let bg = self.background.is_empty().then(|| &mut self.background);
-        self.fetcher.tick(self.y, mem, bg);
+        self.window.triggered =
+            self.y >= mem.io().window_position[0] && self.x + 8 >= mem.io().window_position[1];
+        let do_window = self.window.triggered && check_bit_const::<5>(mem.io().lcd_control);
+        self.fetcher.tick(self.y, mem, bg, Some(&self.window));
     }
 
     fn pop_pixel(&mut self) -> Option<BgPixel> {
@@ -459,12 +457,27 @@ impl PixelFetcher {
         *self = Self::new()
     }
 
-    fn tick(&mut self, y: u8, mem: &MemoryMap, pixels_out: Option<&mut InlineVec<BgPixel, 8>>) {
+    fn tick(
+        &mut self,
+        y: u8,
+        mem: &MemoryMap,
+        pixels_out: Option<&mut InlineVec<BgPixel, 8>>,
+        window: Option<Window>,
+    ) {
         match self {
             PixelFetcher::GetTile { ticked, .. } if !*ticked => *ticked = true,
             &mut PixelFetcher::GetTile { x, .. } => {
-                let index = mem[BgTileMapIndex { x, y }];
-                let attr = mem[BgTileMapAttrIndex { x, y }];
+                let (index, attr) = if let Some(window) = window {
+                    (
+                        mem[WindowTileMapIndex { x, y: window.line_count }],
+                        mem[WindowTileMapAttrIndex { x, y: window.line_count }],
+                    )
+                } else {
+                    (
+                        mem[BgTileMapIndex { x, y }],
+                        mem[BgTileMapAttrIndex { x, y }],
+                    )
+                };
                 *self = Self::DataLow {
                     ticked: false,
                     index,
@@ -479,12 +492,17 @@ impl PixelFetcher {
                     y = (!y) & 0x07;
                 }
                 let y = y as usize * 2;
+                let lo = if window {
+                    mem[WindowTileDataIndex { index, attr }][y]
+                } else {
+                    mem[BgTileDataIndex { index, attr }][y]
+                };
                 *self = Self::DataHigh {
                     ticked: false,
                     attr,
                     index,
                     x,
-                    lo: mem[BgTileDataIndex { index, attr }][y],
+                    lo,
                 }
             }
             PixelFetcher::DataHigh { ticked, .. } if !*ticked => *ticked = true,
@@ -500,7 +518,11 @@ impl PixelFetcher {
                     y = (!y) & 0x07;
                 }
                 let y = y as usize * 2;
-                let hi = mem[BgTileDataIndex { index, attr }][y + 1];
+                let hi = if window {
+                    mem[WindowTileDataIndex { index, attr }][y + 1]
+                } else {
+                    mem[BgTileDataIndex { index, attr }][y + 1]
+                };
                 *self = Self::Sleep {
                     ticked: false,
                     attr,
@@ -559,20 +581,15 @@ impl OamObject {
             .into_iter()
             .enumerate()
             .filter(|(i, pixel)| pixel != &ObjectPixel::transparent())
-            // FIXME: This corrects an off-by-3 error seen, but why does the error exist?
-            .for_each(|(i, pixel)| {
-                if y < 20 {
-                    println!("Adding OBJ pixel at ({}, {y})", x + i);
-                }
-                buffer[x + i + 16] = pixel
-            });
+            // FIXME: This corrects an off-by-2 error, but why does the error exist?
+            .for_each(|(i, pixel)| buffer[x + i + 16] = pixel);
     }
 
     pub fn generate_pixels(self, y: u8, mem: &MemoryMap) -> [ObjectPixel; 8] {
         // The given Y needs to be within the bounds of the object. This should be the case
         // already.
         // println!("Obj at ({}, {})", self.x, self.y);
-        debug_assert!(y >= self.y);
+        debug_assert!(y >= self.y, "{y} !>= {}", self.y);
         let obj = &mem[ObjTileDataIndex(self.tile_index, check_bit_const::<3>(self.attrs))];
         debug_assert!([16, 32].contains(&obj.len()), "obj.len () = {}", obj.len());
         debug_assert!(
@@ -637,11 +654,11 @@ mod tests {
         // The buffer should be empty until at least the 7th tick
         for _ in 0..=7 {
             println!("{fetcher:X?}");
-            fetcher.tick(0, &mem, Some(&mut buffer));
+            fetcher.tick(0, &mem, Some(&mut buffer), false);
             assert!(buffer.is_empty())
         }
         println!("{fetcher:X?}");
-        fetcher.tick(0, &mem, Some(&mut buffer));
+        fetcher.tick(0, &mem, Some(&mut buffer), false);
         assert!(!buffer.is_empty(), "{fetcher:?}");
     }
 
@@ -656,14 +673,14 @@ mod tests {
         // The buffer should be empty until at least the 7th tick
         for _ in 0..=7 {
             println!("{fetcher:X?}");
-            fetcher.tick(0, &mem, Some(&mut buffer));
+            fetcher.tick(0, &mem, Some(&mut buffer), false);
             assert!(buffer.is_empty())
         }
         println!("{fetcher:X?}");
-        fetcher.tick(0, &mem, None);
+        fetcher.tick(0, &mem, None, false);
         assert!(buffer.is_empty(), "{fetcher:?}");
         println!("{fetcher:X?}");
-        fetcher.tick(0, &mem, Some(&mut buffer));
+        fetcher.tick(0, &mem, Some(&mut buffer), false);
         assert!(!buffer.is_empty(), "{fetcher:?}");
     }
 
