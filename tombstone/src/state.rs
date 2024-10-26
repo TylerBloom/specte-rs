@@ -139,6 +139,11 @@ impl AppState {
 
     fn process(&mut self, cmd: Command) {
         match cmd {
+            Command::Read { index } => {
+                let val = self.gb.lock().unwrap().gb().mem[index];
+                self.cli_history
+                    .push(format!("0x{index:0>4X} -> 0b{val:0>8b}"));
+            }
             Command::Redraw => {}
             Command::Exit => {
                 execute!(std::io::stdout(), LeaveAlternateScreen);
@@ -363,7 +368,7 @@ impl<'a> MakeWriter<'a> for GameboySubscriber {
     }
 }
 
-impl<'a> io::Write for &'a GameboySubscriber {
+impl io::Write for &'_ GameboySubscriber {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.0.lock().unwrap().write(buf)
     }
@@ -515,11 +520,14 @@ impl CommandProcessor {
                     None
                 }
                 KeyCode::Enter => {
-                    let cmd = ReplCommand::try_parse_from(self.buffer.split_whitespace()).ok();
+                    let cmd = ReplCommand::try_parse_from(self.buffer.split_whitespace());
                     cli_history.push(std::mem::take(&mut self.buffer));
                     self.index = 0;
                     self.last_longest_input = 0;
-                    cmd.map(|cmd| cmd.command)
+                    Some(
+                        cmd.map(|cmd| cmd.command)
+                            .unwrap_or_else(|_| Command::Redraw),
+                    )
                 }
                 KeyCode::Up if self.index < cli_history.len() => {
                     self.index = std::cmp::min(self.index + 1, cli_history.len());

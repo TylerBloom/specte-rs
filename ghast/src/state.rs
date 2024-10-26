@@ -121,8 +121,9 @@ impl Emulator {
 impl Default for Emulator {
     fn default() -> Self {
         let gb = Gameboy::new(include_bytes!("../../spirit/tests/roms/acid/cgb-acid2.gbc"));
+        let gb = gb.complete();
         Self {
-            gb: EmulatorInner::StartUp(Some(Box::new(gb))),
+            gb: EmulatorInner::Ready(gb),
             count: Some(0),
             frame: 0,
             dbg: Debugger(0),

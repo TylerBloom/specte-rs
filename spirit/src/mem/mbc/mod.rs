@@ -57,10 +57,10 @@ pub enum MemoryBankController {
     MBC2(MBC2),
     ///
     /// See the spec [here](https://gbdev.io/pandocs/MBC3.html).
-    MBC3,
+    MBC3(MBC3),
     ///
     /// See the spec [here](https://gbdev.io/pandocs/MBC5.html).
-    MBC5,
+    MBC5(MBC5),
 }
 
 impl MemoryBankController {
@@ -164,8 +164,8 @@ impl MemoryBankController {
             }
             MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
-            MemoryBankController::MBC3 => todo!("MBC3 not yet impl-ed"),
-            MemoryBankController::MBC5 => todo!("MBC5 not yet impl-ed"),
+            MemoryBankController::MBC3(_) => todo!("MBC3 not yet impl-ed"),
+            MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
         }
     }
 }
@@ -185,8 +185,8 @@ impl Index<u16> for MemoryBankController {
             }
             MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
-            MemoryBankController::MBC3 => todo!("MBC3 not yet impl-ed"),
-            MemoryBankController::MBC5 => todo!("MBC5 not yet impl-ed"),
+            MemoryBankController::MBC3(_) => todo!("MBC3 not yet impl-ed"),
+            MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
         }
     }
 }
@@ -219,8 +219,8 @@ impl IndexMut<u16> for MemoryBankController {
             }
             MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
-            MemoryBankController::MBC3 => todo!("MBC3 not yet impl-ed"),
-            MemoryBankController::MBC5 => todo!("MBC5 not yet impl-ed"),
+            MemoryBankController::MBC3(_) => todo!("MBC3 not yet impl-ed"),
+            MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
         }
     }
 }
@@ -236,8 +236,8 @@ impl Debug for MemoryBankController {
             ),
             MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
-            MemoryBankController::MBC3 => todo!("MBC3 not yet impl-ed"),
-            MemoryBankController::MBC5 => todo!("MBC5 not yet impl-ed"),
+            MemoryBankController::MBC3(_) => todo!("MBC3 not yet impl-ed"),
+            MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
         }
     }
 }

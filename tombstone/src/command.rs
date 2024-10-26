@@ -55,6 +55,10 @@ pub enum Command {
     #[command(subcommand)]
     Stash(StashOptions),
     Pause,
+    Read {
+        #[arg(value_parser = parse_int)]
+        index: u16,
+    },
 }
 
 #[derive(Subcommand, Clone, Copy)]
@@ -88,7 +92,7 @@ pub enum RunUntil {
     /// Runs the emulator until it receives a pause command
     Pause,
     /// Run the emulator until an interupt is requested.
-    Interupt
+    Interupt,
 }
 
 #[derive(Subcommand, Clone, Copy)]
@@ -143,6 +147,16 @@ impl From<WindowMessage> for ghast::state::Message {
                 Message::Screens(screens.into_iter().collect())
             }
         }
+    }
+}
+
+fn parse_int(input: &str) -> Result<u16, ParseIntError> {
+    if let Some(input) = input.strip_prefix("0x") {
+        u16::from_str_radix(input, 16)
+    } else if let Some(input) = input.strip_prefix("0b") {
+        u16::from_str_radix(input, 2)
+    } else {
+        input.parse()
     }
 }
 

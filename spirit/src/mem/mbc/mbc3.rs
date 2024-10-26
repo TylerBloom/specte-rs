@@ -1,4 +1,7 @@
+use serde::{Deserialize, Serialize};
+
 // TODO: How should clocks be handled...
+#[derive(Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MBC3 {
     rom: Vec<u8>,
     rom_bank: usize,

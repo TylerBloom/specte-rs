@@ -12,9 +12,7 @@ use serde_with::serde_as;
 use tracing::{info, trace};
 
 use super::{
-    io::{BgPaletteIndex, ObjPaletteIndex},
-    BgTileDataIndex, BgTileDataInnerIndex, BgTileMapAttrIndex, BgTileMapIndex, BgTileMapInnerIndex,
-    OamObjectIndex, ObjTileDataIndex,
+    io::{BgPaletteIndex, ObjPaletteIndex}, BgTileDataIndex, BgTileDataInnerIndex, BgTileMapAttrIndex, BgTileMapAttrInnerIndex, BgTileMapIndex, BgTileMapInnerIndex, OamObjectIndex, ObjTileDataIndex
 };
 
 static DEAD_READ_ONLY_BYTE: u8 = 0xFF;
@@ -197,13 +195,13 @@ impl Index<BgTileMapInnerIndex> for VRam {
     }
 }
 
-impl Index<BgTileMapAttrIndex> for VRam {
+impl Index<BgTileMapAttrInnerIndex> for VRam {
     type Output = u8;
 
-    fn index(&self, BgTileMapAttrIndex { x, y }: BgTileMapAttrIndex) -> &Self::Output {
+    fn index(&self, BgTileMapAttrInnerIndex { x, y, second_map }: BgTileMapAttrInnerIndex) -> &Self::Output {
         let x = x as usize / 8;
         let y = y as usize / 8;
-        let index = 0x1800 + (y * 32) + x;
+        let index = 0x1800 + (second_map as usize * 0x400) + (y * 32) + x;
         &self.vram[1][index]
     }
 }
@@ -219,7 +217,7 @@ impl Index<BgTileDataInnerIndex> for VRam {
             bank,
         }: BgTileDataInnerIndex,
     ) -> &Self::Output {
-        let index: usize = if unsigned_indexing {
+        let index = if unsigned_indexing {
             16 * index as usize
         } else {
             if index > 127 {
@@ -229,7 +227,7 @@ impl Index<BgTileDataInnerIndex> for VRam {
                 0x1000 + (16 * index as usize)
             }
         };
-        let bank = if bank { &self.vram[1] } else { &self.vram[0] };
+        let bank = &self.vram[bank as usize];
         (&bank[index..index + 16]).try_into().unwrap()
     }
 }

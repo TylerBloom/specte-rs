@@ -256,8 +256,11 @@ struct BackgroundFiFo {
     window: Window,
 }
 
-#[derive(Debug, Default, Hash, Serialize, Deserialize)]
+#[derive(Debug, Default, Hash, Serialize, Deserialize, Clone, Copy)]
 struct Window {
+    /// Tracks if the window was used in the last scanline (the window could be triggered by
+    /// disabled).
+    was_used: bool,
     /// Tracks if the top left corner of the window has been hit this frame.
     triggered: bool,
     /// Counts the number of vertical lines that have been rendered.
@@ -278,6 +281,8 @@ impl BackgroundFiFo {
     fn next_scanline(&mut self) {
         self.y += 1;
         self.x = 0;
+        self.window.line_count += self.window.was_used as u8;
+        self.window.was_used = false;
         // Not needed because it should be ready for the next line.
         // self.fetcher.next_scanline();
     }
@@ -294,7 +299,8 @@ impl BackgroundFiFo {
         self.window.triggered =
             self.y >= mem.io().window_position[0] && self.x + 8 >= mem.io().window_position[1];
         let do_window = self.window.triggered && check_bit_const::<5>(mem.io().lcd_control);
-        self.fetcher.tick(self.y, mem, bg, Some(&self.window));
+        self.window.was_used |= do_window;
+        self.fetcher.tick(self.y, mem, bg, do_window.then_some(self.window));
     }
 
     fn pop_pixel(&mut self) -> Option<BgPixel> {
@@ -487,12 +493,17 @@ impl PixelFetcher {
             }
             PixelFetcher::DataLow { ticked, .. } if !*ticked => *ticked = true,
             &mut PixelFetcher::DataLow { index, attr, x, .. } => {
-                let mut y = y % 8;
+                let mut y = if let Some(window) = window {
+                    window.line_count
+                } else {
+                    y
+                };
+                y %= 8;
                 if check_bit_const::<6>(attr) {
                     y = (!y) & 0x07;
                 }
                 let y = y as usize * 2;
-                let lo = if window {
+                let lo = if window.is_some() {
                     mem[WindowTileDataIndex { index, attr }][y]
                 } else {
                     mem[BgTileDataIndex { index, attr }][y]
@@ -513,12 +524,17 @@ impl PixelFetcher {
                 lo,
                 attr,
             } => {
-                let mut y = y % 8;
+                let mut y = if let Some(window) = window {
+                    window.line_count
+                } else {
+                    y
+                };
+                y %= 8;
                 if check_bit_const::<6>(attr) {
                     y = (!y) & 0x07;
                 }
                 let y = y as usize * 2;
-                let hi = if window {
+                let hi = if window.is_some() {
                     mem[WindowTileDataIndex { index, attr }][y + 1]
                 } else {
                     mem[BgTileDataIndex { index, attr }][y + 1]
@@ -654,11 +670,11 @@ mod tests {
         // The buffer should be empty until at least the 7th tick
         for _ in 0..=7 {
             println!("{fetcher:X?}");
-            fetcher.tick(0, &mem, Some(&mut buffer), false);
+            fetcher.tick(0, &mem, Some(&mut buffer), None);
             assert!(buffer.is_empty())
         }
         println!("{fetcher:X?}");
-        fetcher.tick(0, &mem, Some(&mut buffer), false);
+        fetcher.tick(0, &mem, Some(&mut buffer), None);
         assert!(!buffer.is_empty(), "{fetcher:?}");
     }
 
@@ -673,14 +689,14 @@ mod tests {
         // The buffer should be empty until at least the 7th tick
         for _ in 0..=7 {
             println!("{fetcher:X?}");
-            fetcher.tick(0, &mem, Some(&mut buffer), false);
+            fetcher.tick(0, &mem, Some(&mut buffer), None);
             assert!(buffer.is_empty())
         }
         println!("{fetcher:X?}");
-        fetcher.tick(0, &mem, None, false);
+        fetcher.tick(0, &mem, None, None);
         assert!(buffer.is_empty(), "{fetcher:?}");
         println!("{fetcher:X?}");
-        fetcher.tick(0, &mem, Some(&mut buffer), false);
+        fetcher.tick(0, &mem, Some(&mut buffer), None);
         assert!(!buffer.is_empty(), "{fetcher:?}");
     }
 
