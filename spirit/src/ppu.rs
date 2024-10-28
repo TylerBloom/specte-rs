@@ -138,11 +138,8 @@ impl PpuInner {
         match self {
             PpuInner::OamScan { dots } if *dots == 79 => {
                 *self = Self::Drawing { dots: 0 };
-                mem.inc_ppu_status(self.state());
-            }
-            PpuInner::OamScan { dots } if *dots == 0 => {
                 obj.oam_scan(bg.y, mem);
-                *dots += 1;
+                mem.inc_ppu_status(self.state());
             }
             PpuInner::OamScan { dots } => *dots += 1,
             PpuInner::Drawing { dots, .. } if bg.x == 160 => {
@@ -648,11 +645,11 @@ impl OamObject {
         );
         let mut index = y - self.y;
         if check_bit_const::<6>(self.attrs) {
-            // If vertically flipped, we need to reverse the order of the bytes in the obj. Or, we
-            // need to invert our indices. We know that `index` is between 0 and 8 (or 16), so we
-            // can just mask out the upper half of the inverted index to bring it back into range.
-            let mask = if obj.len() == 32 { 0xF } else { 0x7 };
-            index = (!index) & mask;
+            index = if obj.len() == 32 {
+                15 - index
+            } else {
+                7 - index
+            };
         }
         let index = index as usize;
         let lo = obj[2 * index];
