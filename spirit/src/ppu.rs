@@ -43,7 +43,6 @@ fn insert_oam_row(row: Vec<Pixel>) {
     assert_eq!(row.len(), 160);
     let mut lock = OAM_SCREEN.lock().unwrap();
     if lock.last().unwrap().len() == 144 {
-        println!("Resetting OAM screen");
         lock.push(Vec::with_capacity(144));
     }
     lock.last_mut().unwrap().push(row);
@@ -153,11 +152,10 @@ impl PpuInner {
             PpuInner::Drawing { dots } => {
                 *dots += 1;
                 bg.tick(mem);
-                let obj_pixel = obj.pop_pixel();
                 if let Some(pixel) = bg.pop_pixel() {
+                    let obj_pixel = obj.pop_pixel();
                     screen[bg.y as usize][bg.x as usize] = pixel.mix(obj_pixel, mem);
                     bg.x += 1;
-                    if bg.x % 8 == 0 {}
                     if bg.x == 160 {
                         *self = Self::HBlank { dots: *dots };
                         mem.inc_ppu_status(self.state());
@@ -258,7 +256,6 @@ impl ObjectFiFo {
             self.pixels.pop_front();
             self.pixels.pop_back();
         }
-        println!("Inserting OAM row {y}");
         insert_oam_row(
             self.pixels
                 .iter()
@@ -634,8 +631,7 @@ impl OamObject {
             .into_iter()
             .enumerate()
             .filter(|(i, pixel)| pixel != &ObjectPixel::transparent())
-            // FIXME: This corrects an off-by-2 error, but why does the error exist?
-            .for_each(|(i, pixel)| buffer[x + i + 16] = pixel);
+            .for_each(|(i, pixel)| buffer[x + i] = pixel);
     }
 
     pub fn generate_pixels(self, y: u8, mem: &MemoryMap) -> [ObjectPixel; 8] {
