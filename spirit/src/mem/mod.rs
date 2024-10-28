@@ -489,7 +489,7 @@ impl Index<WindowTileDataIndex> for MemoryMap {
     fn index(&self, WindowTileDataIndex { index, attr }: WindowTileDataIndex) -> &Self::Output {
         let index = BgTileDataInnerIndex {
             index,
-            unsigned_indexing: check_bit_const::<6>(self.io.lcd_control),
+            unsigned_indexing: check_bit_const::<4>(self.io.lcd_control),
             bank: check_bit_const::<3>(attr),
         };
         &self.vram[index]

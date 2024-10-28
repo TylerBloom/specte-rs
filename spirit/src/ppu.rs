@@ -532,7 +532,7 @@ impl PixelFetcher {
                 };
                 y %= 8;
                 if check_bit_const::<6>(attr) {
-                    y = (!y) & 0x07;
+                    y = 7 - y;
                 }
                 let y = y as usize * 2;
                 let lo = if window.is_some() {
@@ -563,7 +563,7 @@ impl PixelFetcher {
                 };
                 y %= 8;
                 if check_bit_const::<6>(attr) {
-                    y = (!y) & 0x07;
+                    y = 7 - y;
                 }
                 let y = y as usize * 2;
                 let hi = if window.is_some() {
