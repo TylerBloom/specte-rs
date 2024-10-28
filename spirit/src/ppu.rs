@@ -1,4 +1,9 @@
-use std::{array, collections::VecDeque, fmt::Display};
+use std::{
+    array,
+    collections::VecDeque,
+    fmt::Display,
+    sync::{LazyLock, Mutex},
+};
 
 use heapless::Vec as InlineVec;
 use serde::{Deserialize, Serialize};
@@ -28,6 +33,21 @@ use crate::{
 //    be mindful of this when it comes to deserialization. Initially, we can ignore the screen in
 //    serde, but eventually, we can also store it (mostly to show the screen save). This will
 //    require a hand-roll deser impl or something from a third-party crate.
+
+/// This is temp debugging data. Every row from the OAM will stored so that it can be visualized by
+/// the frontend.
+pub static OAM_SCREEN: LazyLock<Mutex<Vec<Vec<Vec<Pixel>>>>> =
+    LazyLock::new(|| Mutex::new(vec![vec![vec![Pixel::new(); 160]; 144]]));
+
+fn insert_oam_row(row: Vec<Pixel>) {
+    assert_eq!(row.len(), 160);
+    let mut lock = OAM_SCREEN.lock().unwrap();
+    if lock.last().unwrap().len() == 144 {
+        println!("Resetting OAM screen");
+        lock.push(Vec::with_capacity(144));
+    }
+    lock.last_mut().unwrap().push(row);
+}
 
 /// The Pixel Processing Unit
 #[derive(Debug, Hash, Serialize, Deserialize)]
@@ -121,6 +141,10 @@ impl PpuInner {
                 *self = Self::Drawing { dots: 0 };
                 mem.inc_ppu_status(self.state());
             }
+            PpuInner::OamScan { dots } if *dots == 0 => {
+                obj.oam_scan(bg.y, mem);
+                *dots += 1;
+            }
             PpuInner::OamScan { dots } => *dots += 1,
             PpuInner::Drawing { dots, .. } if bg.x == 160 => {
                 *self = Self::HBlank { dots: *dots };
@@ -154,14 +178,13 @@ impl PpuInner {
                 } else {
                     *self = Self::OamScan { dots: 0 };
                     mem.inc_ppu_status(self.state());
-                    obj.oam_scan(bg.y, mem);
                 }
             }
             PpuInner::HBlank { dots, .. } => *dots += 1,
             PpuInner::VBlank { dots } if *dots == 4559 => {
                 *self = Self::OamScan { dots: 0 };
                 mem.reset_ppu_status();
-                obj.oam_scan(0, mem);
+                // obj.oam_scan(0, mem);
                 bg.reset();
                 mem.io_mut().lcd_y = 0;
                 return true;
@@ -235,6 +258,13 @@ impl ObjectFiFo {
             self.pixels.pop_front();
             self.pixels.pop_back();
         }
+        println!("Inserting OAM row {y}");
+        insert_oam_row(
+            self.pixels
+                .iter()
+                .map(|px| ObjectPixel::as_pixel(*px, mem))
+                .collect(),
+        );
     }
 
     fn pop_pixel(&mut self) -> ObjectPixel {
@@ -300,7 +330,8 @@ impl BackgroundFiFo {
             self.y >= mem.io().window_position[0] && self.x + 8 >= mem.io().window_position[1];
         let do_window = self.window.triggered && check_bit_const::<5>(mem.io().lcd_control);
         self.window.was_used |= do_window;
-        self.fetcher.tick(self.y, mem, bg, do_window.then_some(self.window));
+        self.fetcher
+            .tick(self.y, mem, bg, do_window.then_some(self.window));
     }
 
     fn pop_pixel(&mut self) -> Option<BgPixel> {
@@ -475,8 +506,14 @@ impl PixelFetcher {
             &mut PixelFetcher::GetTile { x, .. } => {
                 let (index, attr) = if let Some(window) = window {
                     (
-                        mem[WindowTileMapIndex { x, y: window.line_count }],
-                        mem[WindowTileMapAttrIndex { x, y: window.line_count }],
+                        mem[WindowTileMapIndex {
+                            x,
+                            y: window.line_count,
+                        }],
+                        mem[WindowTileMapAttrIndex {
+                            x,
+                            y: window.line_count,
+                        }],
                     )
                 } else {
                     (

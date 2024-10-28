@@ -8,23 +8,21 @@ use iced::{
 use spirit::{
     cpu::check_bit_const,
     mem::{BgTileDataIndex, BgTileMapIndex, OamObjectIndex, ObjTileDataIndex, WindowTileDataIndex},
-    ppu::{zip_bits, OamObject, Pixel},
+    ppu::{zip_bits, OamObject, Pixel, OAM_SCREEN},
     Gameboy,
 };
 
-use crate::utils::{pixel_to_bytes, screen_to_image_scaled};
+use crate::{state::create_image, utils::{pixel_to_bytes, screen_to_image_scaled}};
 
 /// Contains all of the data to extract out debug info from the GB.
 pub struct Debugger(pub u8);
 
-fn get_actual_image() -> Vec<u8> {
-    fs::read("/home/tylerbloom/Downloads/reference.png").unwrap()
-}
-
 impl Debugger {
     pub fn view<M: 'static>(&self, gb: &Gameboy) -> impl Iterator<Item = Element<'static, M>> {
-        get_actual_image();
+        let oam = OAM_SCREEN.lock().unwrap();
+        let oam_screen = oam.iter().rev().find(|screen| screen.len() == 144).unwrap();
         [
+            create_image(oam_screen).into(),
             Column::from_vec(tile_map_0(gb).map(Into::into).collect())
                 .spacing(3)
                 .into(),
