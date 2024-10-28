@@ -321,8 +321,9 @@ impl BackgroundFiFo {
     fn tick(&mut self, mem: &MemoryMap) {
         let bg = self.background.is_empty().then(|| &mut self.background);
         self.window.triggered =
-            self.y >= mem.io().window_position[0] && self.x + 8 >= mem.io().window_position[1];
-        let do_window = self.window.triggered && check_bit_const::<5>(mem.io().lcd_control);
+            self.y >= mem.io().window_position[0] && check_bit_const::<5>(mem.io().lcd_control);
+        let do_window =
+            self.window.triggered && self.x >= mem.io().window_position[1].wrapping_sub(15);
         self.window.was_used |= do_window;
         self.fetcher
             .tick(self.y, mem, bg, do_window.then_some(self.window));
