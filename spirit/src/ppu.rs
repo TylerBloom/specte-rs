@@ -19,9 +19,6 @@ use crate::{
     },
 };
 
-// Plan of attack:
-//  - Add in window rendering
-
 // TODO:
 // 1) There is a gap (12 ticks) between the start of mode 3 and when the first pixel can be output.
 //    This is determined by the SCX register. Pixels are discarded based on this.
@@ -33,20 +30,6 @@ use crate::{
 //    be mindful of this when it comes to deserialization. Initially, we can ignore the screen in
 //    serde, but eventually, we can also store it (mostly to show the screen save). This will
 //    require a hand-roll deser impl or something from a third-party crate.
-
-/// This is temp debugging data. Every row from the OAM will stored so that it can be visualized by
-/// the frontend.
-pub static OAM_SCREEN: LazyLock<Mutex<Vec<Vec<Vec<Pixel>>>>> =
-    LazyLock::new(|| Mutex::new(vec![vec![vec![Pixel::new(); 160]; 144]]));
-
-fn insert_oam_row(row: Vec<Pixel>) {
-    assert_eq!(row.len(), 160);
-    let mut lock = OAM_SCREEN.lock().unwrap();
-    if lock.last().unwrap().len() == 144 {
-        lock.push(Vec::with_capacity(144));
-    }
-    lock.last_mut().unwrap().push(row);
-}
 
 /// The Pixel Processing Unit
 #[derive(Debug, Hash, Serialize, Deserialize)]
@@ -253,12 +236,6 @@ impl ObjectFiFo {
             self.pixels.pop_front();
             self.pixels.pop_back();
         }
-        insert_oam_row(
-            self.pixels
-                .iter()
-                .map(|px| ObjectPixel::as_pixel(*px, mem))
-                .collect(),
-        );
     }
 
     fn pop_pixel(&mut self) -> ObjectPixel {
@@ -323,7 +300,7 @@ impl BackgroundFiFo {
         self.window.triggered =
             self.y >= mem.io().window_position[0] && check_bit_const::<5>(mem.io().lcd_control);
         let do_window =
-            self.window.triggered && self.x >= mem.io().window_position[1].wrapping_sub(15);
+            self.window.triggered && self.x >= (mem.io().window_position[1] & !0x7).wrapping_sub(7);
         self.window.was_used |= do_window;
         self.fetcher
             .tick(self.y, mem, bg, do_window.then_some(self.window));

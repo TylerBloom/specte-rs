@@ -411,13 +411,6 @@ impl Index<WindowTileMapIndex> for MemoryMap {
             x: x.wrapping_sub(self.io.window_position[1].wrapping_sub(7)),
             y,
         };
-        if y == 16 {
-            let BgTileMapInnerIndex { second_map, x, y } = index;
-            println!("The window position: {:?}", self.io.window_position);
-            let x = x as usize / 8;
-            let y = y as usize / 8;
-            println!("Rendering the first window line. Indexing into the {}th tile map at ({x}, {y})", second_map as usize);
-        }
         &self.vram[index]
     }
 }
@@ -438,13 +431,6 @@ impl Index<WindowTileMapAttrIndex> for MemoryMap {
             x: x.wrapping_sub(self.io.window_position[1].wrapping_sub(7)),
             y,             //.wrapping_add(self.io.window_position[0]),
         };
-        if y == 16 {
-            let BgTileMapAttrInnerIndex { second_map, x, y } = index;
-            println!("The window position: {:?}", self.io.window_position);
-            let x = x as usize / 8;
-            let y = y as usize / 8;
-            println!("Rendering the first window line. Indexing into the {}th attr map at ({x}, {y})", second_map as usize);
-        }
         &self.vram[index]
     }
 }

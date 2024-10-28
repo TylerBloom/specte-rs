@@ -8,7 +8,7 @@ use iced::{
 use spirit::{
     cpu::check_bit_const,
     mem::{BgTileDataIndex, BgTileMapIndex, OamObjectIndex, ObjTileDataIndex, WindowTileDataIndex},
-    ppu::{zip_bits, OamObject, Pixel, OAM_SCREEN},
+    ppu::{zip_bits, OamObject, Pixel},
     Gameboy,
 };
 
@@ -19,10 +19,7 @@ pub struct Debugger(pub u8);
 
 impl Debugger {
     pub fn view<M: 'static>(&self, gb: &Gameboy) -> impl Iterator<Item = Element<'static, M>> {
-        let oam = OAM_SCREEN.lock().unwrap();
-        let oam_screen = oam.iter().rev().find(|screen| screen.len() == 144).unwrap();
         [
-            create_image(oam_screen).into(),
             Column::from_vec(tile_map_0(gb).map(Into::into).collect())
                 .spacing(3)
                 .into(),

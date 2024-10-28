@@ -119,14 +119,8 @@ impl IndexMut<CpuVramIndex> for VRam {
             &mut self.dead_byte
         } else {
             if bank {
-                if index == 0x9C00 {
-                    println!("CPU is writing to (0, 0) in the second attr map.");
-                }
                 &mut self.vram[1][index as usize - 0x8000]
             } else {
-                if index == 0x9C00 {
-                    println!("CPU is writing to (0, 0) in the first attr map.");
-                }
                 &mut self.vram[0][index as usize - 0x8000]
             }
         }
