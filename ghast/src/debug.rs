@@ -1,3 +1,5 @@
+use std::fs::{self, File};
+
 use iced::{
     widget::{column, image::Handle, row, text, Column, Image, Row},
     Element,
@@ -5,7 +7,7 @@ use iced::{
 
 use spirit::{
     cpu::check_bit_const,
-    mem::{OamObjectIndex, ObjTileDataIndex},
+    mem::{BgTileDataIndex, BgTileMapIndex, OamObjectIndex, ObjTileDataIndex, WindowTileDataIndex},
     ppu::{zip_bits, OamObject, Pixel},
     Gameboy,
 };
@@ -15,15 +17,31 @@ use crate::utils::{pixel_to_bytes, screen_to_image_scaled};
 /// Contains all of the data to extract out debug info from the GB.
 pub struct Debugger(pub u8);
 
+fn get_actual_image() -> Vec<u8> {
+    fs::read("/home/tylerbloom/Downloads/reference.png").unwrap()
+}
+
 impl Debugger {
-    pub fn view<M: 'static>(&self, gb: &Gameboy) -> impl Into<Element<'static, M>> {
-        // print_tile_map(gb);
-        column![
-            Column::from_vec(oam_data(gb).map(Into::into).collect()).spacing(3),
-            Column::from_vec(vram_0_to_tiles(gb, self.0).map(Into::into).collect()).spacing(3),
-            Column::from_vec(vram_1_to_tiles(gb, self.0,).map(Into::into).collect()).spacing(3),
+    pub fn view<M: 'static>(&self, gb: &Gameboy) -> impl Iterator<Item = Element<'static, M>> {
+        get_actual_image();
+        [
+            Column::from_vec(tile_map_0(gb).map(Into::into).collect())
+                .spacing(3)
+                .into(),
+            Column::from_vec(tile_map_1(gb).map(Into::into).collect())
+                .spacing(3)
+                .into(),
+            Column::from_vec(vram_0_to_tiles(gb, self.0).map(Into::into).collect())
+                .spacing(3)
+                .into(),
+            Column::from_vec(vram_1_to_tiles(gb, self.0).map(Into::into).collect())
+                .spacing(3)
+                .into(),
+            Column::from_vec(oam_data(gb).map(Into::into).collect())
+                .spacing(3)
+                .into(),
         ]
-        .spacing(8)
+        .into_iter()
     }
 
     pub fn inc(&mut self) {
@@ -35,16 +53,39 @@ impl Debugger {
 fn tile_map_0<M: 'static>(
     gb: &Gameboy,
 ) -> impl '_ + Iterator<Item = impl Into<Element<'static, M>>> {
-    tile_map(&gb.mem.vram.vram[0][0x1800..0x1BFF])
+    tile_map(
+        gb,
+        &gb.mem.vram.vram[0][0x1800..=0x1BFF],
+        &gb.mem.vram.vram[1][0x1800..=0x1BFF],
+    )
 }
 
 fn tile_map_1<M: 'static>(
     gb: &Gameboy,
 ) -> impl '_ + Iterator<Item = impl Into<Element<'static, M>>> {
-    tile_map(&gb.mem.vram.vram[0][0x1C00..0x1FFF])
+    tile_map(
+        gb,
+        &gb.mem.vram.vram[0][0x1C00..=0x1FFF],
+        &gb.mem.vram.vram[1][0x1C00..=0x1FFF],
+    )
 }
 
-fn tile_map<M: 'static>(map: &[u8]) -> impl '_ + Iterator<Item = impl Into<Element<'static, M>>> {
+fn tile_map<'a, M: 'static>(
+    gb: &'a Gameboy,
+    map: &'a [u8],
+    attrs: &'a [u8],
+) -> impl 'a + Iterator<Item = impl Into<Element<'static, M>>> {
+    (0..map.len()).step_by(32).map(|i| {
+        tiles_into_rows(
+            32,
+            (i..i + 32)
+                .map(|i| (map[i], attrs[i]))
+                .map(|(index, attr)| (gb.mem[WindowTileDataIndex { index, attr }], attr))
+                .map(|(data, attr)| tile_data_to_pixels(gb, attr & 0b11, data)),
+        )
+    })
+    // Needs an iterator over 8x8 grids of pixels
+    /*
     let to_str = |index| text(format!("{index:0>2X}"));
     let mut cols = std::iter::once("XX ".to_owned())
         .chain((0..32).map(|i| format!("{i:0>2}")))
@@ -68,6 +109,7 @@ fn tile_map<M: 'static>(map: &[u8]) -> impl '_ + Iterator<Item = impl Into<Eleme
         .enumerate()
         .for_each(|(i, txt)| cols[1 + i % 32].push(txt));
     cols.into_iter().map(Column::from_vec)
+    */
 }
 
 fn oam_data<M: 'static>(gb: &Gameboy) -> impl '_ + Iterator<Item = impl Into<Element<'static, M>>> {
@@ -151,15 +193,14 @@ fn vram_bank_to_tiles<'a, M: 'static>(
         )
         .spacing(2),
     )
-    .chain(
-        (0..0x18)
-            .map(move |i| row![text(format!("{i:0>2X}")), tiles_into_rows(&mut iter),].spacing(3)),
-    )
+    .chain((0..0x18).map(move |i| {
+        row![text(format!("{i:0>2X}")), tiles_into_rows(0x10, &mut iter),].spacing(3)
+    }))
 }
 
-fn tiles_into_rows<M>(iter: impl Iterator<Item = [[Pixel; 8]; 8]>) -> Row<'static, M> {
+fn tiles_into_rows<M>(len: usize, iter: impl Iterator<Item = [[Pixel; 8]; 8]>) -> Row<'static, M> {
     Row::from_vec(
-        iter.take(0x10)
+        iter.take(len)
             .map(pixels_to_image)
             .map(Into::into)
             .collect(),

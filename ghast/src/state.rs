@@ -64,7 +64,7 @@ impl EmulatorInner {
             EmulatorInner::StartUp(gb) => gb.as_mut().unwrap().step(),
             EmulatorInner::Ready(gb) => {
                 gb.step().complete();
-            },
+            }
         }
     }
 
@@ -96,12 +96,18 @@ impl Emulator {
         const SCALE: usize = 4;
         let gb = self.gb.gb();
         let screen: Element<'static, Message> = match self.duplicated_screens.as_ref() {
-            Some(screens) => {
-                Column::from_vec(screens.iter().map(create_image).map(Into::into).collect::<Vec<_>>()).spacing(8).into()
-            }
+            Some(screens) => Column::from_vec(
+                screens
+                    .iter()
+                    .map(create_image)
+                    .map(Into::into)
+                    .collect::<Vec<_>>(),
+            )
+            .spacing(8)
+            .into(),
             None => create_image(&gb.ppu.screen).into(),
         };
-        let col = row![self.dbg.view(gb).into(), screen];
+        let col = Column::from_iter(std::iter::once(screen).chain(self.dbg.view(gb)));
         Scrollable::new(col)
     }
 
@@ -138,7 +144,7 @@ impl Emulator {
             Message::Play => {
                 self.duplicated_screens = None;
                 self.count = None;
-            },
+            }
             Message::Pause => self.count = Some(0),
             Message::Step(count) => {
                 if let Some(c) = self.count.as_mut() {
@@ -191,10 +197,8 @@ impl Emulator {
     pub fn view_owned(&self) -> Element<'static, Message> {
         column![
             row![
-                Button::new(text(self.to_frame_text(1)))
-                    .on_press(Message::Step(1)),
-                Button::new(text(self.to_frame_text(10)))
-                    .on_press(Message::Step(10)),
+                Button::new(text(self.to_frame_text(1))).on_press(Message::Step(1)),
+                Button::new(text(self.to_frame_text(10))).on_press(Message::Step(10)),
                 Button::new(text("Next Scanline")).on_press(Message::ScanLine),
                 Button::new(text("Run")).on_press(Message::Play),
                 Button::new(text("Pause")).on_press(Message::Pause),

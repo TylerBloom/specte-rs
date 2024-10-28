@@ -366,35 +366,6 @@ impl Index<BgTileMapIndex> for MemoryMap {
     }
 }
 
-pub struct WindowTileMapIndex {
-    pub x: u8,
-    pub y: u8,
-}
-
-impl Index<WindowTileMapIndex> for MemoryMap {
-    type Output = u8;
-
-    fn index(&self, WindowTileMapIndex { x, y }: WindowTileMapIndex) -> &Self::Output {
-        // We use the BG index here because the only difference between Window and BG data is how
-        // we calculate the X and Y (and transparently... TBD on if that's an issue)
-        let index = BgTileMapInnerIndex {
-            second_map: check_bit_const::<6>(self.io.lcd_control),
-            // TODO: Not sure if this needs to be wrapping. Also, how are the X and Y bounds (< 143
-            // and 166, respectively) are honored. Probably should be controlled on writes...
-            x: (x & 0xF8).wrapping_sub(self.io.window_position[1]), // & 0xF8,
-            y: y, //.wrapping_add(self.io.window_position[0]),
-        };
-        if y == 16 {
-            let BgTileMapInnerIndex { second_map, x, y } = index;
-            let x = x as usize / 8;
-            let y = y as usize / 8;
-            let index = 0x9800 + (second_map as usize * 0x400) + (y * 32) + x;
-            println!("Rendering the 17th window line. Indexing into 0x{index:0>4X} = 0x9800 + 0x{y:0>4x} * 32 + 0x{x:0>4x}");
-        }
-        &self.vram[index]
-    }
-}
-
 /// A type used to index a background tile's attributes inside VRAM Tile Map (in bank 1).
 ///
 /// This type is only used by the PPU.
@@ -422,6 +393,36 @@ impl Index<BgTileMapAttrIndex> for MemoryMap {
     }
 }
 
+pub struct WindowTileMapIndex {
+    pub x: u8,
+    pub y: u8,
+}
+
+impl Index<WindowTileMapIndex> for MemoryMap {
+    type Output = u8;
+
+    fn index(&self, WindowTileMapIndex { x, y }: WindowTileMapIndex) -> &Self::Output {
+        // We use the BG index here because the only difference between Window and BG data is how
+        // we calculate the X and Y (and transparently... TBD on if that's an issue)
+        let index = BgTileMapInnerIndex {
+            second_map: check_bit_const::<6>(self.io.lcd_control),
+            // TODO: Not sure if this needs to be wrapping. Also, how are the X and Y bounds (< 143
+            // and 166, respectively) are honored. Probably should be controlled on writes...
+            x: x.wrapping_sub(self.io.window_position[1]),
+            y,
+        };
+        if y == 0 {
+            let BgTileMapInnerIndex { second_map, x, y } = index;
+            println!("The window position: {:?}", self.io.window_position);
+            let x = x as usize / 8;
+            let y = y as usize / 8;
+            let index = 0x9800 + (second_map as usize * 0x400) + (y * 32) + x;
+            println!("Rendering the first window line. Indexing into the {}th map at 0x{index:0>4X} = 0x9800 + 0x{y:0>4x} * 32 + 0x{x:0>4x}", second_map as usize);
+        }
+        &self.vram[index]
+    }
+}
+
 pub struct WindowTileMapAttrIndex {
     pub x: u8,
     pub y: u8,
@@ -435,8 +436,8 @@ impl Index<WindowTileMapAttrIndex> for MemoryMap {
             second_map: check_bit_const::<6>(self.io.lcd_control),
             // TODO: Not sure if this needs to be wrapping. Also, how are the X and Y bounds (< 143
             // and 166, respectively) are honored. Probably should be controlled on writes...
-            x: (x & 0xF8).wrapping_sub(self.io.window_position[1]), // & 0xF8,
-            y: y, //.wrapping_add(self.io.window_position[0]),
+            x: x.wrapping_sub(self.io.window_position[1]),
+            y,             //.wrapping_add(self.io.window_position[0]),
         };
         &self.vram[index]
     }
