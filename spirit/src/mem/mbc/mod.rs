@@ -133,7 +133,10 @@ impl MemoryBankController {
             0x0C => todo!(),
             0x0D => todo!(),
             0x0F => todo!(),
-            0x10 => todo!(),
+            0x10 => {
+                println!("ROM Size {rom_size}, RAM Size {ram_size}");
+                Self::MBC3(MBC3::new(rom_size / 0x4000, ram_size as usize / 8, &cart))
+            }
             0x11 => todo!(),
             0x12 => todo!(),
             0x13 => todo!(),
@@ -164,7 +167,7 @@ impl MemoryBankController {
             }
             MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
-            MemoryBankController::MBC3(_) => todo!("MBC3 not yet impl-ed"),
+            MemoryBankController::MBC3(controller) => controller.overwrite_rom_zero(index, val),
             MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
         }
     }
