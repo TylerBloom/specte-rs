@@ -446,20 +446,6 @@ impl Cpu {
         }
     }
 
-    fn ref_byte<'a>(&'a self, mem: &'a MemoryMap, reg: RegOrPointer) -> &'a u8 {
-        match reg {
-            RegOrPointer::Reg(reg) => &self[reg].0,
-            RegOrPointer::Pointer => &mem[self.ptr()],
-        }
-    }
-
-    fn ref_mut_byte<'a>(&'a mut self, mem: &'a mut MemoryMap, reg: RegOrPointer) -> &'a mut u8 {
-        match reg {
-            RegOrPointer::Reg(reg) => &mut self[reg].0,
-            RegOrPointer::Pointer => &mut mem[self.ptr()],
-        }
-    }
-
     fn unwrap_some_byte(&self, mem: &MemoryMap, byte: SomeByte) -> u8 {
         match byte {
             SomeByte::Direct(byte) => byte,
@@ -470,31 +456,32 @@ impl Cpu {
     pub fn copy_byte(&self, mem: &MemoryMap, reg: RegOrPointer) -> u8 {
         match reg {
             RegOrPointer::Reg(reg) => self[reg].0,
-            RegOrPointer::Pointer => mem[self.ptr()],
+            RegOrPointer::Pointer => mem.read_byte(self.ptr()),
         }
     }
 
-    fn update_byte<F>(&mut self, reg: RegOrPointer, mem: &mut MemoryMap, update: F) -> u8
-    where
-        F: FnOnce(&mut u8),
-    {
-        let digest = self.ref_mut_byte(mem, reg);
-        update(digest);
-        *digest
+    fn update_byte(
+        &mut self,
+        reg: RegOrPointer,
+        mem: &mut MemoryMap,
+        update: impl FnOnce(&mut u8),
+    ) -> u8 {
+        match reg {
+            RegOrPointer::Reg(reg) => {
+                update(&mut self[reg].0);
+                self[reg].0
+            }
+            RegOrPointer::Pointer => mem.update_byte(self.ptr(), update),
+        }
     }
 
     /// Stores the given byte into either an (half) register or into the MemoryMap using the HL
     /// register as an index.
     fn write_byte(&mut self, reg: RegOrPointer, mem: &mut MemoryMap, val: u8) {
-        self.cow_byte(reg, mem, val);
-    }
-
-    /// Functions similiarly to `write_byte` but also returns the byte that was modified *after*
-    /// the modification.
-    fn cow_byte(&mut self, reg: RegOrPointer, mem: &mut MemoryMap, val: u8) -> u8 {
-        let digest = self.ref_mut_byte(mem, reg);
-        *digest = val;
-        *digest
+        match reg {
+            RegOrPointer::Reg(reg) => self[reg].0 = val,
+            RegOrPointer::Pointer => mem.write_byte(self.ptr(), val),
+        }
     }
 
     fn matches(&self, cond: Condition) -> bool {
@@ -508,17 +495,17 @@ impl Cpu {
 
     fn push_pc(&mut self, mem: &mut MemoryMap) {
         let [hi, lo] = self.pc_bytes();
-        mem[self.sp.0] = hi;
+        mem.write_byte(self.sp.0, hi);
         self.sp -= 1u16;
-        mem[self.sp.0] = lo;
+        mem.write_byte(self.sp.0, lo);
         self.sp -= 1u16;
     }
 
     fn pop_pc(&mut self, mem: &mut MemoryMap) -> u16 {
         self.sp += 1u16;
-        let lo = mem[self.sp.0];
+        let lo = mem.read_byte(self.sp.0);
         self.sp += 1u16;
-        let hi = mem[self.sp.0];
+        let hi = mem.read_byte(self.sp.0);
         u16::from_be_bytes([hi, lo])
     }
 
@@ -746,13 +733,43 @@ impl Cpu {
             LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),
             LoadOp::Direct(reg, val) => self.write_byte(reg, mem, val),
             LoadOp::LoadIntoA(ptr) => {
-                self.a = Wrapping(*self.deref_ptr(mem, ptr));
+                let index  = match ptr {
+                    LoadAPointer::BC => self.bc(),
+                    LoadAPointer::DE => self.de(),
+                    LoadAPointer::Hli => {
+                        let digest = self.ptr();
+                        self.inc_ptr(1);
+                        digest
+                    }
+                    LoadAPointer::Hld => {
+                        let digest = self.ptr();
+                        self.dec_ptr(1);
+                        digest
+                    }
+                };
+                self.a.0 = mem.read_byte(index);
             }
-            LoadOp::StoreFromA(ptr) => *self.deref_mut_ptr(mem, ptr) = self.a.0,
+            LoadOp::StoreFromA(ptr) => {
+                let index = match ptr {
+                    LoadAPointer::BC => self.bc(),
+                    LoadAPointer::DE => self.de(),
+                    LoadAPointer::Hli => {
+                        let digest = self.ptr();
+                        self.inc_ptr(1);
+                        digest
+                    }
+                    LoadAPointer::Hld => {
+                        let digest = self.ptr();
+                        self.dec_ptr(1);
+                        digest
+                    }
+                };
+                mem.write_byte(index, self.a.0)
+            }
             LoadOp::StoreSP(val) => {
                 let [hi, lo] = self.sp.0.to_be_bytes();
-                mem[val] = lo;
-                mem[val + 1] = hi;
+                mem.write_byte(val, lo);
+                mem.write_byte(val + 1, hi);
             }
             LoadOp::HLIntoSP => self.sp = Wrapping(self.ptr()),
             LoadOp::SPIntoHL(val) => {
@@ -776,20 +793,20 @@ impl Cpu {
                     WideRegWithoutSP::HL => [self.h.0, self.l.0],
                     WideRegWithoutSP::AF => [self.a.0, self.f.as_byte()],
                 };
-                mem[self.sp.0] = a;
+                mem.write_byte(self.sp.0, a);
                 self.sp -= 1u16;
-                mem[self.sp.0] = b;
+                mem.write_byte(self.sp.0, b);
                 self.sp -= 1u16;
             }
             LoadOp::LoadHigh(val) => {
                 trace!("LoadHigh(0x{val:0>2X})");
-                mem[u16::from_be_bytes([0xFF, val])] = self.a.0
+                mem.write_byte(u16::from_be_bytes([0xFF, val]), self.a.0);
             }
-            LoadOp::StoreHigh(val) => self.a = Wrapping(mem[u16::from_be_bytes([0xFF, val])]),
-            LoadOp::Ldhca => mem[u16::from_be_bytes([0xFF, self.c.0])] = self.a.0,
-            LoadOp::Ldhac => self.a = Wrapping(mem[u16::from_be_bytes([0xFF, self.c.0])]),
-            LoadOp::LoadA { ptr } => mem[ptr] = self.a.0,
-            LoadOp::StoreA { ptr } => self.a = Wrapping(mem[ptr]),
+            LoadOp::StoreHigh(val) => self.a.0 = mem.read_byte(u16::from_be_bytes([0xFF, val])),
+            LoadOp::Ldhca => mem.write_byte(u16::from_be_bytes([0xFF, self.c.0]), self.a.0),
+            LoadOp::Ldhac => self.a.0 = mem.read_byte(u16::from_be_bytes([0xFF, self.c.0])),
+            LoadOp::LoadA { ptr } => mem.write_byte(ptr, self.a.0),
+            LoadOp::StoreA { ptr } => self.a.0 = mem.read_byte(ptr),
         }
     }
 
@@ -831,44 +848,6 @@ impl Cpu {
         self.l = l;
     }
 
-    fn deref_ptr<'a, 'b>(&'a mut self, mem: &'b mut MemoryMap, ptr: LoadAPointer) -> &'b u8 {
-        match ptr {
-            LoadAPointer::BC => &mem[self.bc()],
-            LoadAPointer::DE => &mem[self.de()],
-            LoadAPointer::Hli => {
-                let digest = &mem[self.ptr()];
-                self.inc_ptr(1);
-                digest
-            }
-            LoadAPointer::Hld => {
-                let digest = &mem[self.ptr()];
-                self.dec_ptr(1);
-                digest
-            }
-        }
-    }
-
-    fn deref_mut_ptr<'a, 'b>(
-        &'a mut self,
-        mem: &'b mut MemoryMap,
-        ptr: LoadAPointer,
-    ) -> &'b mut u8 {
-        match ptr {
-            LoadAPointer::BC => &mut mem[self.bc()],
-            LoadAPointer::DE => &mut mem[self.de()],
-            LoadAPointer::Hli => {
-                let digest = &mut mem[self.ptr()];
-                self.inc_ptr(1);
-                digest
-            }
-            LoadAPointer::Hld => {
-                let digest = &mut mem[self.ptr()];
-                self.dec_ptr(1);
-                digest
-            }
-        }
-    }
-
     /// A method similar to `Self::execute`, but is ran during start up, when the ROM that is
     /// burned-into the CPU is mapped over normal memory.
     ///
@@ -879,7 +858,7 @@ impl Cpu {
         mem: &mut MemoryMap,
     ) -> Option<Instruction> {
         self.execute(instr, mem);
-        (mem[0xFF50] == 0).then(|| self.read_op(mem))
+        (mem.read_byte(0xFF50) == 0).then(|| self.read_op(mem))
     }
 }
 

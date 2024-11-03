@@ -72,7 +72,7 @@ impl MBC3 {
         std::mem::swap(&mut self.rom_bank_zero[index as usize], val)
     }
 
-    fn read(&self, index: u16) -> u8 {
+    pub(super) fn read_byte(&self, index: u16) -> u8 {
         match index {
             0x0000..0x4000 => self.rom_bank_zero[index as usize],
             index @ 0x4000..0x8000 => self.rom[self.rom_bank as usize][(index - 0x4000) as usize],
@@ -90,7 +90,7 @@ impl MBC3 {
         }
     }
 
-    fn write(&mut self, index: u16, value: u8) {
+    pub(super) fn write_byte(&mut self, index: u16, value: u8) {
         match index {
             0x0000..0x2000 => {
                 if value == 0 {
@@ -143,5 +143,9 @@ impl MBC3 {
             }
             0xC000.. => unreachable!("How did you get here??"),
         }
+    }
+
+    pub(super) fn update_byte(&self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
+        todo!()
     }
 }

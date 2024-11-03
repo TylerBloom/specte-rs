@@ -41,7 +41,7 @@ fn run_test_roms() {
     let mut start_up = Gameboy::new(TEST_ROMS[0].1);
     let mut header = Vec::new();
     for i in 0x100..=0x14F {
-        header.push(start_up.mem[i]);
+        header.push(start_up.mem.read_byte(i));
     }
     start_up.mem = MemoryMap::construct();
     let rom = start_up.mem.rom_mut();
@@ -51,7 +51,7 @@ fn run_test_roms() {
     println!("{:X?}", START_UP_HEADER);
     for (name, cart) in TEST_ROMS {
         println!("Running ROM from file '{name}'");
-        let mut gb = Gameboy::new(*cart);
+        let gb = Gameboy::new(*cart);
         // println!("Init GB state: {gb:?}");
         // gb.start_up().complete();
     }

@@ -758,8 +758,8 @@ mod tests {
     fn basic_rendering_test() {
         let mut mem = MemoryMap::construct();
         mem.io_mut().background_palettes.data[0].colors[3].0 = [0xFF, 0xFF];
-        mem[0x9000] = 0xFF;
-        mem[0x9001] = 0xFF;
+        mem.write_byte(0x9000, 0xFF);
+        mem.write_byte(0x9001, 0xFF);
         let mut ppu = Ppu::new();
         ppu.finish_screen(&mut mem);
         let white = vec![Pixel::WHITE; 160];

@@ -171,58 +171,60 @@ impl MemoryBankController {
             MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
         }
     }
-}
 
-impl Index<u16> for MemoryBankController {
-    type Output = u8;
-
-    fn index(&self, index: u16) -> &Self::Output {
-        let index = index as usize;
+    pub(super) fn read_byte(&self, index: u16) -> u8 {
         match self {
             MemoryBankController::Direct { rom, ram, .. } => {
+                let index = index as usize;
                 if index < rom.len() {
-                    &rom[index]
+                    rom[index]
                 } else {
-                    &ram[index + 1]
+                    ram[index + 1]
                 }
             }
             MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
-            MemoryBankController::MBC3(_) => todo!("MBC3 not yet impl-ed"),
+            MemoryBankController::MBC3(controller) => controller.read_byte(index),
             MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
         }
     }
-}
 
-impl IndexMut<u16> for MemoryBankController {
-    fn index_mut(&mut self, index: u16) -> &mut Self::Output {
-        let index = index as usize;
+    pub(super) fn write_byte(&mut self, index: u16, value: u8) {
         match self {
-            // TODO: This should probably panic (or something) if index < rom.len(), i.e. they are
-            // trying to write to ROM.
             MemoryBankController::Direct {
                 rom,
                 ram,
                 dead_byte,
-            } => {
-                /*
-                debug_assert!(
-                    index + 1 >= rom.len(),
-                    "Could not index into 0x{index:0>4X} because ROM ends at {:0>4X}",
-                    rom.len()
-                );
-                */
-                match index {
-                    0xA000..0xC000 => &mut ram[index - rom.len()],
-                    _ => {
-                        *dead_byte = 0;
-                        dead_byte
-                    }
-                }
-            }
+            } => match index {
+                0xA000..0xC000 => ram[index as usize - rom.len()] = value,
+                // NOTE: This shouldn't happen
+                _ => {}
+            },
             MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
-            MemoryBankController::MBC3(_) => todo!("MBC3 not yet impl-ed"),
+            MemoryBankController::MBC3(controller) => controller.write_byte(index, value),
+            MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
+        }
+    }
+
+    pub(super) fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
+        match self {
+            MemoryBankController::Direct {
+                rom,
+                ram,
+                dead_byte,
+            } => match index {
+                0xA000..0xC000 => {
+                    let ptr = &mut ram[index as usize - rom.len()];
+                    update(ptr);
+                    *ptr
+                }
+                // NOTE: This shouldn't happen
+                _ => 0,
+            },
+            MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
+            MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
+            MemoryBankController::MBC3(controller) => controller.update_byte(index, update),
             MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
         }
     }

@@ -5,11 +5,11 @@ use crate::{cpu::Cpu, mem::MemoryMap};
 use derive_more::{From, IsVariant};
 
 pub fn parse_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
-    OP_LOOKUP[mem[pc] as usize](mem, pc)
+    OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
 }
 
 fn parse_prefixed_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
-    PREFIXED_OP_LOOKUP[mem[pc] as usize](mem, pc)
+    PREFIXED_OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
 }
 
 type OpArray<const N: usize> = [fn(&MemoryMap, u16) -> Instruction; N];
@@ -704,7 +704,7 @@ macro_rules! define_op {
         |data, pc| {
             unreachable!(
                 "Op code '0x{:X}' does not correspond to any valid operation",
-                data[pc]
+                data.read_byte(pc)
             )
         }
     };
@@ -724,21 +724,21 @@ macro_rules! define_op {
         |_, _| Instruction::ControlOp(ControlOp::Noop)
     };
     (JR) => {
-        |data, pc| Instruction::Jump(JumpOp::Relative(data[pc + 1] as i8))
+        |data, pc| Instruction::Jump(JumpOp::Relative(data.read_byte(pc + 1) as i8))
     };
     (JR, $r: ident) => {
         |data, pc| {
             Instruction::Jump(JumpOp::ConditionalRelative(
                 Condition::$r,
-                data[pc + 1] as i8,
+                data.read_byte(pc + 1) as i8,
             ))
         }
     };
     (JP) => {
         |data, pc| {
             Instruction::Jump(JumpOp::Absolute(u16::from_le_bytes([
-                data[pc + 1],
-                data[pc + 2],
+                data.read_byte(pc + 1),
+                data.read_byte(pc + 2),
             ])))
         }
     };
@@ -749,60 +749,60 @@ macro_rules! define_op {
         |data, pc| {
             Instruction::Jump(JumpOp::ConditionalAbsolute(
                 Condition::$r,
-                u16::from_le_bytes([data[pc + 1], data[pc + 2]]),
+                u16::from_le_bytes([data.read_byte(pc + 1), data.read_byte(pc + 2)]),
             ))
         }
     };
     (STOP) => {
-        |data, pc| Instruction::ControlOp(ControlOp::Stop(data[pc + 1]))
+        |data, pc| Instruction::ControlOp(ControlOp::Stop(data.read_byte(pc + 1)))
     };
     (ADD) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::Add(SomeByte::Direct(data[pc + 1])))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::Add(SomeByte::Direct(data.read_byte(pc + 1))))
     };
     (ADD, SP) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::AddSP(data[pc + 1] as i8))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::AddSP(data.read_byte(pc + 1) as i8))
     };
     (ADD, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Add(InnerRegOrPointer::$r.convert().into()))
     };
     (ADC) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::Adc(SomeByte::Direct(data[pc + 1])))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::Adc(SomeByte::Direct(data.read_byte(pc + 1))))
     };
     (ADC, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Adc(InnerRegOrPointer::$r.convert().into()))
     };
     (SUB) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::Sub(SomeByte::Direct(data[pc + 1])))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::Sub(SomeByte::Direct(data.read_byte(pc + 1))))
     };
     (SUB, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Sub(InnerRegOrPointer::$r.convert().into()))
     };
     (SBC) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::Sbc(SomeByte::Direct(data[pc + 1])))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::Sbc(SomeByte::Direct(data.read_byte(pc + 1))))
     };
     (SBC, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Sbc(InnerRegOrPointer::$r.convert().into()))
     };
     (AND) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::And(SomeByte::Direct(data[pc + 1])))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::And(SomeByte::Direct(data.read_byte(pc + 1))))
     };
     (AND, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::And(InnerRegOrPointer::$r.convert().into()))
     };
     (XOR) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::Xor(SomeByte::Direct(data[pc + 1])))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::Xor(SomeByte::Direct(data.read_byte(pc + 1))))
     };
     (XOR, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Xor(InnerRegOrPointer::$r.convert().into()))
     };
     (OR) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::Or(SomeByte::Direct(data[pc + 1])))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::Or(SomeByte::Direct(data.read_byte(pc + 1))))
     };
     (OR, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Or(InnerRegOrPointer::$r.convert().into()))
     };
     (CP) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::Cp(SomeByte::Direct(data[pc + 1])))
+        |data, pc| Instruction::Arithmetic(ArithmeticOp::Cp(SomeByte::Direct(data.read_byte(pc + 1))))
     };
     (CP, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Cp(InnerRegOrPointer::$r.convert().into()))
@@ -828,22 +828,22 @@ macro_rules! define_op {
     (LD SP) => {
         |data, pc| {
             Instruction::Load(LoadOp::StoreSP(u16::from_le_bytes([
-                data[pc + 1],
-                data[pc + 1],
+                data.read_byte(pc + 1),
+                data.read_byte(pc + 1),
             ])))
         }
     };
     (LoadA) => {
         |data, pc| {
             Instruction::Load(LoadOp::LoadA {
-                ptr: u16::from_le_bytes([data[pc + 1], data[pc + 2]]),
+                ptr: u16::from_le_bytes([data.read_byte(pc + 1), data.read_byte(pc + 2)]),
             })
         }
     };
     (StoreA) => {
         |data, pc| {
             Instruction::Load(LoadOp::StoreA {
-                ptr: u16::from_le_bytes([data[pc + 1], data[pc + 2]]),
+                ptr: u16::from_le_bytes([data.read_byte(pc + 1), data.read_byte(pc + 2)]),
             })
         }
     };
@@ -851,7 +851,7 @@ macro_rules! define_op {
         |data, pc| {
             Instruction::Load(LoadOp::Direct(
                 InnerRegOrPointer::$r.convert(),
-                data[pc + 1],
+                data.read_byte(pc + 1),
             ))
         }
     };
@@ -859,7 +859,7 @@ macro_rules! define_op {
         |data, pc| {
             Instruction::Load(LoadOp::Direct16(
                 WideReg::$r,
-                u16::from_le_bytes([data[pc + 1], data[pc + 2]]),
+                u16::from_le_bytes([data.read_byte(pc + 1), data.read_byte(pc + 2)]),
             ))
         }
     };
@@ -867,7 +867,7 @@ macro_rules! define_op {
         |_, _| Instruction::Load(LoadOp::LoadIntoA(LoadAPointer::$r))
     };
     (LD, HL, SP) => {
-        |data, pc| Instruction::Load(LoadOp::SPIntoHL(data[pc + 1] as i8))
+        |data, pc| Instruction::Load(LoadOp::SPIntoHL(data.read_byte(pc + 1) as i8))
     };
     (LD, SP, HL) => {
         |_, _| Instruction::Load(LoadOp::HLIntoSP)
@@ -901,8 +901,8 @@ macro_rules! define_op {
     (CALL) => {
         |data, pc| {
             Instruction::Jump(JumpOp::Call(u16::from_le_bytes([
-                data[pc + 1],
-                data[pc + 2],
+                data.read_byte(pc + 1),
+                data.read_byte(pc + 2),
             ])))
         }
     };
@@ -910,7 +910,7 @@ macro_rules! define_op {
         |data, pc| {
             Instruction::Jump(JumpOp::ConditionalCall(
                 Condition::$r,
-                u16::from_le_bytes([data[pc + 1], data[pc + 2]]),
+                u16::from_le_bytes([data.read_byte(pc + 1), data.read_byte(pc + 2)]),
             ))
         }
     };
@@ -948,10 +948,10 @@ macro_rules! define_op {
         |_, _| Instruction::Jump(JumpOp::RST38)
     };
     (LoadHigh) => {
-        |data, pc| Instruction::Load(LoadOp::LoadHigh(data[pc + 1]))
+        |data, pc| Instruction::Load(LoadOp::LoadHigh(data.read_byte(pc + 1)))
     };
     (StoreHigh) => {
-        |data, pc| Instruction::Load(LoadOp::StoreHigh(data[pc + 1]))
+        |data, pc| Instruction::Load(LoadOp::StoreHigh(data.read_byte(pc + 1)))
     };
     (LDHCA) => {
         |_, _| Instruction::Load(LoadOp::Ldhca)
@@ -999,7 +999,7 @@ macro_rules! define_op {
     (BIT, $b: literal, $r: ident) => {
         |data, pc| {
             Instruction::Bit(BitOp {
-                bit: (data[pc] - 0x40) / 8,
+                bit: (data.read_byte(pc) - 0x40) / 8,
                 reg: InnerRegOrPointer::$r.convert(),
                 op: BitOpInner::Bit,
             })
@@ -1008,7 +1008,7 @@ macro_rules! define_op {
     (RES, $b: literal, $r: ident) => {
         |data, pc| {
             Instruction::Bit(BitOp {
-                bit: (data[pc] - 0x80) / 8,
+                bit: (data.read_byte(pc) - 0x80) / 8,
                 reg: InnerRegOrPointer::$r.convert(),
                 op: BitOpInner::Res,
             })
@@ -1017,7 +1017,7 @@ macro_rules! define_op {
     (SET, $b: literal, $r: ident) => {
         |data, pc| {
             Instruction::Bit(BitOp {
-                bit: (data[pc] - 0xC0) / 8,
+                bit: (data.read_byte(pc) - 0xC0) / 8,
                 reg: InnerRegOrPointer::$r.convert(),
                 op: BitOpInner::Set,
             })

@@ -140,7 +140,7 @@ impl AppState {
     fn process(&mut self, cmd: Command) {
         match cmd {
             Command::Read { index } => {
-                let val = self.gb.lock().unwrap().gb().mem[index];
+                let val = self.gb.lock().unwrap().gb().mem.read_byte(index);
                 self.cli_history
                     .push(format!("0x{index:0>4X} -> 0b{val:0>8b}"));
             }
@@ -468,7 +468,10 @@ fn render_stack(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
     // let iter = [].into_iter();
     let text = format!(
         "0x{:0>2X}{:0>2X} 0x{:0>2X}{:0>2X}",
-        mem[0xFFFE], mem[0xFFFD], mem[0xFFFC], mem[0xFFFB]
+        mem.read_byte(0xFFFE),
+        mem.read_byte(0xFFFD),
+        mem.read_byte(0xFFFC),
+        mem.read_byte(0xFFFB)
     );
     let para = Paragraph::new(Text::from(text)).block(block);
     frame.render_widget(para, area);
@@ -484,9 +487,9 @@ fn render_mem(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
     let mem_start = 0x8000;
     let lines = area.height - 2;
     let mut buffer = vec![0; 16 * lines as usize];
-    (mem_start..)
-        .zip(buffer.iter_mut())
-        .for_each(|(i, byte)| *byte = std::panic::catch_unwind(|| mem[i]).unwrap_or_default());
+    (mem_start..).zip(buffer.iter_mut()).for_each(|(i, byte)| {
+        *byte = std::panic::catch_unwind(|| mem.read_byte(i)).unwrap_or_default()
+    });
 
     let mut data = String::from("  ADDR | 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F\n");
     data.push_str("-------|------------------------------------------------\n");

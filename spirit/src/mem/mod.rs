@@ -106,12 +106,12 @@ impl MemoryMap {
 
     /// This method is part of a family of methods that are similar to the methods from the `Index`
     /// trait.
-    pub(crate) fn read_byte(&self, index: u16) -> u8 {
+    pub fn read_byte(&self, index: u16) -> u8 {
         static DEAD_BYTE: u8 = 0;
         match index {
-            0x0000..=0x7FFF => self.mbc[index],
+            0x0000..=0x7FFF => self.mbc.read_byte(index),
             n @ 0x8000..=0x9FFF => self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
-            n @ 0xA000..=0xBFFF => self.mbc[n],
+            n @ 0xA000..=0xBFFF => self.mbc.read_byte(n),
             n @ 0xC000..=0xCFFF => self.wram[0][n as usize - 0xC000],
             n @ 0xD000..=0xDFFF => self.wram[1][n as usize - 0xD000],
             // Echo RAM
@@ -121,7 +121,7 @@ impl MemoryMap {
             // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
             // dead byte will be returned instead.
             0xFEA0..=0xFEFF => DEAD_BYTE,
-            n @ 0xFF00..=0xFF7F => todo!(), // self.io.read_byte(n),
+            n @ 0xFF00..=0xFF7F => self.io[n],
             n @ 0xFF80..=0xFFFE => self.hr[(n - 0xFF80) as usize],
             0xFFFF => self.ie,
         }
@@ -135,16 +135,58 @@ impl MemoryMap {
     /// trait. Unlike the index method, this provides control to the map around what gets written.
     /// For example, some registers only have some bits that can be written to. This allows all
     /// other bits to be masked out.
-    pub(crate) fn write_byte(&self, idx: u16, val: u8) -> u8 {
+    pub(crate) fn write_byte(&mut self, index: u16, val: u8) {
+        trace!("Mut index into MemMap: 0x{index:0>4X}");
+        match index {
+            n @ 0x0000..=0x7FFF => self.mbc.write_byte(n, val),
+            n @ 0x8000..=0x9FFF => self.vram[CpuVramIndex(self.io.vram_select == 1, n)] = val,
+            n @ 0xA000..=0xBFFF => self.mbc.write_byte(n, val),
+            n @ 0xC000..=0xCFFF => self.wram[0][n as usize - 0xC000] = val,
+            n @ 0xD000..=0xDFFF => self.wram[1][n as usize - 0xD000] = val,
+            // Echo RAM
+            n @ 0xE000..=0xEFFF => self.wram[0][n as usize - 0xE000] = val,
+            n @ 0xF000..=0xFDFF => self.wram[1][n as usize - 0xF000] = val,
+            n @ 0xFE00..=0xFE9F => self.vram[CpuOamIndex(n)] = val,
+            // NOTE: This region *should not* actually be accessed
+            0xFEA0..=0xFEFF => {
+            }
+            n @ 0xFF00..=0xFF7F => self.io[n] = val,
+            n @ 0xFF80..=0xFFFE => self.hr[(n - 0xFF80) as usize] = val,
+            0xFFFF => self.ie = val,
+        }
+    }
+
+    pub(crate) fn write_bytes(&mut self, idx: u16, val: u16) -> u16 {
         todo!()
     }
 
-    pub(crate) fn write_bytes(&self, idx: u16, val: u16) -> u16 {
-        todo!()
-    }
-
-    pub(crate) fn update_byte(&self, idx: u16, update: impl FnOnce(&mut u8)) -> u8 {
-        todo!()
+    pub(crate) fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
+        let ptr = match index {
+            n @ 0x0000..=0x7FFF =>
+                return self.mbc.update_byte(n, update),
+            n @ 0x8000..=0x9FFF => &mut self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
+            n @ 0xA000..=0xBFFF =>
+                return self.mbc.update_byte(n, update),
+            n @ 0xC000..=0xCFFF => {
+                &mut self.wram[0][n as usize - 0xC000]
+            }
+            n @ 0xD000..=0xDFFF => {
+                &mut self.wram[1][n as usize - 0xD000]
+            }
+            // Echo RAM
+            n @ 0xE000..=0xEFFF => &mut self.wram[0][n as usize - 0xE000],
+            n @ 0xF000..=0xFDFF => &mut self.wram[1][n as usize - 0xF000],
+            n @ 0xFE00..=0xFE9F => &mut self.vram[CpuOamIndex(n)],
+            // NOTE: This region *should not* actually be accessed
+            0xFEA0..=0xFEFF => {
+                return 0;
+            }
+            n @ 0xFF00..=0xFF7F => &mut self.io[n],
+            n @ 0xFF80..=0xFFFE => &mut self.hr[(n - 0xFF80) as usize],
+            0xFFFF => &mut self.ie,
+        };
+        update(ptr);
+        *ptr
     }
 
     fn check_interrupt(&self) -> Option<Instruction> {
@@ -252,58 +294,6 @@ impl MemoryMap {
 
     pub fn io_mut(&mut self) -> &mut IoRegisters {
         &mut self.io
-    }
-}
-
-impl Index<u16> for MemoryMap {
-    type Output = u8;
-
-    fn index(&self, index: u16) -> &Self::Output {
-        trace!("Mut index into MemMap: 0x{index:0>4X}");
-        static DEAD_BYTE: u8 = 0;
-        match index {
-            0x0000..=0x7FFF => &self.mbc[index],
-            n @ 0x8000..=0x9FFF => &self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
-            n @ 0xA000..=0xBFFF => &self.mbc[n],
-            n @ 0xC000..=0xCFFF => &self.wram[0][n as usize - 0xC000],
-            n @ 0xD000..=0xDFFF => &self.wram[1][n as usize - 0xD000],
-            // Echo RAM
-            n @ 0xE000..=0xEFFF => &self.wram[0][n as usize - 0xE000],
-            n @ 0xF000..=0xFDFF => &self.wram[1][n as usize - 0xF000],
-            n @ 0xFE00..=0xFE9F => &self.vram[CpuOamIndex(n)],
-            // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
-            // dead byte will be returned instead.
-            0xFEA0..=0xFEFF => &DEAD_BYTE,
-            n @ 0xFF00..=0xFF7F => &self.io[n],
-            n @ 0xFF80..=0xFFFE => &self.hr[(n - 0xFF80) as usize],
-            0xFFFF => &self.ie,
-        }
-    }
-}
-
-impl IndexMut<u16> for MemoryMap {
-    fn index_mut(&mut self, index: u16) -> &mut Self::Output {
-        trace!("Mut index into MemMap: 0x{index:0>4X}");
-        match index {
-            n @ 0x0000..=0x7FFF => &mut self.mbc[n],
-            n @ 0x8000..=0x9FFF => &mut self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
-            n @ 0xA000..=0xBFFF => &mut self.mbc[n],
-            n @ 0xC000..=0xCFFF => &mut self.wram[0][n as usize - 0xC000],
-            n @ 0xD000..=0xDFFF => &mut self.wram[1][n as usize - 0xD000],
-            // Echo RAM
-            n @ 0xE000..=0xEFFF => &mut self.wram[0][n as usize - 0xE000],
-            n @ 0xF000..=0xFDFF => &mut self.wram[1][n as usize - 0xF000],
-            n @ 0xFE00..=0xFE9F => &mut self.vram[CpuOamIndex(n)],
-            // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
-            // dead byte will be returned instead.
-            0xFEA0..=0xFEFF => {
-                self.dead_byte = 0;
-                &mut self.dead_byte
-            }
-            n @ 0xFF00..=0xFF7F => &mut self.io[n],
-            n @ 0xFF80..=0xFFFE => &mut self.hr[(n - 0xFF80) as usize],
-            0xFFFF => &mut self.ie,
-        }
     }
 }
 
