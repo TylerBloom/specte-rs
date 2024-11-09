@@ -460,6 +460,7 @@ impl Cpu {
         }
     }
 
+    #[track_caller]
     fn update_byte(
         &mut self,
         reg: RegOrPointer,

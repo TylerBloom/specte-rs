@@ -167,7 +167,12 @@ impl PpuInner {
                 mem.io_mut().lcd_y = 0;
                 return true;
             }
-            PpuInner::VBlank { dots, .. } => *dots += 1,
+            PpuInner::VBlank { dots, .. } => {
+                *dots += 1;
+                if *dots % 456 == 0 {
+                    mem.inc_lcd_y();
+                }
+            }
         }
         false
     }

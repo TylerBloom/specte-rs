@@ -207,6 +207,7 @@ impl MemoryBankController {
         }
     }
 
+    #[track_caller]
     pub(super) fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
         match self {
             MemoryBankController::Direct {

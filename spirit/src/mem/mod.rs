@@ -160,6 +160,7 @@ impl MemoryMap {
         todo!()
     }
 
+    #[track_caller]
     pub(crate) fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
         let ptr = match index {
             n @ 0x0000..=0x7FFF =>
