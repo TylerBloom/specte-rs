@@ -1,10 +1,3 @@
-// TODO: There are periods during which the CPU can not access data in VRAM (and a few other
-// places) because the PPU might be accessing those areas. Any writes to that area are ignored and
-// any reads return garbage data. To simulate this, the VRAM should be moved into its own type that
-// contains the RAM, a flag (or maybe a few) to indicate the status, and a dead byte to use for
-// indexing. When the PPU is ticked, it will need access to this object in order to set these
-// values.
-
 use std::ops::{Index, IndexMut};
 
 use serde::{Deserialize, Serialize};
@@ -59,7 +52,6 @@ pub(crate) enum PpuMode {
 #[serde_as]
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VRam {
-    // TODO: This is a GBC emulator, show it needs to support switching between banks 0 and 1.
     /// The main video RAM. Accessible through the address range 0x8000 through 0x9FFF.
     #[serde(serialize_with = "crate::utils::serialize_slices_as_one")]
     #[serde(deserialize_with = "crate::utils::deserialize_slices_as_one")]

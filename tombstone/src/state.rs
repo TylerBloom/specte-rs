@@ -13,8 +13,10 @@ use ratatui::{
     Frame, Terminal,
 };
 use spirit::cpu::CpuState;
+use spirit::lookup::JumpOp;
 use spirit::{cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu, Gameboy, StartUpSequence};
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::mpsc;
 use std::{
@@ -34,7 +36,9 @@ use tracing_subscriber::{
     FmtSubscriber,
 };
 
-use crate::{Command, LoopKind, ReplCommand, RunFor, RunLength, RunUntil, WindowMessage};
+use crate::{
+    Command, LoopKind, ReplCommand, RunFor, RunLength, RunUntil, ViewCommand, WindowMessage,
+};
 
 /// This is the app's state which holds all of the CLI data. This includes all previous commands
 /// that were ran and all data to be displayed in the TUI (prompts, inputs, command outputs).
@@ -62,6 +66,70 @@ pub(crate) struct AppState {
     pub(crate) mem_start: u16,
     /// Tracks where the user input is at. This used to maintain the input data.
     cursor_position: Cell<Position>,
+    pc_state: PcState,
+}
+
+pub struct PcState {
+    pub start: usize,
+    ops: HashMap<u16, Instruction>,
+}
+
+impl PcState {
+    fn new() -> Self {
+        Self {
+            start: 0,
+            ops: HashMap::new(),
+        }
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, gb: &Gameboy) {
+        let block = Block::bordered()
+            .title(" PC Area ")
+            .title_alignment(ratatui::layout::Alignment::Center);
+        let len = block.inner(area).height as usize;
+        let para = Paragraph::new(self.text_body(len, gb)).block(block);
+        frame.render_widget(para, area);
+    }
+
+    fn text_body(&mut self, len: usize, gb: &Gameboy) -> String {
+        self.ops.extend(gb.op_iter().take(len));
+        let mut prior_ops = Vec::with_capacity(self.start);
+        let mut pc = gb.cpu().pc.0;
+        loop {
+            if prior_ops.len() == self.start {
+                break;
+            }
+            let Some((addr, _)) = self.find_prior_op(pc) else {
+                break;
+            };
+            prior_ops.push(addr);
+            pc = addr;
+        }
+        prior_ops
+            .into_iter()
+            .rev()
+            .chain(gb.op_iter().map(|(pc, _)| pc))
+            // NOTE: This should never return None
+            .filter_map(|pc| self.ops.get_key_value(&pc))
+            .map(|(pc, op)| {
+                if *pc == gb.cpu().pc.0 {
+                    format!("PC > 0x{pc:0>4X} -> {op}\n")
+                } else {
+                    format!("     0x{pc:0>4X} -> {op}\n")
+                }
+            })
+            .take(len)
+            .collect()
+    }
+
+    fn find_prior_op(&self, addr: u16) -> Option<(u16, Instruction)> {
+        let mut op: heapless::Vec<(u16, Instruction), 3> = (addr.saturating_sub(3)..addr)
+            .filter_map(|addr| self.ops.get_key_value(&addr))
+            .map(|(addr, op)| (*addr, *op))
+            .collect();
+        assert!(op.iter().map(|(_, op)| op.size()).sum::<u8>() <= 3);
+        op.last().copied()
+    }
 }
 
 pub struct CommandProcessor {
@@ -98,6 +166,7 @@ impl AppState {
                 last_longest_input: 0,
             },
             cursor_position: Cell::new(Position::default()),
+            pc_state: PcState::new(),
         }
     }
 
@@ -113,7 +182,7 @@ impl AppState {
     }
 
     /// Draws the entire TUI
-    fn draw<B: Backend>(&self, term: &mut Terminal<B>) {
+    fn draw<B: Backend>(&mut self, term: &mut Terminal<B>) {
         term.clear().unwrap();
         term.draw(|frame| self.render_frame(frame)).unwrap();
     }
@@ -166,7 +235,15 @@ impl AppState {
                         LoopKind::CpuAndMem => todo!(),
                         LoopKind::Screen => self.loop_screen(),
                     },
-                    RunUntil::Return => todo!(),
+                    RunUntil::Return => {
+                        let mut gb = self.gb.lock().unwrap();
+                        while !matches!(
+                            gb.gb().op_iter().next().unwrap().1,
+                            Instruction::Jump(JumpOp::Return | JumpOp::ReturnAndEnable)
+                        ) {
+                            gb.step_op()
+                        }
+                    }
                     RunUntil::Frame => self.gb.lock().unwrap().next_screen(),
                     RunUntil::Pause => {
                         self.outbound.send(WindowMessage::Run).unwrap();
@@ -184,6 +261,9 @@ impl AppState {
             Command::Stash(_) => todo!(),
             Command::Pause => {
                 self.outbound.send(WindowMessage::Pause).unwrap();
+            }
+            Command::View(ViewCommand::PC { start }) => {
+                self.pc_state.start = start;
             }
         }
         /*
@@ -286,7 +366,7 @@ impl AppState {
         self.outbound.send(WindowMessage::DuplicateScreens(screens));
     }
 
-    fn render_frame(&self, frame: &mut Frame) {
+    fn render_frame(&mut self, frame: &mut Frame) {
         let gb = self.gb.lock().unwrap();
         let gb = gb.gb();
         let sections = Layout::default()
@@ -310,13 +390,12 @@ impl AppState {
             .split(right);
         self.cursor_position
             .set(render_cli(frame, &self.cli_history, left[0]));
-        // render_pc_area(frame, left[1], gb);
         render_mem(frame, left[1], &gb.mem);
         render_cpu(frame, right[0], gb.cpu());
         render_ppu(frame, right[1], &gb.ppu);
         render_interrupts(frame, right[2], &gb.mem);
         // render_stack(frame, right[3], &gb.mem);
-        render_pc_area(frame, right[3], gb);
+        self.pc_state.render(frame, right[3], gb);
     }
 
     // TODO: Because the state now tracks the command history and any output from the emulator, we
@@ -396,26 +475,6 @@ fn render_cli(frame: &mut Frame, history: &[String], area: Rect) -> Position {
     frame.set_cursor_position(pos);
     frame.render_widget(para, area);
     pos
-}
-
-fn render_pc_area(frame: &mut Frame, area: Rect, gb: &Gameboy) {
-    let block = Block::bordered()
-        .title(" PC Area ")
-        .title_alignment(ratatui::layout::Alignment::Center);
-    let len = block.inner(area).height;
-    let para = Paragraph::new(Text::from_iter(
-        gb.op_iter()
-            .map(|(pc, op)| {
-                if pc == gb.cpu().pc.0 {
-                    format!("PC > 0x{pc:0>4X} -> {op}\n")
-                } else {
-                    format!("     0x{pc:0>4X} -> {op}\n")
-                }
-            })
-            .take(len as usize),
-    ))
-    .block(block);
-    frame.render_widget(para, area);
 }
 
 /* This is the right column. In order, the CPU, PPU, Interrupts, and then the stack are rendered */

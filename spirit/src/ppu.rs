@@ -187,7 +187,6 @@ impl PpuInner {
     }
 }
 
-// TODO: This needs to track what model it is in (not VBLANK, though) and pass that to the PPU
 #[derive(Debug, Hash, Serialize, Deserialize)]
 pub struct ObjectFiFo {
     pixels: VecDeque<ObjectPixel>,
@@ -208,7 +207,7 @@ impl ObjectFiFo {
         } else {
             8
         };
-        (0..40)
+        let digest = (0..40)
             // std::iter::once(0)
             // .skip(1)
             // .step_by(2)
@@ -220,7 +219,9 @@ impl ObjectFiFo {
             // TODO: This is a better way to do this. We should collect into a heapless::Vec
             // and just call `.rev()` on the iter. Unforetunely, the heapless vec iter doesn't
             // impl this :"(
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+
+        digest
             .into_iter()
             // We reverse here because the top objects have priority over the lower ones should
             // they overlap.
@@ -250,7 +251,6 @@ impl ObjectFiFo {
     }
 }
 
-// TODO: This needs to track what model it is in (not VBLANK, though) and pass that to the PPU
 #[derive(Debug, Hash, Serialize, Deserialize)]
 struct BackgroundFiFo {
     x: u8,
@@ -421,9 +421,6 @@ impl Pixel {
 /// `DataLow` variant, that means that it has all of the data it needs to execute that step.
 /// Ticking it will move it will move it to the next state by fetching any additional data and
 /// performing any calculations.
-// TODO: There are various things that can affect how the fetcher indexes into the tile map, the
-// tile data, etc. To get a debuggable build, this is all being ignored and will be impl-ed in the
-// future.
 #[derive(Debug, Hash, Clone, Copy, Serialize, Deserialize)]
 enum PixelFetcher {
     GetTile {
@@ -606,6 +603,9 @@ impl OamObject {
     }
 
     fn populate_buffer(self, y: u8, buffer: &mut [ObjectPixel], mem: &MemoryMap) {
+        if self.x > 168 || y >= 160 {
+            return
+        }
         let x = self.x as usize;
         self.generate_pixels(y, mem)
             .into_iter()
@@ -614,10 +614,11 @@ impl OamObject {
             .for_each(|(i, pixel)| buffer[x + i] = pixel);
     }
 
+    #[track_caller]
     pub fn generate_pixels(self, y: u8, mem: &MemoryMap) -> [ObjectPixel; 8] {
         // The given Y needs to be within the bounds of the object. This should be the case
         // already.
-        // println!("Obj at ({}, {})", self.x, self.y);
+        // NOTE: This is not entirely true as
         debug_assert!(y >= self.y, "{y} !>= {}", self.y);
         let obj = &mem[ObjTileDataIndex(self.tile_index, check_bit_const::<3>(self.attrs))];
         debug_assert!([16, 32].contains(&obj.len()), "obj.len () = {}", obj.len());

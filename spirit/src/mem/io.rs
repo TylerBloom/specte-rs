@@ -139,8 +139,6 @@ impl IoRegisters {
         self.lcd_y = 0;
     }
 
-    // TODO: It is somewhat unclear to me if the IE register acts like a barrier to interrupts or
-    // not. It would seems (from the start up sequence) the answer is "no".
     pub fn request_vblank_int(&mut self) {
         // self.io.interrupt_flags |= self.ie & 0b1;
         self.interrupt_flags |= 0b1;

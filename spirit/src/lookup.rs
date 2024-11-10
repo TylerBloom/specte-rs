@@ -14,9 +14,6 @@ fn parse_prefixed_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
 
 type OpArray<const N: usize> = [fn(&MemoryMap, u16) -> Instruction; N];
 
-// TODO: Most users will not understand this internal notation. Instead, the display impls should
-// use a more standard one. The disassembled start up sequence and the op tables are good places to
-// start with adopting a more universal notation.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
 #[display("{_variant}")]
 pub enum Instruction {
@@ -111,7 +108,6 @@ pub enum InterruptOp {
     Joypad = 0x0060,
 }
 
-// TODO: Name this better
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::From, derive_more::Display)]
 #[display("{_variant}")]
 pub enum SomeByte {
@@ -433,7 +429,7 @@ pub enum LoadOp {
     #[display("LD 0x{ptr:0>4X} -> A")]
     LoadA { ptr: u16 },
     /// Used for opcode 0xFA
-    #[display("LD A -> (0x{ptr:0>4X}")]
+    #[display("LD A -> 0x{ptr:0>4X}")]
     StoreA { ptr: u16 },
 }
 

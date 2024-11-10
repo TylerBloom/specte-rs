@@ -123,7 +123,7 @@ fn oam_obj_repr<M: 'static>(gb: &Gameboy, obj_data: [u8; 4]) -> impl Into<Elemen
     let obj = OamObject::new(obj_data);
     let actual_pixels = std::array::from_fn(|y| {
         let mut digest = obj
-            .generate_pixels(obj.y + y as u8, &gb.mem)
+            .generate_pixels(obj.y.saturating_add(y as u8), &gb.mem)
             .map(|p| p.as_pixel(&gb.mem));
         digest.reverse();
         digest

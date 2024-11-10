@@ -59,6 +59,17 @@ pub enum Command {
         #[arg(value_parser = parse_int)]
         index: u16,
     },
+    #[command(subcommand)]
+    View(ViewCommand)
+}
+
+#[derive(Subcommand)]
+pub enum ViewCommand {
+    /// This command controls what the PC area looks like. The `start` argument controls how many
+    /// commands are shown before the PC's location.
+    PC {
+        start: usize,
+    }
 }
 
 #[derive(Subcommand, Clone, Copy)]
