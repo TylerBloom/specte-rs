@@ -52,6 +52,7 @@ pub struct Cpu {
     /// The PC register
     pub pc: Wrapping<u16>,
     pub ime: bool,
+    to_set_ime: bool,
     /// Once the gameboy has halted, this flag is set. Note that the gameboy can continue to be
     /// ticked, but the stack pointer is not moved, so it will continue to cycle without change.
     pub state: CpuState,
@@ -281,12 +282,15 @@ impl Cpu {
                 self.f.c = !self.f.c;
             }
             Instruction::Di => self.disable_interupts(),
-            Instruction::Ei => self.enable_interupts(),
+            Instruction::Ei => return self.enable_interupts(),
+            Instruction::Transfer => mem.vram_transfer(),
         }
+        self.ime |= self.to_set_ime;
+        self.to_set_ime = false;
     }
 
     fn enable_interupts(&mut self) {
-        self.ime = true;
+        self.to_set_ime = true;
     }
 
     fn disable_interupts(&mut self) {

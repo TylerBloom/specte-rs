@@ -61,7 +61,7 @@ pub struct VRam {
     pub oam: [u8; 0xA0],
     /// The status that the PPU is currently in. This mode is set when the PPU is ticked and
     /// determines how the VRAM and OAM are indexed into.
-    status: PpuMode,
+    pub status: PpuMode,
     /// Because we need to return a reference to some byte when indexing but the state of the PPU
     /// might restrict reads/write, this byte is used in those cases.
     dead_byte: u8,

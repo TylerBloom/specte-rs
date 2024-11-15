@@ -48,6 +48,9 @@ pub enum Instruction {
     /// Enable interupts
     #[display("EI")]
     Ei,
+    /// This is not a real instruction, but its used to communicate that the VRAM DMA is
+    /// transferring data. One of these operations represents 16 bytes being transferred.
+    Transfer,
 }
 
 impl Instruction {
@@ -69,6 +72,8 @@ impl Instruction {
             Instruction::Ccf => 4,
             Instruction::Di => 4,
             Instruction::Ei => 4,
+            // It takes 24 ticks to transfer 16 bytes.
+            Instruction::Transfer => 24,
         }
     }
 
@@ -88,6 +93,8 @@ impl Instruction {
             Instruction::Ccf => 1,
             Instruction::Di => 1,
             Instruction::Ei => 1,
+            // This is a fake instruction and it should not move the PC
+            Instruction::Transfer => 0,
         }
     }
 }

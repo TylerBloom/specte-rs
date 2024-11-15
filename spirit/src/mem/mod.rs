@@ -43,6 +43,10 @@ pub struct MemoryMap {
     // High RAM
     #[serde_as(as = "serde_with::Bytes")]
     hr: [u8; 0x7F],
+    /// ADDR FF46
+    oam_dma: OamDma,
+    /// ADDR FF51-FF55
+    vram_dma: VramDma,
     /// The interrupt enable register. Bits 0-4 flag where or not certain interrupt handlers can be
     /// called.
     ///  - Bit 0 corresponds to the VBlank interrupt
@@ -50,11 +54,106 @@ pub struct MemoryMap {
     ///  - Bit 2 corresponds to the timer interrupt
     ///  - Bit 3 corresponds to the serial interrupt
     ///  - Bit 4 corresponds to the joypad interrupt
-    /// When intexed, this register is at 0xFFFF.
+    /// When indexed, this register is at 0xFFFF.
     pub ie: u8,
-    // There is a region of memory that is marked as inaccessible (0xFEA0 through 0xFEFF). Instead
-    // of panicking when this area is accessed, a reference to this dead byte is used instead.
-    dead_byte: u8,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+struct OamDma {
+    register: u8,
+    read_addr: u16,
+    write_addr: u16,
+    ticks: u16,
+}
+
+impl OamDma {
+    fn new() -> Self {
+        Self {
+            register: 0,
+            read_addr: 0,
+            write_addr: 0,
+            ticks: 640,
+        }
+    }
+
+    fn trigger(&mut self, value: u8) {
+        self.register = value;
+        // TODO: Verify that this is correct. The docs say that `value` must be below 0xDF, but the
+        // multiplication should handle that.
+        self.read_addr = (value as u16) << 8;
+        self.write_addr = 0;
+        println!("Beginning OAM DMA starting at {}", self.read_addr);
+        self.ticks = 0;
+    }
+
+    fn tick(&mut self) -> Option<impl Iterator<Item = (u16, u16)>> {
+        if self.ticks == 640 {
+            return None;
+        }
+        self.ticks += 1;
+        if self.ticks % 4 == 0 {
+            let digest =
+                (self.read_addr..self.read_addr + 10).zip(self.write_addr..self.write_addr + 10);
+            self.read_addr += 10;
+            self.write_addr += 10;
+            Some(digest)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+struct VramDma {
+    src_hi: u8,
+    src_lo: u8,
+    dest_hi: u8,
+    dest_lo: u8,
+    trigger: u8,
+    /// The amount of data left to transfer.
+    len_left: u8,
+    active: bool,
+    ly: u8,
+}
+
+impl VramDma {
+    fn new() -> Self {
+        Self {
+            ..Default::default()
+        }
+    }
+
+    fn read_trigger(&self) -> u8 {
+        self.len_left
+    }
+
+    fn trigger(&mut self, value: u8) {
+        if !check_bit_const::<7>(value) && self.len_left > 0 {
+            todo!("VRAM DMA cancel is not impl-ed!!!");
+        }
+        self.trigger = value;
+        self.len_left = value & 0x7F;
+        todo!()
+    }
+
+    fn tick(&mut self) {
+        todo!()
+    }
+
+    fn get_op(&self, ly: u8, state: PpuMode) -> Option<Instruction> {
+        if !self.active {
+            return None;
+        }
+        if check_bit_const::<7>(self.trigger) {
+            if self.ly == ly && matches!(state, PpuMode::HBlank) {
+                Some(Instruction::Transfer)
+            } else {
+                None
+            }
+        } else {
+            Some(Instruction::Transfer)
+        }
+    }
 }
 
 impl MemoryMap {
@@ -63,11 +162,16 @@ impl MemoryMap {
             mbc: MemoryBankController::new(cart),
             vram: VRam::new(),
             wram: [[0; 0x1000]; 2],
-            dead_byte: 0,
             io: IoRegisters::default(),
             hr: [0; 0x7F],
             ie: 0,
+            oam_dma: OamDma::new(),
+            vram_dma: VramDma::new(),
         }
+    }
+
+    pub(crate) fn vram_transfer(&mut self) {
+        todo!()
     }
 
     pub(crate) fn start_up_remap(&mut self) -> StartUpHeaders {
@@ -98,8 +202,9 @@ impl MemoryMap {
     /// has been requested, the returned instruction will be a `call` to the corresponding
     /// interrupt handler. Otherwise, the given PC is used to decode the next instruction.
     pub fn read_op(&self, index: u16, ime: bool) -> Instruction {
-        match self.check_interrupt() {
-            Some(op) if ime => op,
+        match (self.vram_dma.get_op(self.io.lcd_y, self.vram.status), self.check_interrupt()) {
+            (Some(op), _) => op,
+            (None, Some(op)) if ime => op,
             _ => parse_instruction(self, index),
         }
     }
@@ -121,6 +226,9 @@ impl MemoryMap {
             // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
             // dead byte will be returned instead.
             0xFEA0..=0xFEFF => DEAD_BYTE,
+            0xFF51..0xFF54 => DEAD_BYTE,
+            0xFF55 => self.vram_dma.read_trigger(),
+            0xFF46 => self.oam_dma.register,
             n @ 0xFF00..=0xFF7F => self.io.read_byte(n),
             n @ 0xFF80..=0xFFFE => self.hr[(n - 0xFF80) as usize],
             0xFFFF => self.ie,
@@ -149,6 +257,12 @@ impl MemoryMap {
             n @ 0xFE00..=0xFE9F => self.vram[CpuOamIndex(n)] = val,
             // NOTE: This region *should not* actually be accessed
             0xFEA0..=0xFEFF => {}
+            0xFF51 => self.vram_dma.src_hi = val,
+            0xFF52 => self.vram_dma.src_lo = val,
+            0xFF53 => self.vram_dma.dest_hi = val,
+            0xFF54 => self.vram_dma.dest_lo = val,
+            0xFF55 => self.vram_dma.trigger(val),
+            0xFF46 => self.oam_dma.trigger(val),
             n @ 0xFF00..=0xFF7F => self.io.write_byte(n, val),
             n @ 0xFF80..=0xFFFE => self.hr[(n - 0xFF80) as usize] = val,
             0xFFFF => self.ie = val,
@@ -174,6 +288,13 @@ impl MemoryMap {
             // NOTE: This region *should not* actually be accessed
             0xFEA0..=0xFEFF => {
                 return 0;
+            }
+            0xFF51..=0xFF55 => todo!(),
+            0xFF46 => {
+                let mut byte = self.oam_dma.register;
+                update(&mut byte);
+                self.oam_dma.trigger(byte);
+                return byte;
             }
             n @ 0xFF00..=0xFF7F => return self.io.update_byte(n, update),
             n @ 0xFF80..=0xFFFE => &mut self.hr[(n - 0xFF80) as usize],
@@ -208,6 +329,12 @@ impl MemoryMap {
     /// This method ticks the memory. The only thing this affects is the divider and timer
     /// registers.
     pub fn tick(&mut self) {
+        if let Some(iter) = self.oam_dma.tick() {
+            for (r, w) in iter {
+                let byte = self.read_byte(r);
+                self.vram.oam[w as usize] = byte;
+            }
+        }
         self.io.tick();
     }
 
@@ -275,10 +402,11 @@ impl MemoryMap {
             mbc,
             vram: VRam::new(),
             wram: [[0; 0x1000]; 2],
-            dead_byte: 0,
             io: IoRegisters::default(),
             hr: [0; 0x7F],
             ie: 0,
+            oam_dma: OamDma::new(),
+            vram_dma: VramDma::new(),
         }
     }
 

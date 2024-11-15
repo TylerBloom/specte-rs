@@ -5,7 +5,10 @@ use tracing::trace;
 
 use crate::{cpu::check_bit_const, lookup::InterruptOp, ppu::Pixel, utils::Wrapping, ButtonInput};
 
-use super::{vram::PpuMode, MemoryMap};
+use super::{
+    vram::{PpuMode, VRam},
+    MemoryMap,
+};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct IoRegisters {
@@ -37,8 +40,6 @@ pub struct IoRegisters {
     pub(crate) lcd_y: u8,
     /// ADDR FF45
     pub(crate) lcd_cmp: u8,
-    /// ADDR FF46
-    oam_dma: u8,
     /// ADDR FF47
     monochrome_bg_palette: u8,
     /// ADDR FF48 & FF49
@@ -54,8 +55,6 @@ pub struct IoRegisters {
     pub(super) vram_select: u8,
     /// ADDR FF50
     boot_status: u8,
-    /// ADDR FF51-FF55
-    vram_dma: [u8; 5],
     /// ADDR FF68 and FF69
     pub background_palettes: ColorPalettes,
     /// ADDR FF6A and FF6B
@@ -191,7 +190,6 @@ impl IoRegisters {
             0xFF43 => self.bg_position.1,
             0xFF44 => self.lcd_y,
             0xFF45 => self.lcd_cmp,
-            0xFF46 => self.oam_dma,
             0xFF47 => self.monochrome_bg_palette,
             0xFF48 => self.monochrome_obj_palettes[0],
             0xFF49 => self.monochrome_obj_palettes[1],
@@ -199,7 +197,6 @@ impl IoRegisters {
             0xFF4B => self.window_position[1],
             0xFF4F => self.vram_select,
             0xFF50 => self.boot_status,
-            n @ 0xFF51..=0xFF55 => self.vram_dma[(n - 0xFF51) as usize],
             n @ 0xFF68..=0xFF69 => self.background_palettes[n - 0xFF68],
             n @ 0xFF6A..=0xFF6B => self.object_palettes[n - 0xFF6A],
             0xFF70 => self.wram_select,
@@ -209,7 +206,7 @@ impl IoRegisters {
             | 0xFF4C..=0xFF4E
             | 0xFF56..=0xFF67
             | 0xFF6C..=0xFF6F => self.dead_byte,
-            ..=0xFEFF | 0xFF71.. => unreachable!(
+            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF46 | 0xFF71.. => unreachable!(
                 "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
             ),
         }
@@ -236,10 +233,6 @@ impl IoRegisters {
             0xFF43 => self.bg_position.1 = value,
             0xFF44 => {}
             0xFF45 => self.lcd_cmp = value,
-            0xFF46 => {
-                panic!("OAM DMA transfer not implemented yet!!");
-                // &mut self.oam_dma
-            }
             0xFF47 => self.monochrome_bg_palette = value,
             0xFF48 => self.monochrome_obj_palettes[0] = value,
             0xFF49 => self.monochrome_obj_palettes[1] = value,
@@ -249,7 +242,6 @@ impl IoRegisters {
             0xFF50 => self.boot_status = value,
             0xFF4F => self.vram_select = value,
             0xFF50 => self.boot_status = value,
-            n @ 0xFF51..=0xFF55 => self.vram_dma[(n - 0xFF51) as usize] = value,
             n @ 0xFF68..=0xFF69 => self.background_palettes[n - 0xFF68] = value,
             n @ 0xFF6A..=0xFF6B => self.object_palettes[n - 0xFF6A] = value,
             0xFF70 => self.wram_select = value,
@@ -259,7 +251,7 @@ impl IoRegisters {
             | 0xFF4C..=0xFF4E
             | 0xFF56..=0xFF67
             | 0xFF6C..=0xFF7F => {}
-            ..=0xFEFF | 0xFF80.. => unreachable!(
+            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF46 | 0xFF80.. => unreachable!(
                 "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
             ),
         }
