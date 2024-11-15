@@ -3,7 +3,7 @@ use std::ops::{Index, IndexMut};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::{cpu::check_bit_const, lookup::InterruptOp, ppu::Pixel, ButtonInput};
+use crate::{cpu::check_bit_const, lookup::InterruptOp, ppu::Pixel, utils::Wrapping, ButtonInput};
 
 use super::{vram::PpuMode, MemoryMap};
 
@@ -175,104 +175,102 @@ impl IoRegisters {
         };
         self.interrupt_flags &= !mask;
     }
-}
 
-impl Index<u16> for IoRegisters {
-    type Output = u8;
-
-    fn index(&self, index: u16) -> &Self::Output {
+    pub(crate) fn read_byte(&self, index: u16) -> u8 {
         match index {
-            0xFF00 => &self.joypad[()],
-            0xFF01 => &self.serial.0,
-            0xFF02 => &self.serial.1,
-            n @ 0xFF04..=0xFF07 => &self.timer_div[(n - 0xFF04) as usize],
-            0xFF0F => &self.interrupt_flags,
-            n @ 0xFF10..=0xFF26 => &self.audio[(n - 0xFF10) as usize],
-            n @ 0xFF30..=0xFF3F => &self.wave[(n - 0xFF30) as usize],
-            0xFF40 => &self.lcd_control,
-            0xFF41 => &self.lcd_status,
-            0xFF42 => &self.bg_position.0,
-            0xFF43 => &self.bg_position.1,
-            0xFF44 => &self.lcd_y,
-            0xFF45 => &self.lcd_cmp,
-            0xFF46 => &self.oam_dma,
-            0xFF47 => &self.monochrome_bg_palette,
-            0xFF48 => &self.monochrome_obj_palettes[0],
-            0xFF49 => &self.monochrome_obj_palettes[1],
-            0xFF4A => &self.window_position[0],
-            0xFF4B => &self.window_position[1],
-            0xFF4F => &self.vram_select,
-            0xFF50 => &self.boot_status,
-            n @ 0xFF51..=0xFF55 => &self.vram_dma[(n - 0xFF51) as usize],
-            n @ 0xFF68..=0xFF69 => &self.background_palettes[n - 0xFF68],
-            n @ 0xFF6A..=0xFF6B => &self.object_palettes[n - 0xFF6A],
-            0xFF70 => &self.wram_select,
+            0xFF00 => self.joypad[()],
+            0xFF01 => self.serial.0,
+            0xFF02 => self.serial.1,
+            n @ 0xFF04..=0xFF07 => self.timer_div[(n - 0xFF04) as usize],
+            0xFF0F => self.interrupt_flags,
+            n @ 0xFF10..=0xFF26 => self.audio[(n - 0xFF10) as usize],
+            n @ 0xFF30..=0xFF3F => self.wave[(n - 0xFF30) as usize],
+            0xFF40 => self.lcd_control,
+            0xFF41 => self.lcd_status,
+            0xFF42 => self.bg_position.0,
+            0xFF43 => self.bg_position.1,
+            0xFF44 => self.lcd_y,
+            0xFF45 => self.lcd_cmp,
+            0xFF46 => self.oam_dma,
+            0xFF47 => self.monochrome_bg_palette,
+            0xFF48 => self.monochrome_obj_palettes[0],
+            0xFF49 => self.monochrome_obj_palettes[1],
+            0xFF4A => self.window_position[0],
+            0xFF4B => self.window_position[1],
+            0xFF4F => self.vram_select,
+            0xFF50 => self.boot_status,
+            n @ 0xFF51..=0xFF55 => self.vram_dma[(n - 0xFF51) as usize],
+            n @ 0xFF68..=0xFF69 => self.background_palettes[n - 0xFF68],
+            n @ 0xFF6A..=0xFF6B => self.object_palettes[n - 0xFF6A],
+            0xFF70 => self.wram_select,
             0xFF03
             | 0xFF08..=0xFF0E
             | 0xFF27..=0xFF2F
             | 0xFF4C..=0xFF4E
             | 0xFF56..=0xFF67
-            | 0xFF6C..=0xFF6F => &self.dead_byte,
+            | 0xFF6C..=0xFF6F => self.dead_byte,
             ..=0xFEFF | 0xFF71.. => unreachable!(
                 "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
             ),
         }
     }
-}
 
-impl IndexMut<u16> for IoRegisters {
-    fn index_mut(&mut self, index: u16) -> &mut Self::Output {
-        trace!("Index: 0x{index:0>4X}");
+    pub(crate) fn write_byte(&mut self, index: u16, value: u8) {
         match index {
-            0xFF00 => &mut self.joypad[()],
-            0xFF01 => &mut self.serial.0,
-            0xFF02 => &mut self.serial.1,
+            0xFF00 => self.joypad[()] = value,
+            0xFF01 => self.serial.0 = value,
+            0xFF02 => self.serial.1 = value,
             0xFF04 => {
                 self.timer_div[0] = 0;
                 self.dead_byte = 0;
-                &mut self.dead_byte
             }
-            n @ 0xFF05..=0xFF07 => &mut self.timer_div[(n - 0xFF04) as usize],
-            0xFF0F => &mut self.interrupt_flags,
-            n @ 0xFF10..=0xFF26 => &mut self.audio[(n - 0xFF10) as usize],
-            n @ 0xFF30..=0xFF3F => &mut self.wave[(n - 0xFF30) as usize],
-            0xFF40 => &mut self.lcd_control,
+            n @ 0xFF05..=0xFF07 => self.timer_div[(n - 0xFF04) as usize] = value,
+            0xFF0F => self.interrupt_flags = value,
+            n @ 0xFF10..=0xFF26 => self.audio[(n - 0xFF10) as usize] = value,
+            n @ 0xFF30..=0xFF3F => self.wave[(n - 0xFF30) as usize] = value,
+            0xFF40 => self.lcd_control = value,
             // TODO: Only part of this register can be written to. Only bits 3-6 can be written to.
             // This register needs to be reset when ticked.
-            0xFF41 => &mut self.lcd_status_dup,
-            0xFF42 => {
-                &mut self.bg_position.0
-            }
-            0xFF43 => &mut self.bg_position.1,
-            0xFF44 => &mut self.dead_byte, // This register is read-only
-            0xFF45 => &mut self.lcd_cmp,
+            0xFF41 => self.lcd_status_dup = value,
+            0xFF42 => self.bg_position.0 = value,
+            0xFF43 => self.bg_position.1 = value,
+            0xFF44 => {}
+            0xFF45 => self.lcd_cmp = value,
             0xFF46 => {
                 panic!("OAM DMA transfer not implemented yet!!");
                 // &mut self.oam_dma
             }
-            0xFF47 => &mut self.monochrome_bg_palette,
-            0xFF48 => &mut self.monochrome_obj_palettes[0],
-            0xFF49 => &mut self.monochrome_obj_palettes[1],
-            0xFF4A => &mut self.window_position[0],
-            0xFF4B => &mut self.window_position[1],
-            0xFF4F => &mut self.vram_select,
-            0xFF50 => &mut self.boot_status,
-            0xFF4F => &mut self.vram_select,
-            0xFF50 => &mut self.boot_status,
-            n @ 0xFF51..=0xFF55 => &mut self.vram_dma[(n - 0xFF51) as usize],
-            n @ 0xFF68..=0xFF69 => &mut self.background_palettes[n - 0xFF68],
-            n @ 0xFF6A..=0xFF6B => &mut self.object_palettes[n - 0xFF6A],
-            0xFF70 => &mut self.wram_select,
+            0xFF47 => self.monochrome_bg_palette = value,
+            0xFF48 => self.monochrome_obj_palettes[0] = value,
+            0xFF49 => self.monochrome_obj_palettes[1] = value,
+            0xFF4A => self.window_position[0] = value,
+            0xFF4B => self.window_position[1] = value,
+            0xFF4F => self.vram_select = value,
+            0xFF50 => self.boot_status = value,
+            0xFF4F => self.vram_select = value,
+            0xFF50 => self.boot_status = value,
+            n @ 0xFF51..=0xFF55 => self.vram_dma[(n - 0xFF51) as usize] = value,
+            n @ 0xFF68..=0xFF69 => self.background_palettes[n - 0xFF68] = value,
+            n @ 0xFF6A..=0xFF6B => self.object_palettes[n - 0xFF6A] = value,
+            0xFF70 => self.wram_select = value,
             0xFF03
             | 0xFF08..=0xFF0E
             | 0xFF27..=0xFF2F
             | 0xFF4C..=0xFF4E
             | 0xFF56..=0xFF67
-            | 0xFF6C..=0xFF7F => &mut self.dead_byte,
+            | 0xFF6C..=0xFF7F => {}
             ..=0xFEFF | 0xFF80.. => unreachable!(
                 "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
             ),
         }
+    }
+
+    pub(crate) fn update_byte<F: FnOnce(&mut u8)>(&mut self, index: u16, update: F) -> u8 {
+        // TODO: Actually implement this...
+        let mut value = self.read_byte(index);
+        update(&mut value);
+        self.write_byte(index, value);
+        value
     }
 }
 
@@ -295,7 +293,7 @@ impl Index<ObjPaletteIndex> for IoRegisters {
 /// In GBC mode, there are extra palettes for the colors
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ColorPalettes {
-    pub(crate) index: u8,
+    pub(crate) index: Wrapping<u8>,
     /// This array is indexed into by the index field.
     pub(crate) data: [Palette; 8],
 }
@@ -308,7 +306,7 @@ impl ColorPalettes {
     }
 
     fn indices(&self) -> (u8, u8) {
-        let index = self.index & 0b0011_1111;
+        let index = self.index.0 & 0b0011_1111;
         ((index & 0b0011_1000) >> 3, index & 0b111)
     }
 }
@@ -326,7 +324,7 @@ impl Index<u16> for ColorPalettes {
 
     fn index(&self, index: u16) -> &Self::Output {
         match index {
-            0 => &self.index,
+            0 => &self.index.0,
             1 => {
                 let (a, b) = self.indices();
                 &self.data[a as usize][b]
@@ -339,10 +337,10 @@ impl Index<u16> for ColorPalettes {
 impl IndexMut<u16> for ColorPalettes {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
         match index {
-            0 => &mut self.index,
+            0 => &mut self.index.0,
             1 => {
                 let (a, b) = self.indices();
-                let inc = check_bit_const::<7>(self.index) as u8;
+                let inc = check_bit_const::<7>(self.index.0) as u8;
                 self.index += inc;
                 // TODO: If the PPU is in mode 3, this should return a dead byte.
                 &mut self.data[a as usize][b]
@@ -574,7 +572,7 @@ mod tests {
     #[test]
     fn indexing_into_palettes() {
         let mut palettes = ColorPalettes {
-            index: 0x80,
+            index: crate::utils::Wrapping(0x80),
             data: std::array::from_fn(|i| Palette {
                 colors: std::array::from_fn(|j| {
                     PaletteColor([

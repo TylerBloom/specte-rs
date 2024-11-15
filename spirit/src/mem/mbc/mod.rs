@@ -165,7 +165,7 @@ impl MemoryBankController {
                     std::mem::swap(&mut rom[index as usize], val)
                 }
             }
-            MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
+            MemoryBankController::MBC1(controller) => controller.overwrite_rom_zero(index, val),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
             MemoryBankController::MBC3(controller) => controller.overwrite_rom_zero(index, val),
             MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
@@ -182,7 +182,7 @@ impl MemoryBankController {
                     ram[index + 1]
                 }
             }
-            MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
+            MemoryBankController::MBC1(controller) => controller.read_byte(index),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
             MemoryBankController::MBC3(controller) => controller.read_byte(index),
             MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
@@ -200,7 +200,7 @@ impl MemoryBankController {
                 // NOTE: This shouldn't happen
                 _ => {}
             },
-            MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
+            MemoryBankController::MBC1(controller) => controller.write_byte(index, value),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
             MemoryBankController::MBC3(controller) => controller.write_byte(index, value),
             MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),

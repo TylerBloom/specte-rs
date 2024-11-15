@@ -6,7 +6,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Hash, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum ClockLatchState {
     /// State is reached by writing 0x00 to 0x6000..0x8000
     Primed,
@@ -14,7 +14,7 @@ enum ClockLatchState {
     Unprimed,
 }
 
-#[derive(Hash, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum RamAndClockIndex {
     Ram(u8),
     Clock(ClockIndex),
@@ -22,7 +22,7 @@ enum RamAndClockIndex {
 
 /// Used to index into the clock data. Note that each value maps to its index into the data array
 /// not to the actual value that is written to the register in order to select the value.
-#[derive(Hash, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(usize)]
 enum ClockIndex {
     Seconds = 0x01,
@@ -33,7 +33,7 @@ enum ClockIndex {
 }
 
 // TODO: How should clocks be handled...
-#[derive(Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MBC3 {
     ram_and_timer_enable: bool,
     /// The raw value for this register needs to be stored rather than just the bool because
@@ -81,15 +81,24 @@ impl MBC3 {
 
     pub(super) fn read_byte(&self, index: u16) -> u8 {
         match index {
-            0x0000..0x4000 => self.rom_bank_zero[index as usize],
-            index @ 0x4000..0x8000 => self.rom[self.rom_bank as usize][(index - 0x4000) as usize],
+            0x0000..0x4000 => {
+                self.rom_bank_zero[index as usize]
+            }
+            index @ 0x4000..0x8000 => {
+                // println!("Reading from ROM BANK {} @ 0x{index:0>4X}", self.rom_bank + 1);
+                self.rom[self.rom_bank as usize][(index - 0x4000) as usize]
+            }
             0x8000..0xA000 => unreachable!("How did you get here??"),
             index @ 0xA000..0xC000 => {
                 let digest = match self.ram_clock_index {
                     RamAndClockIndex::Ram(bank) => {
+                        println!("Reading from MBC3 RAM bank {bank} at 0x{index:0>4X}");
                         self.ram[bank as usize][(index - 0xA000) as usize]
                     }
-                    RamAndClockIndex::Clock(index) => self.clock_data[index as usize],
+                    RamAndClockIndex::Clock(index) => {
+                        println!("Reading from MBC3 clock at {index:?}");
+                        self.clock_data[index as usize]
+                    }
                 };
                 (!(!self.ram_and_timer_enable as u8)) & digest
             }
@@ -99,8 +108,10 @@ impl MBC3 {
 
     fn sync_enablement(&mut self) {
         if self.raw_enable_reg == 0 {
+            println!("Disabling RAM/clock");
             self.ram_and_timer_enable = false;
         } else if self.raw_enable_reg == 0x0A {
+            println!("Enabling RAM/clock");
             self.ram_and_timer_enable = true
         }
     }
@@ -129,6 +140,7 @@ impl MBC3 {
                     // register. For now, we are just going to ignore it.
                     _ => {}
                 }
+                println!("Set RAM/clock index to {:?}", self.ram_clock_index);
             }
             0x6000..0x8000 => {
                 if value == 0 {
@@ -136,10 +148,6 @@ impl MBC3 {
                     self.latch_state = ClockLatchState::Primed;
                 } else {
                     if value == 1 && matches!(self.latch_state, ClockLatchState::Primed) {
-                        // Get current time
-                        // Convert current time into required data
-                        // Store data
-                        // todo!()
                         self.latch_clock();
                     }
                     self.latch_state = ClockLatchState::Unprimed;
@@ -147,12 +155,18 @@ impl MBC3 {
             }
             0x8000..0xA000 => unreachable!("How did you get here??"),
             0xA000..0xC000 => {
-                if self.ram_and_timer_enable {
+                if !self.ram_and_timer_enable {
+                    println!("Not enabled...");
                     return;
                 }
                 match self.ram_clock_index {
-                    RamAndClockIndex::Ram(bank) => self.ram[bank as usize][index as usize] = value,
-                    RamAndClockIndex::Clock(index) => self.clock_data[index as usize] = value,
+                    RamAndClockIndex::Ram(bank) => {
+                        self.ram[bank as usize][(index - 0xA000) as usize] = value
+                    }
+                    RamAndClockIndex::Clock(index) => {
+                        println!("Writing to clock: {value}");
+                        self.clock_data[index as usize] = value
+                    }
                 }
             }
             0xC000.. => unreachable!("How did you get here??"),

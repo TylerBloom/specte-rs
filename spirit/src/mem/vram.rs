@@ -90,8 +90,8 @@ impl Index<CpuVramIndex> for VRam {
     type Output = u8;
 
     fn index(&self, CpuVramIndex(bank, index): CpuVramIndex) -> &Self::Output {
-        trace!("Indexing into VRAM @ 0x{index:0>4X}");
         if self.status.is_drawing() {
+            println!("Attempting to read from VRAM while locked!!!");
             &DEAD_READ_ONLY_BYTE
         } else {
             if bank {
@@ -105,8 +105,8 @@ impl Index<CpuVramIndex> for VRam {
 
 impl IndexMut<CpuVramIndex> for VRam {
     fn index_mut(&mut self, CpuVramIndex(bank, index): CpuVramIndex) -> &mut Self::Output {
-        trace!("Mutably indexing into VRAM @ 0x{index:0>4X}");
         if self.status.is_drawing() {
+            println!("Attempting to read from VRAM while locked!!!");
             self.dead_byte = 0xFF;
             &mut self.dead_byte
         } else {

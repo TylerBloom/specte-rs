@@ -121,7 +121,7 @@ impl MemoryMap {
             // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
             // dead byte will be returned instead.
             0xFEA0..=0xFEFF => DEAD_BYTE,
-            n @ 0xFF00..=0xFF7F => self.io[n],
+            n @ 0xFF00..=0xFF7F => self.io.read_byte(n),
             n @ 0xFF80..=0xFFFE => self.hr[(n - 0xFF80) as usize],
             0xFFFF => self.ie,
         }
@@ -148,9 +148,8 @@ impl MemoryMap {
             n @ 0xF000..=0xFDFF => self.wram[1][n as usize - 0xF000] = val,
             n @ 0xFE00..=0xFE9F => self.vram[CpuOamIndex(n)] = val,
             // NOTE: This region *should not* actually be accessed
-            0xFEA0..=0xFEFF => {
-            }
-            n @ 0xFF00..=0xFF7F => self.io[n] = val,
+            0xFEA0..=0xFEFF => {}
+            n @ 0xFF00..=0xFF7F => self.io.write_byte(n, val),
             n @ 0xFF80..=0xFFFE => self.hr[(n - 0xFF80) as usize] = val,
             0xFFFF => self.ie = val,
         }
@@ -182,7 +181,7 @@ impl MemoryMap {
             0xFEA0..=0xFEFF => {
                 return 0;
             }
-            n @ 0xFF00..=0xFF7F => &mut self.io[n],
+            n @ 0xFF00..=0xFF7F => return self.io.update_byte(n, update),
             n @ 0xFF80..=0xFFFE => &mut self.hr[(n - 0xFF80) as usize],
             0xFFFF => &mut self.ie,
         };
@@ -191,7 +190,7 @@ impl MemoryMap {
     }
 
     fn check_interrupt(&self) -> Option<Instruction> {
-        match self.ie & self.io[0xFF0F] {
+        match self.ie & self.io.read_byte(0xFF0F) {
             0 => None,
             n => {
                 if check_bit_const::<0>(n) {
