@@ -53,7 +53,7 @@ impl MBC1 {
         Self {
             kind,
             rom,
-            rom_bank: 0,
+            rom_bank: 1,
             ram,
             ram_bank: 0,
             ram_enabled: false,
@@ -68,7 +68,9 @@ impl MBC1 {
     pub fn read_byte(&self, index: u16) -> u8 {
         match index {
             0x0000..0x4000 => self.rom[0][index as usize],
-            i @ 0x4000..0x8000 => self.rom[self.rom_bank as usize][(i - 0x4000) as usize],
+            i @ 0x4000..0x8000 => {
+                self.rom[self.rom_bank as usize][(i - 0x4000) as usize]
+            },
             i @ 0xA000..0xC000 => self.ram[self.ram_bank as usize][(i - 0xA000) as usize],
             i => unreachable!("Memory controller is unable to read from memory address: 0x{i:0>4X}"),
         }
@@ -79,7 +81,7 @@ impl MBC1 {
         match index {
             0x0000..0x2000 => self.ram_enabled = (value & 0x0F) == 0x0A,
             // TODO: Implement logic for if `value` > # of ROM banks.
-            0x2000..0x4000 => self.rom_bank = std::cmp::min(1, value & 0x1F),
+            0x2000..0x4000 => self.rom_bank = std::cmp::max(1, value & 0x1F),
             0x4000..0x6000 => self.ram_bank = value & 0x3,
             0x6000..0x8000 if (value & 1) == 0 => self.banking_mode = BankingMode::Advanced,
             0x6000..0x8000 => self.banking_mode = BankingMode::Simple,

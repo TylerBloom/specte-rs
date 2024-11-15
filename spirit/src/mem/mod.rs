@@ -162,17 +162,11 @@ impl MemoryMap {
     #[track_caller]
     pub(crate) fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
         let ptr = match index {
-            n @ 0x0000..=0x7FFF =>
-                return self.mbc.update_byte(n, update),
+            n @ 0x0000..=0x7FFF => return self.mbc.update_byte(n, update),
             n @ 0x8000..=0x9FFF => &mut self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
-            n @ 0xA000..=0xBFFF =>
-                return self.mbc.update_byte(n, update),
-            n @ 0xC000..=0xCFFF => {
-                &mut self.wram[0][n as usize - 0xC000]
-            }
-            n @ 0xD000..=0xDFFF => {
-                &mut self.wram[1][n as usize - 0xD000]
-            }
+            n @ 0xA000..=0xBFFF => return self.mbc.update_byte(n, update),
+            n @ 0xC000..=0xCFFF => &mut self.wram[0][n as usize - 0xC000],
+            n @ 0xD000..=0xDFFF => &mut self.wram[1][n as usize - 0xD000],
             // Echo RAM
             n @ 0xE000..=0xEFFF => &mut self.wram[0][n as usize - 0xE000],
             n @ 0xF000..=0xFDFF => &mut self.wram[1][n as usize - 0xF000],
@@ -419,7 +413,7 @@ impl Index<WindowTileMapAttrIndex> for MemoryMap {
             // TODO: Not sure if this needs to be wrapping. Also, how are the X and Y bounds (< 143
             // and 166, respectively) are honored. Probably should be controlled on writes...
             x: x.wrapping_sub(self.io.window_position[1].wrapping_sub(7)),
-            y,             //.wrapping_add(self.io.window_position[0]),
+            y, //.wrapping_add(self.io.window_position[0]),
         };
         &self.vram[index]
     }

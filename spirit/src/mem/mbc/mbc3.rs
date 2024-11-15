@@ -25,11 +25,11 @@ enum RamAndClockIndex {
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(usize)]
 enum ClockIndex {
-    Seconds = 0x01,
-    Minutes = 0x02,
-    Hours = 0x03,
-    DayLower = 0x04,
-    DayUpper = 0x05,
+    Seconds = 0x00,
+    Minutes = 0x01,
+    Hours = 0x02,
+    DayLower = 0x03,
+    DayUpper = 0x04,
 }
 
 // TODO: How should clocks be handled...
@@ -126,7 +126,7 @@ impl MBC3 {
                 // We ignore the top bit. If 0 if written in, we treat it as 1.
                 // We then subtract one in order to use `rom_bank` directly as an index. This is
                 // fine because it is never directly read via indexing.
-                self.rom_bank = std::cmp::min(1, value & 0x7F) - 1;
+                self.rom_bank = std::cmp::max(1, value & 0x7F) - 1;
             }
             0x4000..0x6000 => {
                 match value {
