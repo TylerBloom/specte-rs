@@ -283,7 +283,11 @@ impl Cpu {
             }
             Instruction::Di => self.disable_interupts(),
             Instruction::Ei => return self.enable_interupts(),
-            Instruction::Transfer => mem.vram_transfer(),
+            Instruction::Transfer => {
+                if matches!(self.state, CpuState::Running) {
+                    mem.vram_transfer()
+                }
+            }
         }
         self.ime |= self.to_set_ime;
         self.to_set_ime = false;
