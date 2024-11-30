@@ -24,6 +24,8 @@ use ratatui::{
 use spirit::cpu::CpuState;
 use spirit::{cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu, Gameboy, StartUpSequence};
 
+use clap::Parser;
+
 pub mod command;
 mod repl;
 mod state;
@@ -36,14 +38,21 @@ use window::WindowState;
 
 static TMP_ROM: &[u8] = include_bytes!("../../spirit/tests/roms/acid/which.gb");
 
+#[derive(Debug, Parser)]
+struct Args {
+    path: String,
+}
+
 fn main() {
+    let Args { path } = Args::parse();
+    let rom = std::fs::read(path).expect("Unknown file");
     std::panic::set_hook(Box::new(panic_hook));
     execute!(std::io::stdout(), EnterAlternateScreen).unwrap();
     enable_raw_mode().unwrap();
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut term = Terminal::new(backend).unwrap();
     term.clear().unwrap();
-    let mut gb = Arc::new(Mutex::new(Emulator::default()));
+    let mut gb = Arc::new(Mutex::new(Emulator::new(rom)));
     let (send_cmd, recv_cmd) = broadcast::channel(100);
     let (send_event, recv_event) = mpsc::channel();
     create_input_thread(send_event);

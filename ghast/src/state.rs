@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use iced::{
     widget::{column, image::Handle, row, text, Button, Column, Image, Scrollable},
     Alignment, Element, Subscription,
@@ -29,9 +31,8 @@ pub enum Message {
     Screens(Vec<Vec<Vec<Pixel>>>),
 }
 
-#[allow(clippy::large_enum_variant)]
 enum EmulatorInner {
-    StartUp(Option<Box<StartUpSequence>>),
+    StartUp(Option<StartUpSequence>),
     Ready(Gameboy),
 }
 
@@ -94,6 +95,19 @@ pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Image {
 }
 
 impl Emulator {
+    pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
+        let gb = Gameboy::new(cart);
+        let gb = gb.complete();
+        Self {
+            // gb: EmulatorInner::StartUp(Some(gb)),
+            gb: EmulatorInner::Ready(gb),
+            count: Some(0),
+            frame: 0,
+            dbg: Debugger(0),
+            duplicated_screens: None,
+        }
+    }
+
     fn screen(&self) -> impl Into<Element<'static, Message>> {
         let gb = self.gb.gb();
         let screen: Element<'static, Message> = match self.duplicated_screens.as_ref() {
@@ -123,23 +137,7 @@ impl Emulator {
     pub fn step_op(&mut self) {
         self.gb.step_op()
     }
-}
 
-impl Default for Emulator {
-    fn default() -> Self {
-        let gb = Gameboy::new(include_bytes!("../../spirit/tests/roms/acid/cgb-acid2.gbc"));
-        let gb = gb.complete();
-        Self {
-            gb: EmulatorInner::Ready(gb),
-            count: Some(0),
-            frame: 0,
-            dbg: Debugger(0),
-            duplicated_screens: None,
-        }
-    }
-}
-
-impl Emulator {
     pub fn update(&mut self, msg: Message) {
         match msg {
             Message::Play => {
