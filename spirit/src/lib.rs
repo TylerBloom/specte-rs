@@ -14,7 +14,10 @@
     clippy::all
 )]
 
-use std::{borrow::Cow, ops::{Deref, DerefMut}};
+use std::{
+    borrow::Cow,
+    ops::{Deref, DerefMut},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -48,7 +51,7 @@ pub struct StartUpSequence {
     counter: u8,
     done: bool,
     /// The memory that the ROM contains that get mapped over during the startup process.
-    remap_mem: StartUpHeaders,
+    remap_mem: Box<StartUpHeaders>,
 }
 
 impl Gameboy {
@@ -240,8 +243,8 @@ impl Drop for StepProcess<'_> {
 }
 
 impl StartUpSequence {
-    pub fn frame_step(&mut self) -> StartUpFrame<'_> {
-        StartUpFrame::new(self)
+    pub fn frame_step(&mut self) -> FrameSequence<'_> {
+        FrameSequence::new(self)
     }
 
     pub fn scanline_step(&mut self) {
@@ -265,7 +268,7 @@ impl DerefMut for StartUpSequence {
 
 impl StartUpSequence {
     fn new(mut gb: Gameboy) -> Self {
-        let remap_mem = gb.mem.start_up_remap();
+        let remap_mem = Box::new(gb.mem.start_up_remap());
         let op = gb.read_op();
         Self {
             gb,
@@ -325,49 +328,8 @@ impl StartUpSequence {
         while !self.is_complete() {
             self.step()
         }
-        self.gb.mem.start_up_unmap(self.remap_mem);
+        self.gb.mem.start_up_unmap(*self.remap_mem);
         self.gb
-    }
-}
-
-pub struct StartUpFrame<'a> {
-    seq: &'a mut StartUpSequence,
-    mode: PpuMode,
-}
-
-impl<'a> StartUpFrame<'a> {
-    fn new(seq: &'a mut StartUpSequence) -> Self {
-        let mode = seq.gb().ppu.state();
-        Self { seq, mode }
-    }
-
-    pub fn tick(&mut self) {
-        if !self.is_complete() {
-            self.mode = self.seq.gb().ppu.state();
-            self.seq.step();
-        }
-    }
-
-    pub fn is_complete(&self) -> bool {
-        let state = self.seq.gb().ppu.state();
-        self.mode == PpuMode::VBlank && state == PpuMode::OamScan
-    }
-
-    pub fn complete(self) {}
-
-    pub fn step(&mut self) {
-        if !self.is_complete() {
-            self.mode = self.seq.gb().ppu.state();
-            self.seq.step();
-        }
-    }
-}
-
-impl<'a> Drop for StartUpFrame<'a> {
-    fn drop(&mut self) {
-        while !self.is_complete() {
-            self.step()
-        }
     }
 }
 
@@ -393,7 +355,10 @@ impl<'a> FrameSequence<'a> {
     }
 
     fn is_complete(&self) -> bool {
-        self.mode == PpuMode::VBlank && self.next.gb.ppu.state() == PpuMode::OamScan
+        matches!(
+            (self.mode, self.next.gb.ppu.state()),
+            (PpuMode::VBlank, PpuMode::OamScan)
+        )
     }
 
     pub fn complete(self) {}
@@ -418,7 +383,7 @@ impl<'a> Drop for FrameSequence<'a> {
 mod tests {
     use crate::Gameboy;
 
-    #[test_log::test]
+    #[test]
     fn start_up_completion() {
         Gameboy::new(include_bytes!("../tests/roms/acid/which.gb")).complete();
     }

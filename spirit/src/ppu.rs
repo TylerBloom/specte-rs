@@ -401,12 +401,13 @@ impl Display for Pixel {
 }
 
 impl Pixel {
-    const WHITE: Self = Self {
+    pub const WHITE: Self = Self {
         r: 0x1F,
         g: 0x1F,
         b: 0x1F,
     };
-    const BLACK: Self = Self { r: 0, g: 0, b: 0 };
+
+    pub const BLACK: Self = Self { r: 0, g: 0, b: 0 };
 
     const fn new() -> Self {
         Self { r: 0, g: 0, b: 0 }
@@ -604,7 +605,7 @@ impl OamObject {
 
     fn populate_buffer(self, y: u8, buffer: &mut [ObjectPixel], mem: &MemoryMap) {
         if self.x > 168 || y >= 160 {
-            return
+            return;
         }
         let x = self.x as usize;
         self.generate_pixels(y, mem)
@@ -717,13 +718,14 @@ mod tests {
     #[test]
     fn test_scan_line_timing() {
         let mut mem = MemoryMap::construct();
-        let mut screen = vec![vec![Pixel::new(); 160]; 144];
-        let mut ppu = PpuInner::default();
+        // Turns on PPU
+        mem.write_byte(0xFF40, 0x80);
+        let mut ppu = Ppu::new();
         let mut state = ppu.state();
         let mut counter = 0;
         while {
             counter += 1;
-            // ppu.tick(&mut screen, &mut mem);
+            ppu.tick(&mut mem);
             let next_state = ppu.state();
             let digest = !matches!((state, next_state), (PpuMode::HBlank, PpuMode::OamScan));
             state = next_state;
@@ -735,13 +737,14 @@ mod tests {
     #[test]
     fn test_frame_render_timing() {
         let mut mem = MemoryMap::construct();
-        let mut screen = vec![vec![Pixel::new(); 160]; 144];
-        let mut ppu = PpuInner::default();
+        // Turns on PPU
+        mem.write_byte(0xFF40, 0x80);
+        let mut ppu = Ppu::new();
         let mut state = ppu.state();
         let mut counter = 0;
         while {
             counter += 1;
-            // ppu.tick(&mut screen, &mut mem);
+            ppu.tick(&mut mem);
             let next_state = ppu.state();
             let digest = !matches!((state, next_state), (PpuMode::VBlank, PpuMode::OamScan));
             state = next_state;
@@ -763,7 +766,10 @@ mod tests {
     #[test]
     fn basic_rendering_test() {
         let mut mem = MemoryMap::construct();
+
         mem.io_mut().background_palettes.data[0].colors[3].0 = [0xFF, 0xFF];
+        // Turns on PPU
+        mem.write_byte(0xFF40, 0x80);
         mem.write_byte(0x9000, 0xFF);
         mem.write_byte(0x9001, 0xFF);
         let mut ppu = Ppu::new();
