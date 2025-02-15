@@ -3,6 +3,7 @@ members = [
     "spirit",
     "tombstone",
     "ghast",
+    "imp",
 ]
 
 resolver = "2"

@@ -29,7 +29,7 @@ pub enum Instruction {
     Jump(JumpOp),
     #[display("{_0}")]
     Arithmetic(ArithmeticOp),
-    #[display("{_0}")]
+    #[display("Interrupt {_0}")]
     Interrupt(InterruptOp),
     #[display("DAA")]
     Daa,

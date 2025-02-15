@@ -13,7 +13,7 @@ use ratatui::{
     Frame, Terminal,
 };
 use spirit::cpu::CpuState;
-use spirit::lookup::JumpOp;
+use spirit::lookup::{InterruptOp, JumpOp};
 use spirit::{cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu, Gameboy, StartUpSequence};
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -37,7 +37,8 @@ use tracing_subscriber::{
 };
 
 use crate::{
-    Command, LoopKind, ReplCommand, RunFor, RunLength, RunUntil, ViewCommand, WindowMessage,
+    Command, IndexOptions, LoopKind, ReplCommand, RunFor, RunLength, RunUntil, ViewCommand,
+    WindowMessage,
 };
 
 /// This is the app's state which holds all of the CLI data. This includes all previous commands
@@ -223,7 +224,10 @@ impl AppState {
                 (0..count).for_each(|_| gb.step_op());
             }
             Command::Info => todo!(),
-            Command::Index(_) => todo!(),
+            Command::Index(options) => match options {
+                IndexOptions::Single { addr } => self.mem_start = addr,
+                IndexOptions::Range { .. } => todo!(),
+            },
             Command::Run(length) => match length {
                 RunLength::For(foor) => match foor {
                     RunFor::Frames { count } => {
@@ -252,6 +256,13 @@ impl AppState {
                         let mut gb = self.gb.lock().unwrap();
                         let ints = gb.gb().mem.io().interrupt_flags;
                         while gb.gb().mem.io().interrupt_flags == ints {
+                            gb.step_op();
+                        }
+                    }
+                    RunUntil::Custom => {
+                        let mut gb = self.gb.lock().unwrap();
+                        let mut cond = custom_until_condition(gb.gb());
+                        while cond(gb.gb()) {
                             gb.step_op();
                         }
                     }
@@ -390,12 +401,37 @@ impl AppState {
             .split(right);
         self.cursor_position
             .set(render_cli(frame, &self.cli_history, left[0]));
-        render_mem(frame, left[1], &gb.mem);
+        self.render_mem(frame, left[1], &gb.mem);
         render_cpu(frame, right[0], gb.cpu());
         render_ppu(frame, right[1], &gb.ppu);
         render_interrupts(frame, right[2], &gb.mem);
         // render_stack(frame, right[3], &gb.mem);
         self.pc_state.render(frame, right[3], gb);
+    }
+
+    fn render_mem(&self, frame: &mut Frame, area: Rect, mem: &MemoryMap) {
+        let block = Block::bordered()
+            .title("Memory")
+            .title_alignment(ratatui::layout::Alignment::Center);
+        // let mem_start = state.mem_start & 0xFFF0;
+        let mem_start = self.mem_start;
+        let lines = area.height - 2;
+        let mut buffer = vec![0; 16 * lines as usize];
+        (mem_start..).zip(buffer.iter_mut()).for_each(|(i, byte)| {
+            *byte = std::panic::catch_unwind(|| mem.read_byte(i)).unwrap_or_default()
+        });
+
+        let mut data = String::from("  ADDR | 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F\n");
+        data.push_str("-------|------------------------------------------------\n");
+        for i in 0..lines {
+            let start = i * 16;
+            let end = (i + 1) * 16;
+            write!(data, "0x{:0>4X} |", mem_start + start);
+            (start..end).try_for_each(|i| write!(data, " {:0>2X}", buffer[i as usize]));
+            data.push('\n');
+        }
+        let para = Paragraph::new(data).block(block);
+        frame.render_widget(para, area);
     }
 
     // TODO: Because the state now tracks the command history and any output from the emulator, we
@@ -538,31 +574,6 @@ fn render_stack(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
 
 // TODO: Move mem
 
-fn render_mem(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
-    let block = Block::bordered()
-        .title("Memory")
-        .title_alignment(ratatui::layout::Alignment::Center);
-    // let mem_start = state.mem_start & 0xFFF0;
-    let mem_start = 0x8000;
-    let lines = area.height - 2;
-    let mut buffer = vec![0; 16 * lines as usize];
-    (mem_start..).zip(buffer.iter_mut()).for_each(|(i, byte)| {
-        *byte = std::panic::catch_unwind(|| mem.read_byte(i)).unwrap_or_default()
-    });
-
-    let mut data = String::from("  ADDR | 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F\n");
-    data.push_str("-------|------------------------------------------------\n");
-    for i in 0..lines {
-        let start = i * 16;
-        let end = (i + 1) * 16;
-        write!(data, "0x{:0>4X} |", mem_start + start);
-        (start..end).try_for_each(|i| write!(data, " {:0>2X}", buffer[i as usize]));
-        data.push('\n');
-    }
-    let para = Paragraph::new(data).block(block);
-    frame.render_widget(para, area);
-}
-
 impl CommandProcessor {
     fn update_last_longest(&mut self) {
         self.last_longest_input = std::cmp::max(self.last_longest_input, self.buffer.len());
@@ -631,4 +642,8 @@ impl CommandProcessor {
             CrosstermEvent::FocusLost => None,
         }
     }
+}
+
+fn custom_until_condition(_gb: &Gameboy) -> impl 'static + FnMut(&Gameboy) -> bool {
+    |gb| !matches!(gb.read_op(), Instruction::Ei)
 }

@@ -1,6 +1,6 @@
 use spirit::{
     cpu::Cpu,
-    lookup::{BitShiftOp, HalfRegister, Instruction, LoadAPointer, LoadOp, RegOrPointer},
+    lookup::{BitShiftOp, HalfRegister, Instruction, LoadOp, RegOrPointer},
     mem::MemoryMap,
     utils::Wrapping,
 };
@@ -79,8 +79,8 @@ pub enum LoadOp {
 */
 #[test]
 fn test_load_ops() {
-    // test_basic_load_op();
-    // test_direct_load_op();
+    test_basic_load_op();
+    test_direct_load_op();
 }
 
 fn test_direct_load_op() {

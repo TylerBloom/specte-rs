@@ -60,21 +60,22 @@ pub enum Command {
         index: u16,
     },
     #[command(subcommand)]
-    View(ViewCommand)
+    View(ViewCommand),
 }
 
 #[derive(Subcommand)]
 pub enum ViewCommand {
     /// This command controls what the PC area looks like. The `start` argument controls how many
     /// commands are shown before the PC's location.
-    PC {
-        start: usize,
-    }
+    PC { start: usize },
 }
 
 #[derive(Subcommand, Clone, Copy)]
 pub enum IndexOptions {
-    Single { addr: usize },
+    Single {
+        #[arg(value_parser = parse_int)]
+        addr: u16
+    },
     Range { start: usize, end: usize },
 }
 
@@ -104,6 +105,8 @@ pub enum RunUntil {
     Pause,
     /// Run the emulator until an interupt is requested.
     Interupt,
+    /// Run the emulator until the whatever handwritten  condition is met.
+    Custom,
 }
 
 #[derive(Subcommand, Clone, Copy)]
