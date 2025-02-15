@@ -65,7 +65,7 @@ pub enum MemoryBankController {
 
 impl MemoryBankController {
     pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
-        let cart = cart.into();
+        let mut cart = cart.into();
         assert_eq!(&cart[0x0104..=0x133], NINTENDO_LOGO);
         let title: String = cart[0x0134..=0x0143].iter().map(|&b| b as char).collect();
         let is_cgb = match cart[0x143] {
@@ -132,12 +132,22 @@ impl MemoryBankController {
             0x0B => todo!(),
             0x0C => todo!(),
             0x0D => todo!(),
-            0x0F => todo!(),
+            0x0F => {
+                println!("ROM Size {rom_size}, RAM Size {ram_size}");
+                Self::MBC3(MBC3::new(rom_size / 0x4000, ram_size as usize / 8, &cart))
+            }
             0x10 => {
                 println!("ROM Size {rom_size}, RAM Size {ram_size}");
                 Self::MBC3(MBC3::new(rom_size / 0x4000, ram_size as usize / 8, &cart))
             }
-            0x11 => todo!(),
+            0x11 => {
+                println!("ROM Size {rom_size}, RAM Size {ram_size}");
+                if rom_size > cart.len() {
+                    let len = rom_size - cart.len();
+                    cart.to_mut().extend(std::iter::repeat_n(0, len));
+                }
+                Self::MBC3(MBC3::new(rom_size / 0x4000, ram_size as usize / 8, &cart))
+            }
             0x12 => todo!(),
             0x13 => todo!(),
             0x19 => todo!(),

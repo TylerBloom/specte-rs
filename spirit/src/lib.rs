@@ -139,10 +139,17 @@ impl Gameboy {
     /// clock cycle (not a machine cycle). This involves ticking the memory and PPU.
     fn tick(&mut self) {
         self.mem.tick();
+        /*
+        let mask = {
+            let bit = self.cpu().ime as u8;
+            (bit << 0) | (bit << 1) | (bit << 2) | (bit << 3) | (bit << 4)
+        };
+        self.mem.io_mut().interrupt_flags &= mask;
+        */
         self.ppu.tick(&mut self.mem);
     }
 
-    fn read_op(&self) -> Instruction {
+    pub fn read_op(&self) -> Instruction {
         self.cpu.read_op(&self.mem)
     }
 

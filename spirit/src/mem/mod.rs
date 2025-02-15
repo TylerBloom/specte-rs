@@ -277,7 +277,12 @@ impl MemoryMap {
         trace!("Mut index into MemMap: 0x{index:0>4X}");
         match index {
             n @ 0x0000..=0x7FFF => self.mbc.write_byte(n, val),
-            n @ 0x8000..=0x9FFF => self.vram[CpuVramIndex(self.io.vram_select == 1, n)] = val,
+            n @ 0x8000..=0x9FFF => {
+                if n >= 0x9800 && check_bit_const::<3>(val) {
+                    // println!("Writting 0b{val:0>8b} to 0x{n:0>4X}, which will read from VRAM bank 1");
+                }
+                self.vram[CpuVramIndex(self.io.vram_select == 1, n)] = val
+            },
             n @ 0xA000..=0xBFFF => self.mbc.write_byte(n, val),
             n @ 0xC000..=0xCFFF => self.wram[0][n as usize - 0xC000] = val,
             n @ 0xD000..=0xDFFF => self.wram[1][n as usize - 0xD000] = val,
@@ -535,7 +540,8 @@ impl Index<BgTileMapAttrIndex> for MemoryMap {
 
     fn index(&self, BgTileMapAttrIndex { x, y }: BgTileMapAttrIndex) -> &Self::Output {
         let index = BgTileMapAttrInnerIndex {
-            second_map: check_bit_const::<3>(self.io.lcd_control),
+            // TODO: Is this correct???
+            second_map: false, // check_bit_const::<3>(self.io.lcd_control),
             x: x.wrapping_add(self.io.bg_position.1 & 0xF8),
             y: y.wrapping_add(self.io.bg_position.0),
         };
@@ -609,6 +615,7 @@ impl Index<BgTileDataIndex> for MemoryMap {
             index,
             unsigned_indexing: check_bit_const::<4>(self.io.lcd_control),
             bank: check_bit_const::<3>(attr),
+            // bank: false,
         };
         &self.vram[index]
     }

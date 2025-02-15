@@ -255,6 +255,7 @@ impl Cpu {
     }
 
     pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
+        // println!("{instr}");
         let len = instr.size();
         self.pc += (0x1 & self.state as u16) * (len as u16);
         match instr {
@@ -519,8 +520,8 @@ impl Cpu {
     }
 
     fn execute_interrupt(&mut self, op: InterruptOp, mem: &mut MemoryMap) {
-        self.disable_interupts();
         mem.clear_interrupt_req(op);
+        self.disable_interupts();
         self.push_pc(mem);
         self.pc = Wrapping(op as u16);
     }

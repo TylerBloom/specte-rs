@@ -1,0 +1,9 @@
+[package]
+name = "imp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+spirit = { path = "../spirit" }
+clap = { version = "4.5.18", features = ["derive"] }
+postcard = { version = "1.0.10", features = ["alloc"] }

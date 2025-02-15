@@ -195,7 +195,8 @@ impl IoRegisters {
             0xFF49 => self.monochrome_obj_palettes[1],
             0xFF4A => self.window_position[0],
             0xFF4B => self.window_position[1],
-            0xFF4F => self.vram_select,
+            // When reading from this register, all bits expect the first are 1
+            0xFF4F => 0xFE | self.vram_select,
             0xFF50 => self.boot_status,
             n @ 0xFF68..=0xFF69 => self.background_palettes[n - 0xFF68],
             n @ 0xFF6A..=0xFF6B => self.object_palettes[n - 0xFF6A],
@@ -238,9 +239,11 @@ impl IoRegisters {
             0xFF49 => self.monochrome_obj_palettes[1] = value,
             0xFF4A => self.window_position[0] = value,
             0xFF4B => self.window_position[1] = value,
-            0xFF4F => self.vram_select = value,
-            0xFF50 => self.boot_status = value,
-            0xFF4F => self.vram_select = value,
+            // Ignore all but the first bit of the value
+            0xFF4F => {
+                // println!("Selecting VRAM bank to be {value}");
+                self.vram_select = 1 & value
+            },
             0xFF50 => self.boot_status = value,
             n @ 0xFF68..=0xFF69 => self.background_palettes[n - 0xFF68] = value,
             n @ 0xFF6A..=0xFF6B => self.object_palettes[n - 0xFF6A] = value,
