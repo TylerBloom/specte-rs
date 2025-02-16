@@ -1,0 +1,127 @@
+SUMMARY:
+	ROM0: 6769 bytes used / 25999 free
+	WRAM0: 132 bytes used / 3964 free
+
+ROM0 bank #0:
+	EMPTY: $0000-$003f ($0040 bytes)
+	SECTION: $0040-$0041 ($0002 bytes) ["vblank-interrupt-handler"]
+	EMPTY: $0042-$0047 ($0006 bytes)
+	SECTION: $0048-$0049 ($0002 bytes) ["stat-interrupt-handler"]
+	EMPTY: $004a-$004f ($0006 bytes)
+	SECTION: $0050-$0051 ($0002 bytes) ["timer-interrupt-handler"]
+	EMPTY: $0052-$0057 ($0006 bytes)
+	SECTION: $0058-$0059 ($0002 bytes) ["serial-interrupt-handler"]
+	EMPTY: $005a-$005f ($0006 bytes)
+	SECTION: $0060-$0061 ($0002 bytes) ["joypad-interrupt-handler"]
+	EMPTY: $0062-$00ff ($009e bytes)
+	SECTION: $0100-$0103 ($0004 bytes) ["entry"]
+	EMPTY: $0104-$0142 ($003f bytes)
+	SECTION: $0143-$0143 ($0001 byte) ["cart-cgb-flag"]
+	EMPTY: $0144-$014f ($000c bytes)
+	SECTION: $0150-$1bb1 ($1a62 bytes) ["main"]
+	         $0150 = check_cgb_on_startup
+	         $0171 = check_cgb_on_startup.no_cgb
+	         $017d = memset
+	         $0185 = memcpy
+	         $018e = wait_for_vblank
+	         $0190 = wait_for_vblank.ly_loop
+	         $01cf = wait_for_vblank.long_wait
+	         $01d3 = wait_for_vblank.long_loop
+	         $0247 = wait_for_vblank.finish
+	         $024a = lcd_off
+	         $0258 = lcd_off.already_off
+	         $025b = setup_gfx
+	         $026e = setup_gfx.FONT_DATA_BEGIN
+	         $126e = setup_gfx.FONT_DATA_END
+	         $126e = setup_palettes
+	         $12ad = compact_results
+	         $12b0 = compact_results.compare_byte
+	         $12b8 = compact_results.fast_forward
+	         $12bf = compact_results.next_byte
+	         $12c7 = compact_results.return
+	         $12ca = freeze
+	         $12d3 = main
+	         $12e3 = main.FAIL_CGB_REQUIRED
+	         $1304 = main.hardware_compatible
+	         $1342 = main.valid_number_of_rows
+	         $1344 = main.next_row
+	         $1359 = main.print_row
+	         $1369 = main.print_row_byte
+	         $1383 = main.print_valid_byte
+	         $138a = main.next_result_byte
+	         $1393 = main.print_byte
+	         $13a8 = main.make_hex_char
+	         $13af = main.hex_letter
+	         $13b2 = show_final_screen
+	         $13d1 = show_final_screen.test_failed
+	         $13dd = show_final_screen.print_and_show
+	         $13ed = show_final_screen.TEST_PASSED
+	         $13fa = show_final_screen.TEST_FAILED
+	         $1407 = fail_test
+	         $142c = print_ascii
+	         $1440 = print_ascii.check_char
+	         $1447 = print_ascii.print_char
+	         $144a = EXPECTED_TEST_RESULTS
+	         $14a3 = run_test
+	         $14c0 = switch_speed_immediate_interrupt
+	         $14d3 = test_timer_interrupt_handling
+	         $14e6 = test_timer_interrupt_handling.timer_int1
+	         $14ea = test_timer_interrupt_handling.timer_int2
+	         $14f4 = test_timer_interrupt_handling.timer_int3
+	         $14ff = test_timer_interrupt_handling.speed_switch_with_timer_interrupt
+	         $1552 = test_immediate_interrupt_div
+	         $1562 = test_immediate_interrupt_div.interrupt_u1
+	         $1597 = test_immediate_interrupt_div.done_u1
+	         $15a7 = test_immediate_interrupt_div.interrupt_u2
+	         $15dd = test_immediate_interrupt_div.done_u2
+	         $15ed = test_immediate_interrupt_div.interrupt_u3
+	         $1622 = test_immediate_interrupt_div.done_u3
+	         $1632 = test_immediate_interrupt_div.interrupt_u4
+	         $1668 = test_immediate_interrupt_div.done_u4
+	         $1678 = test_immediate_interrupt_div.interrupt_u5
+	         $16ad = test_immediate_interrupt_div.done_u5
+	         $16bd = test_immediate_interrupt_div.interrupt_u6
+	         $16f3 = test_immediate_interrupt_div.done_u6
+	         $1703 = test_immediate_interrupt_div.interrupt_u7
+	         $1738 = test_immediate_interrupt_div.done_u7
+	         $1748 = test_immediate_interrupt_div.interrupt_u8
+	         $177e = test_immediate_interrupt_div.done_u8
+	         $178e = test_immediate_interrupt_div.interrupt_u9
+	         $17c3 = test_immediate_interrupt_div.done_u9
+	         $17d3 = test_immediate_interrupt_div.interrupt_u10
+	         $1809 = test_immediate_interrupt_div.done_u10
+	         $180a = test_immediate_interrupt_tima
+	         $1834 = test_immediate_interrupt_tima.interrupt_u11
+	         $1867 = test_immediate_interrupt_tima.done_u11
+	         $1891 = test_immediate_interrupt_tima.interrupt_u12
+	         $18c5 = test_immediate_interrupt_tima.done_u12
+	         $18ef = test_immediate_interrupt_tima.interrupt_u13
+	         $1922 = test_immediate_interrupt_tima.done_u13
+	         $194c = test_immediate_interrupt_tima.interrupt_u14
+	         $1980 = test_immediate_interrupt_tima.done_u14
+	         $19aa = test_immediate_interrupt_tima.interrupt_u15
+	         $19dd = test_immediate_interrupt_tima.done_u15
+	         $1a07 = test_immediate_interrupt_tima.interrupt_u16
+	         $1a3b = test_immediate_interrupt_tima.done_u16
+	         $1a65 = test_immediate_interrupt_tima.interrupt_u17
+	         $1a98 = test_immediate_interrupt_tima.done_u17
+	         $1ac2 = test_immediate_interrupt_tima.interrupt_u18
+	         $1af6 = test_immediate_interrupt_tima.done_u18
+	         $1b20 = test_immediate_interrupt_tima.interrupt_u19
+	         $1b53 = test_immediate_interrupt_tima.done_u19
+	         $1b7d = test_immediate_interrupt_tima.interrupt_u20
+	         $1bb1 = test_immediate_interrupt_tima.done_u20
+	EMPTY: $1bb2-$7fff ($644e bytes)
+	TOTAL EMPTY: $658f bytes
+
+WRAM0 bank #0:
+	SECTION: $c000-$c07f ($0080 bytes) ["test-result"]
+	         $c000 = TEST_RESULTS
+	SECTION: $c080-$c082 ($0003 bytes) ["cgb-features"]
+	         $c080 = IS_CGB
+	         $c081 = FAIL_CGB_REQUIRED
+	         $c082 = CGB_FEATURES_USABLE
+	SECTION: $c083-$c083 ($0001 byte) ["test-success"]
+	         $c083 = TEST_SUCCESS
+	EMPTY: $c084-$cfff ($0f7c bytes)
+	TOTAL EMPTY: $0f7c bytes

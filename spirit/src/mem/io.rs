@@ -10,7 +10,7 @@ use super::{
     MemoryMap,
 };
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IoRegisters {
     /// ADDR FF00
     pub(super) joypad: Joypad,
@@ -55,17 +55,52 @@ pub struct IoRegisters {
     pub(super) vram_select: u8,
     /// ADDR FF50
     boot_status: u8,
+    /// The boot status register is written to exactly once (during the boot process). After that,
+    /// it is inaccessible
+    boot_status_disabled: bool,
     /// ADDR FF68 and FF69
     pub background_palettes: ColorPalettes,
     /// ADDR FF6A and FF6B
     pub(crate) object_palettes: ColorPalettes,
     /// ADDR FF70
     wram_select: u8,
+    undoc_registers: [u8; 4],
     /// There are gaps amount the memory mapped IO registers. Any index into this that hits one of
     /// these gaps resets the value. Notably, this is also used when mutably indexing to the
     /// divider register but not while immutably indexing.
     /// ADDR FF03, FF08-FF0E, FF27-FF29, FF4C-FF4E, FF56-FF67, FF6C-FF6F
     dead_byte: u8,
+}
+
+impl Default for IoRegisters {
+    fn default() -> Self {
+        Self {
+            undoc_registers: [0, 0, 0, 0b1000_1111],
+            joypad: Default::default(),
+            serial: Default::default(),
+            timer_div: Default::default(),
+            tac: Default::default(),
+            interrupt_flags: Default::default(),
+            audio: Default::default(),
+            wave: Default::default(),
+            lcd_control: Default::default(),
+            lcd_status: Default::default(),
+            lcd_status_dup: Default::default(),
+            bg_position: Default::default(),
+            lcd_y: Default::default(),
+            lcd_cmp: Default::default(),
+            monochrome_bg_palette: Default::default(),
+            monochrome_obj_palettes: Default::default(),
+            window_position: Default::default(),
+            vram_select: Default::default(),
+            boot_status: Default::default(),
+            background_palettes: Default::default(),
+            object_palettes: Default::default(),
+            wram_select: Default::default(),
+            dead_byte: Default::default(),
+            boot_status_disabled: false,
+        }
+    }
 }
 
 /// This simple wrapper type is used to index into the IO registers by the PPU. Because the PPU
@@ -180,9 +215,17 @@ impl IoRegisters {
             0xFF00 => self.joypad[()],
             0xFF01 => self.serial.0,
             0xFF02 => self.serial.1,
+            0xFF04 => {
+                let digest = self.timer_div[0];
+                println!("Reading from 0xFF04, found value 0x{digest:0>2x}");
+                // digest
+                0x1F
+            }
             n @ 0xFF04..=0xFF07 => self.timer_div[(n - 0xFF04) as usize],
             0xFF0F => self.interrupt_flags,
-            n @ 0xFF10..=0xFF26 => self.audio[(n - 0xFF10) as usize],
+            n @ 0xFF10..=0xFF26 => 0xFF,
+                // TODO: uncomment after testing...
+                // self.audio[(n - 0xFF10) as usize],
             n @ 0xFF30..=0xFF3F => self.wave[(n - 0xFF30) as usize],
             0xFF40 => self.lcd_control,
             0xFF41 => self.lcd_status,
@@ -197,18 +240,33 @@ impl IoRegisters {
             0xFF4B => self.window_position[1],
             // When reading from this register, all bits expect the first are 1
             0xFF4F => 0xFE | self.vram_select,
-            0xFF50 => self.boot_status,
+            0xFF50 => {
+                if self.boot_status_disabled {
+                    0xFF
+                } else {
+                    self.boot_status
+                }
+            }
             n @ 0xFF68..=0xFF69 => self.background_palettes[n - 0xFF68],
             n @ 0xFF6A..=0xFF6B => self.object_palettes[n - 0xFF6A],
             0xFF70 => self.wram_select,
+            0xFF72 => self.undoc_registers[0],
+            0xFF73 => self.undoc_registers[1],
+            0xFF74 => self.undoc_registers[2],
+            0xFF75 => {
+                println!("Reading from address 0xFF75, value = 0b{:0>8b}", self.undoc_registers[3]);
+                self.undoc_registers[3]
+            }
             0xFF03
             | 0xFF08..=0xFF0E
             | 0xFF27..=0xFF2F
             | 0xFF4C..=0xFF4E
             | 0xFF56..=0xFF67
-            | 0xFF6C..=0xFF6F => self.dead_byte,
-            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF46 | 0xFF71.. => unreachable!(
-                "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
+            | 0xFF6C..=0xFF6F
+            | 0xFF71
+            | 0xFF76.. => 0xFF,
+            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF46 => unreachable!(
+                "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF80! Got index 0x{index:0>4x}"
             ),
         }
     }
@@ -243,17 +301,30 @@ impl IoRegisters {
             0xFF4F => {
                 // println!("Selecting VRAM bank to be {value}");
                 self.vram_select = 1 & value
-            },
-            0xFF50 => self.boot_status = value,
+            }
+            0xFF50 => {
+                println!("Writing to boot status: 0x{value:0>2X}");
+                self.boot_status_disabled = true;
+                self.boot_status = value
+            }
             n @ 0xFF68..=0xFF69 => self.background_palettes[n - 0xFF68] = value,
             n @ 0xFF6A..=0xFF6B => self.object_palettes[n - 0xFF6A] = value,
             0xFF70 => self.wram_select = value,
+            0xFF72 => self.undoc_registers[0] = value,
+            0xFF73 => self.undoc_registers[1] = value,
+            0xFF74 => self.undoc_registers[2] = value,
+            0xFF75 => {
+                println!("Writing to address 0xFF75, value = 0b{value:0>8b}");
+                self.undoc_registers[3] = value | 0b1000_1111;
+            }
             0xFF03
             | 0xFF08..=0xFF0E
             | 0xFF27..=0xFF2F
             | 0xFF4C..=0xFF4E
             | 0xFF56..=0xFF67
-            | 0xFF6C..=0xFF7F => {}
+            | 0xFF6C..=0xFF6F
+            | 0xFF71
+            | 0xFF76.. => {}
             ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF46 | 0xFF80.. => unreachable!(
                 "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
             ),
