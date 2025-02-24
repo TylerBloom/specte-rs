@@ -1,10 +1,10 @@
 use std::borrow::Cow;
 
 use iced::{
-    widget::{column, image::Handle, row, text, Button, Column, Image, Scrollable},
     Alignment, Element, Subscription,
+    widget::{Button, Column, Image, Scrollable, column, image::Handle, row, text},
 };
-use spirit::{ppu::Pixel, Gameboy, StartUpSequence};
+use spirit::{Gameboy, StartUpSequence, ppu::Pixel};
 
 use crate::{
     debug::Debugger,
