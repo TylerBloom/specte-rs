@@ -760,7 +760,9 @@ macro_rules! define_op {
         |data, pc| Instruction::ControlOp(ControlOp::Stop(data.read_byte(pc + 1)))
     };
     (ADD) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::Add(SomeByte::Direct(data.read_byte(pc + 1))))
+        |data, pc| {
+            Instruction::Arithmetic(ArithmeticOp::Add(SomeByte::Direct(data.read_byte(pc + 1))))
+        }
     };
     (ADD, SP) => {
         |data, pc| Instruction::Arithmetic(ArithmeticOp::AddSP(data.read_byte(pc + 1) as i8))
@@ -769,43 +771,57 @@ macro_rules! define_op {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Add(InnerRegOrPointer::$r.convert().into()))
     };
     (ADC) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::Adc(SomeByte::Direct(data.read_byte(pc + 1))))
+        |data, pc| {
+            Instruction::Arithmetic(ArithmeticOp::Adc(SomeByte::Direct(data.read_byte(pc + 1))))
+        }
     };
     (ADC, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Adc(InnerRegOrPointer::$r.convert().into()))
     };
     (SUB) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::Sub(SomeByte::Direct(data.read_byte(pc + 1))))
+        |data, pc| {
+            Instruction::Arithmetic(ArithmeticOp::Sub(SomeByte::Direct(data.read_byte(pc + 1))))
+        }
     };
     (SUB, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Sub(InnerRegOrPointer::$r.convert().into()))
     };
     (SBC) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::Sbc(SomeByte::Direct(data.read_byte(pc + 1))))
+        |data, pc| {
+            Instruction::Arithmetic(ArithmeticOp::Sbc(SomeByte::Direct(data.read_byte(pc + 1))))
+        }
     };
     (SBC, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Sbc(InnerRegOrPointer::$r.convert().into()))
     };
     (AND) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::And(SomeByte::Direct(data.read_byte(pc + 1))))
+        |data, pc| {
+            Instruction::Arithmetic(ArithmeticOp::And(SomeByte::Direct(data.read_byte(pc + 1))))
+        }
     };
     (AND, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::And(InnerRegOrPointer::$r.convert().into()))
     };
     (XOR) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::Xor(SomeByte::Direct(data.read_byte(pc + 1))))
+        |data, pc| {
+            Instruction::Arithmetic(ArithmeticOp::Xor(SomeByte::Direct(data.read_byte(pc + 1))))
+        }
     };
     (XOR, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Xor(InnerRegOrPointer::$r.convert().into()))
     };
     (OR) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::Or(SomeByte::Direct(data.read_byte(pc + 1))))
+        |data, pc| {
+            Instruction::Arithmetic(ArithmeticOp::Or(SomeByte::Direct(data.read_byte(pc + 1))))
+        }
     };
     (OR, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Or(InnerRegOrPointer::$r.convert().into()))
     };
     (CP) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::Cp(SomeByte::Direct(data.read_byte(pc + 1))))
+        |data, pc| {
+            Instruction::Arithmetic(ArithmeticOp::Cp(SomeByte::Direct(data.read_byte(pc + 1))))
+        }
     };
     (CP, $r: ident) => {
         |_, _| Instruction::Arithmetic(ArithmeticOp::Cp(InnerRegOrPointer::$r.convert().into()))
@@ -1382,8 +1398,11 @@ macro_rules! transpose {
     }};
 }
 
-const OP_LOOKUP: OpArray<0x100> = define_op_lookup_table!();
-const PREFIXED_OP_LOOKUP: OpArray<0x100> = define_op_lookup_table!(PREFIXED);
+// TODO: Fix this once array_concat doesn't emit it anymore
+#[allow(unexpected_cfgs)]
+static OP_LOOKUP: OpArray<0x100> = define_op_lookup_table!();
+#[allow(unexpected_cfgs)]
+static PREFIXED_OP_LOOKUP: OpArray<0x100> = define_op_lookup_table!(PREFIXED);
 
 #[cfg(test)]
 mod test {

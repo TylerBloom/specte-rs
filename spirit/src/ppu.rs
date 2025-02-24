@@ -12,10 +12,10 @@ use tracing::{info_span, trace};
 use crate::{
     cpu::{check_bit, check_bit_const},
     mem::{
-        io::{BgPaletteIndex, ObjPaletteIndex},
-        vram::{PpuMode, VRam},
         BgTileDataIndex, BgTileMapAttrIndex, BgTileMapIndex, MemoryMap, OamObjectIndex,
         ObjTileDataIndex, WindowTileDataIndex, WindowTileMapAttrIndex, WindowTileMapIndex,
+        io::{BgPaletteIndex, ObjPaletteIndex},
+        vram::{PpuMode, VRam},
     },
 };
 
@@ -664,15 +664,15 @@ pub fn zip_bits(hi: u8, lo: u8) -> impl Iterator<Item = u8> {
 mod tests {
     use crate::{
         mem::{
+            MemoryMap,
             io::{BgPaletteIndex, Palette},
             vram::PpuMode,
-            MemoryMap,
         },
         ppu::{ObjectPixel, Pixel, Ppu},
     };
     use heapless::Vec as InlineVec;
 
-    use super::{zip_bits, PixelFetcher, PpuInner};
+    use super::{PixelFetcher, PpuInner, zip_bits};
 
     // Test that the fetcher can get the pixel data, populate the buffer at the right time, and
     // reset itself.

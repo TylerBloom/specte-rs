@@ -3,11 +3,11 @@ use std::ops::{Index, IndexMut};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::{cpu::check_bit_const, lookup::InterruptOp, ppu::Pixel, utils::Wrapping, ButtonInput};
+use crate::{ButtonInput, cpu::check_bit_const, lookup::InterruptOp, ppu::Pixel, utils::Wrapping};
 
 use super::{
-    vram::{PpuMode, VRam},
     MemoryMap,
+    vram::{PpuMode, VRam},
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -224,8 +224,8 @@ impl IoRegisters {
             n @ 0xFF04..=0xFF07 => self.timer_div[(n - 0xFF04) as usize],
             0xFF0F => self.interrupt_flags,
             n @ 0xFF10..=0xFF26 => 0xFF,
-                // TODO: uncomment after testing...
-                // self.audio[(n - 0xFF10) as usize],
+            // TODO: uncomment after testing...
+            // self.audio[(n - 0xFF10) as usize],
             n @ 0xFF30..=0xFF3F => self.wave[(n - 0xFF30) as usize],
             0xFF40 => self.lcd_control,
             0xFF41 => self.lcd_status,
@@ -254,7 +254,10 @@ impl IoRegisters {
             0xFF73 => self.undoc_registers[1],
             0xFF74 => self.undoc_registers[2],
             0xFF75 => {
-                println!("Reading from address 0xFF75, value = 0b{:0>8b}", self.undoc_registers[3]);
+                println!(
+                    "Reading from address 0xFF75, value = 0b{:0>8b}",
+                    self.undoc_registers[3]
+                );
                 self.undoc_registers[3]
             }
             0xFF03

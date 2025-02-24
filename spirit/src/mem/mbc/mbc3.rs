@@ -81,9 +81,7 @@ impl MBC3 {
 
     pub(super) fn read_byte(&self, index: u16) -> u8 {
         match index {
-            0x0000..0x4000 => {
-                self.rom_bank_zero[index as usize]
-            }
+            0x0000..0x4000 => self.rom_bank_zero[index as usize],
             index @ 0x4000..0x8000 => {
                 // println!("Reading from ROM BANK {} @ 0x{index:0>4X}", self.rom_bank + 1);
                 self.rom[self.rom_bank as usize][(index - 0x4000) as usize]
@@ -178,7 +176,7 @@ impl MBC3 {
         let now = Utc::now();
         let elapsed = (now - self.last_latch).to_std().unwrap();
         if elapsed.as_secs() == 0 {
-            return
+            return;
         }
         self.last_latch = now;
         let secs = self.clock_data[0] + ((elapsed.as_secs() % 60) as u8);

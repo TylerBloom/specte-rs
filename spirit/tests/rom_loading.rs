@@ -1,6 +1,6 @@
 use spirit::{
-    mem::{MemoryMap, START_UP_HEADER},
     Gameboy,
+    mem::{MemoryMap, START_UP_HEADER},
 };
 
 macro_rules! include_roms {

@@ -5,9 +5,9 @@ use serde_with::serde_as;
 use tracing::{info, trace};
 
 use super::{
-    io::{BgPaletteIndex, ObjPaletteIndex},
     BgTileDataIndex, BgTileDataInnerIndex, BgTileMapAttrIndex, BgTileMapAttrInnerIndex,
     BgTileMapIndex, BgTileMapInnerIndex, OamObjectIndex, ObjTileDataIndex,
+    io::{BgPaletteIndex, ObjPaletteIndex},
 };
 
 static DEAD_READ_ONLY_BYTE: u8 = 0xFF;

@@ -10,9 +10,12 @@ macro_rules! blarg_test {
         )))
         .unwrap();
         assert_eq!(gb.mem, expected_mem);
-        let expected_screen: Vec<Vec<_>> =
-            postcard::from_bytes(include_bytes!(concat!("data/blarg-cpu-instr-", $file, "-screen.postcard")))
-                .unwrap();
+        let expected_screen: Vec<Vec<_>> = postcard::from_bytes(include_bytes!(concat!(
+            "data/blarg-cpu-instr-",
+            $file,
+            "-screen.postcard"
+        )))
+        .unwrap();
         assert_eq!(gb.ppu.screen, expected_screen);
     };
 }
@@ -28,7 +31,7 @@ fn blarg_special_instr_test() {
 #[should_panic]
 fn blarg_interrupt_instr_test() {
     todo!()
-        // blarg_test!("02-interrupts");
+    // blarg_test!("02-interrupts");
 }
 
 #[test]
@@ -83,5 +86,5 @@ fn blarg_bit_ops_instr_test() {
 #[should_panic]
 fn blarg_a_hl_instr_test() {
     todo!()
-        // blarg_test!("11-op_a,(hl)");
+    // blarg_test!("11-op_a,(hl)");
 }
