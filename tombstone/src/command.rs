@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     fmt::Write,
     hash::{DefaultHasher, Hash, Hasher},
     num::ParseIntError,
@@ -74,9 +74,12 @@ pub enum ViewCommand {
 pub enum IndexOptions {
     Single {
         #[arg(value_parser = parse_int)]
-        addr: u16
+        addr: u16,
     },
-    Range { start: usize, end: usize },
+    Range {
+        start: usize,
+        end: usize,
+    },
 }
 
 #[derive(Subcommand, Clone, Copy)]

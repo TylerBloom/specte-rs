@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use ghast::state::{Emulator, Message};
 use iced::{Element, Subscription, Task};
 use tokio::sync::broadcast::Receiver;
-use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 
 use crate::WindowMessage;
 
