@@ -68,11 +68,11 @@ impl MBC1 {
     pub fn read_byte(&self, index: u16) -> u8 {
         match index {
             0x0000..0x4000 => self.rom[0][index as usize],
-            i @ 0x4000..0x8000 => {
-                self.rom[self.rom_bank as usize][(i - 0x4000) as usize]
-            },
+            i @ 0x4000..0x8000 => self.rom[self.rom_bank as usize][(i - 0x4000) as usize],
             i @ 0xA000..0xC000 => self.ram[self.ram_bank as usize][(i - 0xA000) as usize],
-            i => unreachable!("Memory controller is unable to read from memory address: 0x{i:0>4X}"),
+            i => {
+                unreachable!("Memory controller is unable to read from memory address: 0x{i:0>4X}")
+            }
         }
     }
 
@@ -86,7 +86,9 @@ impl MBC1 {
             0x6000..0x8000 if (value & 1) == 0 => self.banking_mode = BankingMode::Advanced,
             0x6000..0x8000 => self.banking_mode = BankingMode::Simple,
             i @ 0xA000..0xC000 => self.ram[self.ram_bank as usize][(i - 0xA000) as usize] = value,
-            _ => unreachable!("Memory controller is unable to write to memory address: 0x{index:0>4X}"),
+            _ => unreachable!(
+                "Memory controller is unable to write to memory address: 0x{index:0>4X}"
+            ),
         }
     }
 }

@@ -1,6 +1,6 @@
 use spirit::{
-    lookup::{HalfRegister, Instruction, LoadOp, RegOrPointer},
     Gameboy,
+    lookup::{HalfRegister, Instruction, LoadOp, RegOrPointer},
 };
 
 const REG_B: RegOrPointer = RegOrPointer::Reg(HalfRegister::B);

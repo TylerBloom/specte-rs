@@ -12,9 +12,9 @@ use tracing::{info, info_span, trace};
 
 use crate::{
     lookup::{
-        parse_instruction, ArithmeticOp, BitOp, BitOpInner, BitShiftOp, Condition, ControlOp,
-        HalfRegister, Instruction, InterruptOp, JumpOp, LoadAPointer, LoadOp, RegOrPointer,
-        SomeByte, WideReg, WideRegWithoutSP,
+        ArithmeticOp, BitOp, BitOpInner, BitShiftOp, Condition, ControlOp, HalfRegister,
+        Instruction, InterruptOp, JumpOp, LoadAPointer, LoadOp, RegOrPointer, SomeByte, WideReg,
+        WideRegWithoutSP, parse_instruction,
     },
     mem::MemoryMap,
     utils::Wrapping,
@@ -743,7 +743,7 @@ impl Cpu {
             LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),
             LoadOp::Direct(reg, val) => self.write_byte(reg, mem, val),
             LoadOp::LoadIntoA(ptr) => {
-                let index  = match ptr {
+                let index = match ptr {
                     LoadAPointer::BC => self.bc(),
                     LoadAPointer::DE => self.de(),
                     LoadAPointer::Hli => {

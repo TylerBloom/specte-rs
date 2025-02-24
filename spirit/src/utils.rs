@@ -1,7 +1,7 @@
 use std::ops::{Add, AddAssign, BitAndAssign, BitOrAssign, BitXorAssign, Sub, SubAssign};
 
 use derive_more::derive::Not;
-use serde::{de::Error, ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error, ser::SerializeSeq};
 
 use heapless::Vec as InlineVec;
 

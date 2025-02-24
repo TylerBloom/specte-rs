@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use spirit::{mem::MemoryMap, ppu::Pixel, Gameboy};
+use spirit::{Gameboy, mem::MemoryMap, ppu::Pixel};
 
 static START_UP_SCREENS: &[u8] = include_bytes!("data/start_up_screens.postcard");
 static START_UP_MEMORY_MAPS: &[u8] = include_bytes!("data/start_up_memory_maps.postcard");

@@ -21,9 +21,9 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use cpu::{check_bit_const, Cpu, CpuState};
+use cpu::{Cpu, CpuState, check_bit_const};
 use lookup::Instruction;
-use mem::{vram::PpuMode, MemoryBankController, MemoryMap, StartUpHeaders};
+use mem::{MemoryBankController, MemoryMap, StartUpHeaders, vram::PpuMode};
 use ppu::Ppu;
 
 use crate::lookup::JumpOp;

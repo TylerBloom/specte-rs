@@ -6,7 +6,7 @@ use std::hash::Hash;
 use std::ops::{Index, IndexMut};
 
 use crate::cpu::check_bit_const;
-use crate::lookup::{parse_instruction, Instruction, InterruptOp};
+use crate::lookup::{Instruction, InterruptOp, parse_instruction};
 use crate::{ButtonInput, JoypadInput, SsabInput};
 
 pub mod io;
