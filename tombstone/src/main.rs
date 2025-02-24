@@ -6,23 +6,23 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{error::Error, io::Write as _};
 
-use crossterm::event::{poll, read, Event};
+use crossterm::event::{Event, poll, read};
 use crossterm::execute;
 use crossterm::style::Print;
 use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ghast::state::Emulator;
 use ratatui::layout::Position;
 use ratatui::{
+    Frame, Terminal,
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout, Rect},
     text::Text,
     widgets::{Block, Paragraph},
-    Frame, Terminal,
 };
 use spirit::cpu::CpuState;
-use spirit::{cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu, Gameboy, StartUpSequence};
+use spirit::{Gameboy, StartUpSequence, cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu};
 
 use clap::Parser;
 

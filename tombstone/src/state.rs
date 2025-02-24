@@ -6,15 +6,15 @@ use ghast::state::Emulator;
 use indexmap::IndexSet;
 use ratatui::layout::Position;
 use ratatui::{
+    Frame, Terminal,
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout, Rect},
     text::Text,
     widgets::{Block, Paragraph},
-    Frame, Terminal,
 };
 use spirit::cpu::CpuState;
 use spirit::lookup::{InterruptOp, JumpOp};
-use spirit::{cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu, Gameboy, StartUpSequence};
+use spirit::{Gameboy, StartUpSequence, cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu};
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -29,11 +29,11 @@ use std::{error::Error, io::Write as _};
 use tokio::sync::broadcast::Sender;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{
-    fmt::{
-        format::{Compact, DefaultFields, Format},
-        MakeWriter,
-    },
     FmtSubscriber,
+    fmt::{
+        MakeWriter,
+        format::{Compact, DefaultFields, Format},
+    },
 };
 
 use crate::{
