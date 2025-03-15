@@ -64,6 +64,16 @@ struct OamDma {
     read_addr: u16,
     write_addr: u16,
     ticks: u16,
+    bus: ConflictBus,
+}
+
+/// When the OAM DMA is active, the transfer occurs on one of two busses. If a read or write occurs
+/// from the CPU (including a push/pop to/from the stack or instruction read), the operation needs
+/// to be ignored (reads get 0xFF).
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
+enum ConflictBus {
+    Wram,
+    Cartridge,
 }
 
 impl OamDma {
@@ -73,6 +83,21 @@ impl OamDma {
             read_addr: 0,
             write_addr: 0,
             ticks: 640,
+            bus: ConflictBus::Cartridge,
+        }
+    }
+
+    /// Calculates if a read/write is happening in region that is being transferred.
+    fn in_conflict(&self, index: u16) -> bool {
+        if self.ticks >= 640 {
+            return false
+        }
+        println!("DMA is on, indexing @ 0x{index:0>4X}");
+        match (self.bus, index) {
+            (ConflictBus::Wram, 0xC000..0xE000) => true,
+            (ConflictBus::Wram, _) => false,
+            (ConflictBus::Cartridge, 0xC000..0xE000) => false,
+            (ConflictBus::Cartridge, _) => true,
         }
     }
 
@@ -81,6 +106,10 @@ impl OamDma {
         // TODO: Verify that this is correct. The docs say that `value` must be below 0xDF, but the
         // multiplication should handle that.
         self.read_addr = (value as u16) << 8;
+        self.bus = match self.read_addr {
+            0xC000..0xE000 => ConflictBus::Wram,
+            _ => ConflictBus::Cartridge,
+        };
         self.write_addr = 0;
         println!("Beginning OAM DMA starting at 0x{:0>4X}", self.read_addr);
         self.ticks = 0;
@@ -92,10 +121,12 @@ impl OamDma {
         }
         self.ticks += 1;
         if self.ticks % 4 == 0 {
+            /*
             println!(
-                "At {} ticks, transferring {:0>4X} -> {:0>4X}",
+                "At {} ticks, transferring 0x{:0>4X} -> 0x{:0>4X}",
                 self.ticks, self.read_addr, self.write_addr
             );
+            */
             let digest = (self.read_addr, self.write_addr);
             self.read_addr += 1;
             self.write_addr += 1;
@@ -242,6 +273,16 @@ impl MemoryMap {
     /// This method is part of a family of methods that are similar to the methods from the `Index`
     /// trait.
     pub fn read_byte(&self, index: u16) -> u8 {
+        if self.oam_dma.in_conflict(index) {
+            println!("DMA Bus conflict @ {index:0x}");
+            return 0xFF;
+        }
+        self.dma_read_byte(index)
+    }
+
+    /// This method only exists to sidestep the "DMA contains" check and should only be called by
+    /// the `read_byte` method and during the DMA transfer.
+    fn dma_read_byte(&self, index: u16) -> u8 {
         static DEAD_BYTE: u8 = 0;
         match index {
             0x0000..=0x7FFF => self.mbc.read_byte(index),
@@ -255,8 +296,7 @@ impl MemoryMap {
             n @ 0xFE00..=0xFE9F => self.vram[CpuOamIndex(n)],
             // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
             // dead byte will be returned instead.
-            0xFEA0..=0xFEFF => DEAD_BYTE,
-            0xFF51..0xFF54 => DEAD_BYTE,
+            0xFEA0..=0xFEFF | 0xFF51..0xFF54 => DEAD_BYTE,
             0xFF55 => self.vram_dma.read_trigger(),
             0xFF46 => self.oam_dma.register,
             n @ 0xFF00..=0xFF7F => self.io.read_byte(n),
@@ -265,15 +305,15 @@ impl MemoryMap {
         }
     }
 
-    pub(crate) fn read_bytes(&self, idx: u16) -> u16 {
-        todo!()
-    }
-
     /// This method is part of a family of methods that are similar to the methods from the `Index`
     /// trait. Unlike the index method, this provides control to the map around what gets written.
     /// For example, some registers only have some bits that can be written to. This allows all
     /// other bits to be masked out.
     pub(crate) fn write_byte(&mut self, index: u16, val: u8) {
+        if self.oam_dma.in_conflict(index) {
+            println!("DMA Bus conflict @ {index:0x}");
+            return
+        }
         trace!("Mut index into MemMap: 0x{index:0>4X}");
         match index {
             n @ 0x0000..=0x7FFF => self.mbc.write_byte(n, val),
@@ -282,7 +322,7 @@ impl MemoryMap {
                     // println!("Writting 0b{val:0>8b} to 0x{n:0>4X}, which will read from VRAM bank 1");
                 }
                 self.vram[CpuVramIndex(self.io.vram_select == 1, n)] = val
-            },
+            }
             n @ 0xA000..=0xBFFF => self.mbc.write_byte(n, val),
             n @ 0xC000..=0xCFFF => self.wram[0][n as usize - 0xC000] = val,
             n @ 0xD000..=0xDFFF => self.wram[1][n as usize - 0xD000] = val,
@@ -374,8 +414,8 @@ impl MemoryMap {
     /// registers.
     pub fn tick(&mut self) {
         if let Some((r, w)) = self.oam_dma.tick() {
-            let byte = self.read_byte(r);
-            println!("Transferring byte to OAM: 0x{byte:0>2X}");
+            let byte = self.dma_read_byte(r);
+            // println!("Transferring byte to OAM: 0x{byte:0>2X}");
             self.vram.oam[w as usize] = byte;
         }
         self.io.tick();
