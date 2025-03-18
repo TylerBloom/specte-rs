@@ -14,6 +14,7 @@ heapless = { version = "0.8.0", features = ["serde"] }
 serde = { version = "1.0.210", features = ["derive"] }
 serde_with = "3.9.0"
 chrono = { version = "0.4.38", features = ["serde"] }
+serde_json = "1.0.140"
 
 [dev-dependencies]
 postcard = { version = "1.0.10", features = ["alloc"] }

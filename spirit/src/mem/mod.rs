@@ -28,6 +28,32 @@ pub static START_UP_HEADER: &[u8; 0x900] = include_bytes!("../cgb.bin");
 
 pub type StartUpHeaders = ([u8; 0x100], [u8; 0x700]);
 
+/// This trait is used to abstract over the memory map. This is used during testing.
+pub trait MemoryLike {
+    fn read_byte(&self, addr: u16) -> u8;
+
+    fn write_byte(&mut self, addr: u16, val: u8);
+
+    fn read_op(&self, addr: u16, ime: bool) -> Instruction;
+
+    fn clear_interrupt_req(&mut self, op: InterruptOp) {
+    }
+
+    fn vram_transfer(&mut self) {
+    }
+}
+
+/// The `impl FnOnce` in `update_byte` would make `MemoryLike` non-object safe, which is needs for
+/// instrution parsing.
+pub trait MemoryLikeExt: MemoryLike {
+    fn update_byte(&mut self, addr: u16, op: impl FnOnce(&mut u8)) -> u8 {
+        let mut val = self.read_byte(addr);
+        op(&mut val);
+        self.write_byte(addr, val);
+        val
+    }
+}
+
 #[serde_as]
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryMap {
@@ -56,6 +82,128 @@ pub struct MemoryMap {
     ///  - Bit 4 corresponds to the joypad interrupt
     /// When indexed, this register is at 0xFFFF.
     pub ie: u8,
+}
+
+impl MemoryLike for MemoryMap {
+    /// This method is part of a family of methods that are similar to the methods from the `Index`
+    /// trait.
+    fn read_byte(&self, addr: u16) -> u8 {
+        if self.oam_dma.in_conflict(addr) {
+            println!("DMA Bus conflict @ {addr:0x}");
+            return 0xFF;
+        }
+        self.dma_read_byte(addr)
+    }
+
+    /// This method is part of a family of methods that are similar to the methods from the `Index`
+    /// trait. Unlike the index method, this provides control to the map around what gets written.
+    /// For example, some registers only have some bits that can be written to. This allows all
+    /// other bits to be masked out.
+    fn write_byte(&mut self, addr: u16, val: u8) {
+        if self.oam_dma.in_conflict(addr) {
+            println!("DMA Bus conflict @ {addr:0x}");
+            return;
+        }
+        trace!("Mut index into MemMap: 0x{addr:0>4X}");
+        match addr {
+            n @ 0x0000..=0x7FFF => self.mbc.write_byte(n, val),
+            n @ 0x8000..=0x9FFF => {
+                if n >= 0x9800 && check_bit_const::<3>(val) {
+                    // println!("Writting 0b{val:0>8b} to 0x{n:0>4X}, which will read from VRAM bank 1");
+                }
+                self.vram[CpuVramIndex(self.io.vram_select == 1, n)] = val
+            }
+            n @ 0xA000..=0xBFFF => self.mbc.write_byte(n, val),
+            n @ 0xC000..=0xCFFF => self.wram[0][n as usize - 0xC000] = val,
+            n @ 0xD000..=0xDFFF => self.wram[1][n as usize - 0xD000] = val,
+            // Echo RAM
+            n @ 0xE000..=0xEFFF => self.wram[0][n as usize - 0xE000] = val,
+            n @ 0xF000..=0xFDFF => self.wram[1][n as usize - 0xF000] = val,
+            n @ 0xFE00..=0xFE9F => self.vram[CpuOamIndex(n)] = val,
+            // NOTE: This region *should not* actually be accessed
+            0xFEA0..=0xFEFF => {}
+            0xFF51 => self.vram_dma.src_hi = val,
+            0xFF52 => self.vram_dma.src_lo = val,
+            0xFF53 => self.vram_dma.dest_hi = val,
+            0xFF54 => self.vram_dma.dest_lo = val,
+            0xFF55 => self.vram_dma.trigger(val),
+            0xFF46 => self.oam_dma.trigger(val),
+            n @ 0xFF00..=0xFF7F => self.io.write_byte(n, val),
+            n @ 0xFF80..=0xFFFE => self.hr[(n - 0xFF80) as usize] = val,
+            0xFFFF => self.ie = val,
+        }
+    }
+
+    /// Reads the next operation to be performed. If the given IME flag is true, and an interrupts
+    /// has been requested, the returned instruction will be a `call` to the corresponding
+    /// interrupt handler. Otherwise, the given PC is used to decode the next instruction.
+    fn read_op(&self, addr: u16, ime: bool) -> Instruction {
+        match (
+            self.vram_dma.get_op(self.io.lcd_y, self.vram.status),
+            self.check_interrupt(),
+        ) {
+            (Some(op), _) => op,
+            (None, Some(op)) if ime => op,
+            _ => parse_instruction(self, addr),
+        }
+    }
+
+    fn clear_interrupt_req(&mut self, op: InterruptOp) {
+        self.io.clear_interrupt_req(op)
+    }
+
+    fn vram_transfer(&mut self) {
+        let Some((src, dest)) = self.vram_dma.next_addrs() else {
+            return;
+        };
+        for i in 0..16 {
+            let byte = self.read_byte(src + i);
+            self.write_byte(dest + i, byte);
+        }
+    }
+
+}
+
+impl MemoryLikeExt for MemoryMap {
+    #[track_caller]
+    fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
+        let ptr = match index {
+            n @ 0x0000..=0x7FFF => return self.mbc.update_byte(n, update),
+            n @ 0x8000..=0x9FFF => &mut self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
+            n @ 0xA000..=0xBFFF => return self.mbc.update_byte(n, update),
+            n @ 0xC000..=0xCFFF => &mut self.wram[0][n as usize - 0xC000],
+            n @ 0xD000..=0xDFFF => &mut self.wram[1][n as usize - 0xD000],
+            // Echo RAM
+            n @ 0xE000..=0xEFFF => &mut self.wram[0][n as usize - 0xE000],
+            n @ 0xF000..=0xFDFF => &mut self.wram[1][n as usize - 0xF000],
+            n @ 0xFE00..=0xFE9F => &mut self.vram[CpuOamIndex(n)],
+            // NOTE: This region *should not* actually be accessed
+            0xFEA0..=0xFEFF => {
+                return 0;
+            }
+            0xFF51 => &mut self.vram_dma.src_hi,
+            0xFF52 => &mut self.vram_dma.src_lo,
+            0xFF53 => &mut self.vram_dma.dest_hi,
+            0xFF54 => &mut self.vram_dma.dest_lo,
+            0xFF55 => {
+                let mut byte = self.vram_dma.trigger;
+                update(&mut byte);
+                self.vram_dma.trigger(byte);
+                return byte;
+            }
+            0xFF46 => {
+                let mut byte = self.oam_dma.register;
+                update(&mut byte);
+                self.oam_dma.trigger(byte);
+                return byte;
+            }
+            n @ 0xFF00..=0xFF7F => return self.io.update_byte(n, update),
+            n @ 0xFF80..=0xFFFE => &mut self.hr[(n - 0xFF80) as usize],
+            0xFFFF => &mut self.ie,
+        };
+        update(ptr);
+        *ptr
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,7 +238,7 @@ impl OamDma {
     /// Calculates if a read/write is happening in region that is being transferred.
     fn in_conflict(&self, index: u16) -> bool {
         if self.ticks >= 640 {
-            return false
+            return false;
         }
         println!("DMA is on, indexing @ 0x{index:0>4X}");
         match (self.bus, index) {
@@ -222,16 +370,6 @@ impl MemoryMap {
         }
     }
 
-    pub(crate) fn vram_transfer(&mut self) {
-        let Some((src, dest)) = self.vram_dma.next_addrs() else {
-            return;
-        };
-        for i in 0..16 {
-            let byte = self.read_byte(src + i);
-            self.write_byte(dest + i, byte);
-        }
-    }
-
     pub(crate) fn start_up_remap(&mut self) -> StartUpHeaders {
         let mut digest = ([0; 0x100], [0; 0x700]);
         for i in 0..=0xFF {
@@ -254,30 +392,6 @@ impl MemoryMap {
             self.mbc
                 .direct_overwrite((i + 0x200) as u16, &mut headers.1[i]);
         }
-    }
-
-    /// Reads the next operation to be performed. If the given IME flag is true, and an interrupts
-    /// has been requested, the returned instruction will be a `call` to the corresponding
-    /// interrupt handler. Otherwise, the given PC is used to decode the next instruction.
-    pub fn read_op(&self, index: u16, ime: bool) -> Instruction {
-        match (
-            self.vram_dma.get_op(self.io.lcd_y, self.vram.status),
-            self.check_interrupt(),
-        ) {
-            (Some(op), _) => op,
-            (None, Some(op)) if ime => op,
-            _ => parse_instruction(self, index),
-        }
-    }
-
-    /// This method is part of a family of methods that are similar to the methods from the `Index`
-    /// trait.
-    pub fn read_byte(&self, index: u16) -> u8 {
-        if self.oam_dma.in_conflict(index) {
-            println!("DMA Bus conflict @ {index:0x}");
-            return 0xFF;
-        }
-        self.dma_read_byte(index)
     }
 
     /// This method only exists to sidestep the "DMA contains" check and should only be called by
@@ -305,87 +419,8 @@ impl MemoryMap {
         }
     }
 
-    /// This method is part of a family of methods that are similar to the methods from the `Index`
-    /// trait. Unlike the index method, this provides control to the map around what gets written.
-    /// For example, some registers only have some bits that can be written to. This allows all
-    /// other bits to be masked out.
-    pub(crate) fn write_byte(&mut self, index: u16, val: u8) {
-        if self.oam_dma.in_conflict(index) {
-            println!("DMA Bus conflict @ {index:0x}");
-            return
-        }
-        trace!("Mut index into MemMap: 0x{index:0>4X}");
-        match index {
-            n @ 0x0000..=0x7FFF => self.mbc.write_byte(n, val),
-            n @ 0x8000..=0x9FFF => {
-                if n >= 0x9800 && check_bit_const::<3>(val) {
-                    // println!("Writting 0b{val:0>8b} to 0x{n:0>4X}, which will read from VRAM bank 1");
-                }
-                self.vram[CpuVramIndex(self.io.vram_select == 1, n)] = val
-            }
-            n @ 0xA000..=0xBFFF => self.mbc.write_byte(n, val),
-            n @ 0xC000..=0xCFFF => self.wram[0][n as usize - 0xC000] = val,
-            n @ 0xD000..=0xDFFF => self.wram[1][n as usize - 0xD000] = val,
-            // Echo RAM
-            n @ 0xE000..=0xEFFF => self.wram[0][n as usize - 0xE000] = val,
-            n @ 0xF000..=0xFDFF => self.wram[1][n as usize - 0xF000] = val,
-            n @ 0xFE00..=0xFE9F => self.vram[CpuOamIndex(n)] = val,
-            // NOTE: This region *should not* actually be accessed
-            0xFEA0..=0xFEFF => {}
-            0xFF51 => self.vram_dma.src_hi = val,
-            0xFF52 => self.vram_dma.src_lo = val,
-            0xFF53 => self.vram_dma.dest_hi = val,
-            0xFF54 => self.vram_dma.dest_lo = val,
-            0xFF55 => self.vram_dma.trigger(val),
-            0xFF46 => self.oam_dma.trigger(val),
-            n @ 0xFF00..=0xFF7F => self.io.write_byte(n, val),
-            n @ 0xFF80..=0xFFFE => self.hr[(n - 0xFF80) as usize] = val,
-            0xFFFF => self.ie = val,
-        }
-    }
-
     pub(crate) fn write_bytes(&mut self, idx: u16, val: u16) -> u16 {
         todo!()
-    }
-
-    #[track_caller]
-    pub(crate) fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
-        let ptr = match index {
-            n @ 0x0000..=0x7FFF => return self.mbc.update_byte(n, update),
-            n @ 0x8000..=0x9FFF => &mut self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
-            n @ 0xA000..=0xBFFF => return self.mbc.update_byte(n, update),
-            n @ 0xC000..=0xCFFF => &mut self.wram[0][n as usize - 0xC000],
-            n @ 0xD000..=0xDFFF => &mut self.wram[1][n as usize - 0xD000],
-            // Echo RAM
-            n @ 0xE000..=0xEFFF => &mut self.wram[0][n as usize - 0xE000],
-            n @ 0xF000..=0xFDFF => &mut self.wram[1][n as usize - 0xF000],
-            n @ 0xFE00..=0xFE9F => &mut self.vram[CpuOamIndex(n)],
-            // NOTE: This region *should not* actually be accessed
-            0xFEA0..=0xFEFF => {
-                return 0;
-            }
-            0xFF51 => &mut self.vram_dma.src_hi,
-            0xFF52 => &mut self.vram_dma.src_lo,
-            0xFF53 => &mut self.vram_dma.dest_hi,
-            0xFF54 => &mut self.vram_dma.dest_lo,
-            0xFF55 => {
-                let mut byte = self.vram_dma.trigger;
-                update(&mut byte);
-                self.vram_dma.trigger(byte);
-                return byte;
-            }
-            0xFF46 => {
-                let mut byte = self.oam_dma.register;
-                update(&mut byte);
-                self.oam_dma.trigger(byte);
-                return byte;
-            }
-            n @ 0xFF00..=0xFF7F => return self.io.update_byte(n, update),
-            n @ 0xFF80..=0xFFFE => &mut self.hr[(n - 0xFF80) as usize],
-            0xFFFF => &mut self.ie,
-        };
-        update(ptr);
-        *ptr
     }
 
     fn check_interrupt(&self) -> Option<Instruction> {
@@ -455,10 +490,6 @@ impl MemoryMap {
 
     pub fn request_button_int(&mut self, input: ButtonInput) {
         self.io.request_button_int(input)
-    }
-
-    pub(crate) fn clear_interrupt_req(&mut self, op: InterruptOp) {
-        self.io.clear_interrupt_req(op)
     }
 }
 
@@ -678,3 +709,23 @@ impl Index<WindowTileDataIndex> for MemoryMap {
         &self.vram[index]
     }
 }
+
+#[cfg(test)]
+impl MemoryLike for Vec<u8> {
+    fn read_byte(&self, addr: u16) -> u8 {
+        println!("Read at 0x{addr:0>4X} (aka {addr})");
+        self[addr as usize]
+    }
+
+    fn write_byte(&mut self, addr: u16, val: u8) {
+        println!("Writing {val} to 0x{addr:0>4X} (aka {addr})");
+        self[addr as usize] = val;
+    }
+
+    fn read_op(&self, addr: u16, _ime: bool) -> Instruction {
+        parse_instruction(self, addr)
+    }
+}
+
+#[cfg(test)]
+impl MemoryLikeExt for Vec<u8> {}

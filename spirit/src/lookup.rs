@@ -1,17 +1,33 @@
 use array_concat::concat_arrays;
 
-use crate::{cpu::Cpu, mem::MemoryMap};
+use crate::{cpu::Cpu, mem::{MemoryLike, MemoryMap}};
 
 use derive_more::{From, IsVariant};
 
+#[cfg(test)]
+pub fn parse_instruction(mem: &dyn MemoryLike, pc: u16) -> Instruction {
+    OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
+}
+
+#[cfg(test)]
+fn parse_prefixed_instruction(mem: &dyn MemoryLike, pc: u16) -> Instruction {
+    PREFIXED_OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
+}
+
+#[cfg(test)]
+type OpArray<const N: usize> = [fn(&dyn MemoryLike, u16) -> Instruction; N];
+
+#[cfg(not(test))]
 pub fn parse_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
     OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
 }
 
+#[cfg(not(test))]
 fn parse_prefixed_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
     PREFIXED_OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
 }
 
+#[cfg(not(test))]
 type OpArray<const N: usize> = [fn(&MemoryMap, u16) -> Instruction; N];
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]

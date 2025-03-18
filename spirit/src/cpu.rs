@@ -16,7 +16,7 @@ use crate::{
         Instruction, InterruptOp, JumpOp, LoadAPointer, LoadOp, RegOrPointer, SomeByte, WideReg,
         WideRegWithoutSP, parse_instruction,
     },
-    mem::MemoryMap,
+    mem::{MemoryLikeExt, MemoryMap},
     utils::Wrapping,
 };
 
@@ -108,12 +108,20 @@ pub struct Flags {
     pub c: bool,
 }
 
+impl From<u8> for Flags {
+    fn from(value: u8) -> Self {
+        Self {
+            z: check_bit_const::<7>(value),
+            n: check_bit_const::<6>(value),
+            h: check_bit_const::<5>(value),
+            c: check_bit_const::<4>(value),
+        }
+    }
+}
+
 impl Flags {
     pub fn set_from_byte(&mut self, val: u8) {
-        self.z = check_bit_const::<7>(val);
-        self.n = check_bit_const::<6>(val);
-        self.h = check_bit_const::<5>(val);
-        self.c = check_bit_const::<4>(val);
+        *self = val.into();
     }
 
     pub fn set_for_byte_shift_op(&mut self, z: bool, c: bool) {
@@ -250,11 +258,11 @@ impl Cpu {
     }
 
     /// Determines what the CPU should do next. Included in this, is a check for interrupts.
-    pub fn read_op(&self, mem: &MemoryMap) -> Instruction {
+    pub fn read_op(&self, mem: &impl MemoryLikeExt) -> Instruction {
         mem.read_op(self.pc.0, self.ime)
     }
 
-    pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
+    pub fn execute(&mut self, instr: Instruction, mem: &mut impl MemoryLikeExt) {
         // println!("{instr}");
         let len = instr.size();
         self.pc += (0x1 & self.state as u16) * (len as u16);
@@ -352,7 +360,7 @@ impl Cpu {
         }
     }
 
-    fn execute_arithmetic_op(&mut self, op: ArithmeticOp, mem: &mut MemoryMap) {
+    fn execute_arithmetic_op(&mut self, op: ArithmeticOp, mem: &mut impl MemoryLikeExt) {
         match op {
             ArithmeticOp::AddSP(val) => {
                 let (sp, carry) = self.sp.0.overflowing_add_signed(val as i16);
@@ -455,14 +463,14 @@ impl Cpu {
         }
     }
 
-    fn unwrap_some_byte(&self, mem: &MemoryMap, byte: SomeByte) -> u8 {
+    fn unwrap_some_byte(&self, mem: &impl MemoryLikeExt, byte: SomeByte) -> u8 {
         match byte {
             SomeByte::Direct(byte) => byte,
             SomeByte::Referenced(reg) => self.copy_byte(mem, reg),
         }
     }
 
-    pub fn copy_byte(&self, mem: &MemoryMap, reg: RegOrPointer) -> u8 {
+    pub fn copy_byte(&self, mem: &impl MemoryLikeExt, reg: RegOrPointer) -> u8 {
         match reg {
             RegOrPointer::Reg(reg) => self[reg].0,
             RegOrPointer::Pointer => mem.read_byte(self.ptr()),
@@ -473,7 +481,7 @@ impl Cpu {
     fn update_byte(
         &mut self,
         reg: RegOrPointer,
-        mem: &mut MemoryMap,
+        mem: &mut impl MemoryLikeExt,
         update: impl FnOnce(&mut u8),
     ) -> u8 {
         match reg {
@@ -487,7 +495,7 @@ impl Cpu {
 
     /// Stores the given byte into either an (half) register or into the MemoryMap using the HL
     /// register as an index.
-    fn write_byte(&mut self, reg: RegOrPointer, mem: &mut MemoryMap, val: u8) {
+    fn write_byte(&mut self, reg: RegOrPointer, mem: &mut impl MemoryLikeExt, val: u8) {
         match reg {
             RegOrPointer::Reg(reg) => self[reg].0 = val,
             RegOrPointer::Pointer => mem.write_byte(self.ptr(), val),
@@ -503,7 +511,7 @@ impl Cpu {
         }
     }
 
-    fn push_pc(&mut self, mem: &mut MemoryMap) {
+    fn push_pc(&mut self, mem: &mut impl MemoryLikeExt) {
         let [hi, lo] = self.pc_bytes();
         mem.write_byte(self.sp.0, hi);
         self.sp -= 1u16;
@@ -511,7 +519,7 @@ impl Cpu {
         self.sp -= 1u16;
     }
 
-    fn pop_pc(&mut self, mem: &mut MemoryMap) -> u16 {
+    fn pop_pc(&mut self, mem: &mut impl MemoryLikeExt) -> u16 {
         self.sp += 1u16;
         let lo = mem.read_byte(self.sp.0);
         self.sp += 1u16;
@@ -519,15 +527,15 @@ impl Cpu {
         u16::from_be_bytes([hi, lo])
     }
 
-    fn execute_interrupt(&mut self, op: InterruptOp, mem: &mut MemoryMap) {
+    fn execute_interrupt(&mut self, op: InterruptOp, mem: &mut impl MemoryLikeExt) {
         mem.clear_interrupt_req(op);
         self.disable_interupts();
         self.push_pc(mem);
         self.pc = Wrapping(op as u16);
     }
 
-    fn execute_jump_op(&mut self, op: JumpOp, mem: &mut MemoryMap) {
-        fn rst<const N: u16>(cpu: &mut Cpu, mem: &mut MemoryMap) {
+    fn execute_jump_op(&mut self, op: JumpOp, mem: &mut impl MemoryLikeExt) {
+        fn rst<const N: u16>(cpu: &mut Cpu, mem: &mut impl MemoryLikeExt) {
             cpu.push_pc(mem);
             cpu.pc = Wrapping(N);
         }
@@ -587,7 +595,7 @@ impl Cpu {
         }
     }
 
-    fn execute_control_op(&mut self, op: ControlOp, mem: &mut MemoryMap) {
+    fn execute_control_op(&mut self, op: ControlOp, mem: &mut impl MemoryLikeExt) {
         match op {
             ControlOp::Noop => {}
             ControlOp::Halt => self.halt(),
@@ -595,7 +603,7 @@ impl Cpu {
         }
     }
 
-    fn execute_bit_op(&mut self, op: BitOp, mem: &mut MemoryMap) {
+    fn execute_bit_op(&mut self, op: BitOp, mem: &mut impl MemoryLikeExt) {
         let BitOp { bit, reg, op } = op;
         debug_assert!(bit < 8);
         let byte = self.copy_byte(mem, reg);
@@ -614,7 +622,7 @@ impl Cpu {
         }
     }
 
-    fn execute_bit_shift_op(&mut self, op: BitShiftOp, mem: &mut MemoryMap) {
+    fn execute_bit_shift_op(&mut self, op: BitShiftOp, mem: &mut impl MemoryLikeExt) {
         match op {
             BitShiftOp::Rlc(reg) => {
                 let mut carry = false;
@@ -733,7 +741,7 @@ impl Cpu {
         self.pc -= Wrapping(ControlOp::Halt.size() as u16);
     }
 
-    fn execute_load_op(&mut self, op: LoadOp, mem: &mut MemoryMap) {
+    fn execute_load_op(&mut self, op: LoadOp, mem: &mut impl MemoryLikeExt) {
         match op {
             LoadOp::Basic {
                 dest: RegOrPointer::Pointer,
@@ -865,7 +873,7 @@ impl Cpu {
     pub fn start_up_execute(
         &mut self,
         instr: Instruction,
-        mem: &mut MemoryMap,
+        mem: &mut impl MemoryLikeExt,
     ) -> Option<Instruction> {
         self.execute(instr, mem);
         (mem.read_byte(0xFF50) == 0).then(|| self.read_op(mem))
@@ -899,5 +907,130 @@ impl IndexMut<HalfRegister> for Cpu {
             HalfRegister::H => &mut self.h,
             HalfRegister::L => &mut self.l,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cpu, Flags};
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize)]
+    struct CpuTest {
+        name: String,
+        initial: CpuState,
+        #[serde(rename = "final")]
+        end: CpuState,
+        cycles: Vec<Cycle>,
+    }
+
+    impl CpuTest {
+        fn execute(self) {
+            let Self {
+                name,
+                initial: init,
+                end,
+                cycles,
+            } = self;
+            println!("Running {name:?}");
+            let (mut cpu, mut mem) = init.build();
+            let mut cycles = cycles.len() as u8;
+            while cycles != 0 {
+                let op = cpu.read_op(&mem);
+                println!("{op}");
+                cycles -= op.length(&cpu) / 4;
+                cpu.execute(op, &mut mem);
+            }
+            end.validate((cpu, mem));
+        }
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct CpuState {
+        a: u8,
+        b: u8,
+        c: u8,
+        d: u8,
+        e: u8,
+        f: u8,
+        h: u8,
+        l: u8,
+        pc: u16,
+        sp: u16,
+        ram: Vec<RegisterState>,
+    }
+
+    impl CpuState {
+        fn build(self) -> (Cpu, Vec<u8>) {
+            let mut cpu = Cpu::default();
+            cpu.a = self.a.into();
+            cpu.b = self.b.into();
+            cpu.c = self.c.into();
+            cpu.d = self.d.into();
+            cpu.e = self.e.into();
+            cpu.f = Flags::from(self.f);
+            cpu.h = self.h.into();
+            cpu.l = self.l.into();
+            cpu.pc = (self.pc - 1).into();
+            cpu.sp = self.sp.into();
+            let mut mem = vec![0; 64 * 1024];
+            self.ram
+                .into_iter()
+                .for_each(|RegisterState(addr, val)| mem[addr] = val);
+            (cpu, mem)
+        }
+
+        fn validate(self, known: (Cpu, Vec<u8>)) {
+            let (cpu, mem) = self.build();
+            assert_eq!(cpu, known.0); //, "Expected: {cpu:#?}\nKnown: {:#?}", known.0);
+            known
+                .1
+                .iter()
+                .zip(mem.iter())
+                .enumerate()
+                .for_each(|(addr, (known, expected))| {
+                    assert_eq!(
+                        known, expected,
+                        "Mismatch @ 0x{addr:0>4X}: known {known}, expected: {expected}"
+                    )
+                });
+        }
+    }
+
+    /// The addr and expected value at that addr in RAM.
+    #[derive(Serialize, Deserialize)]
+    struct RegisterState(usize, u8);
+
+    type Cycle = Option<(usize, u8, CycleStatus)>;
+
+    #[derive(Serialize, Deserialize)]
+    enum CycleStatus {
+        #[serde(rename = "read")]
+        Read,
+        #[serde(rename = "write")]
+        Write,
+    }
+
+    #[test]
+    fn json_tests() {
+        // for file in std::fs::read_dir
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        for file in std::fs::read_dir(format!("{manifest}/tests/data")).unwrap() {
+            let file = file.unwrap();
+            let file_name = file.file_name().to_str().unwrap().to_owned();
+            if file_name.contains("json_test_") {
+                println!("Testing {file_name}");
+                let tests: Vec<CpuTest> =
+                    serde_json::from_str(&std::fs::read_to_string(file.path()).unwrap()).unwrap();
+                tests.into_iter().for_each(CpuTest::execute);
+            }
+        }
+    }
+
+    #[test]
+    fn single_json_test() {
+        let tests: Vec<CpuTest> =
+            serde_json::from_str(include_str!("../tests/data/json_test_c1.json")).unwrap();
+        tests.into_iter().for_each(CpuTest::execute);
     }
 }
