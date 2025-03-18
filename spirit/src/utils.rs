@@ -51,6 +51,18 @@ pub(crate) fn deserialize_slices_as_one<
 #[display("{_0}")]
 pub struct Wrapping<T>(pub T);
 
+impl From<u8> for Wrapping<u8> {
+    fn from(value: u8) -> Self {
+        Self(value)
+    }
+}
+
+impl From<u16> for Wrapping<u16> {
+    fn from(value: u16) -> Self {
+        Self(value)
+    }
+}
+
 impl Wrapping<u16> {
     pub(crate) fn to_be_bytes(self) -> [Wrapping<u8>; 2] {
         self.0.to_be_bytes().map(Wrapping)

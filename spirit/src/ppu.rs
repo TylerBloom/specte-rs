@@ -664,9 +664,7 @@ pub fn zip_bits(hi: u8, lo: u8) -> impl Iterator<Item = u8> {
 mod tests {
     use crate::{
         mem::{
-            MemoryMap,
-            io::{BgPaletteIndex, Palette},
-            vram::PpuMode,
+            io::{BgPaletteIndex, Palette}, vram::PpuMode, MemoryLike, MemoryMap
         },
         ppu::{ObjectPixel, Pixel, Ppu},
     };

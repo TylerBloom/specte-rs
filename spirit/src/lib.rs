@@ -23,12 +23,13 @@ use serde::{Deserialize, Serialize};
 
 use cpu::{Cpu, CpuState, check_bit_const};
 use lookup::Instruction;
-use mem::{MemoryBankController, MemoryMap, StartUpHeaders, vram::PpuMode};
+use mem::{vram::PpuMode, MemoryBankController, MemoryLike, MemoryMap, StartUpHeaders};
 use ppu::Ppu;
 
 use crate::lookup::JumpOp;
 
 pub mod cpu;
+pub mod apu;
 pub mod lookup;
 pub mod mem;
 pub mod ppu;
