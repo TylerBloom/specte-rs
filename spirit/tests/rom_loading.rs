@@ -1,6 +1,6 @@
 use spirit::{
     Gameboy,
-    mem::{MemoryMap, START_UP_HEADER},
+    mem::{MemoryLike, MemoryMap, START_UP_HEADER},
 };
 
 macro_rules! include_roms {
@@ -51,7 +51,7 @@ fn run_test_roms() {
     println!("{:X?}", START_UP_HEADER);
     for (name, cart) in TEST_ROMS {
         println!("Running ROM from file '{name}'");
-        let gb = Gameboy::new(*cart);
+        let _gb = Gameboy::new(*cart);
         // println!("Init GB state: {gb:?}");
         // gb.start_up().complete();
     }
