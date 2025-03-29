@@ -1,3 +1,4 @@
+/*
 use serde::{Deserialize, Serialize};
 use spirit::cpu::{Cpu, Flags};
 
@@ -76,3 +77,4 @@ fn json_tests() {
     let tests: Vec<CpuTest> = serde_json::from_str(include_str!("data/json_test_00.json")).unwrap();
     tests.into_iter().for_each(CpuTest::execute);
 }
+*/

@@ -20,6 +20,9 @@ use crate::{
     utils::Wrapping,
 };
 
+#[cfg(test)]
+mod cpu_tests;
+
 #[derive(
     Debug, Default, Hash, Clone, PartialEq, Eq, derive_more::Display, Serialize, Deserialize,
 )]
@@ -907,130 +910,5 @@ impl IndexMut<HalfRegister> for Cpu {
             HalfRegister::H => &mut self.h,
             HalfRegister::L => &mut self.l,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Cpu, Flags};
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Serialize, Deserialize)]
-    struct CpuTest {
-        name: String,
-        initial: CpuState,
-        #[serde(rename = "final")]
-        end: CpuState,
-        cycles: Vec<Cycle>,
-    }
-
-    impl CpuTest {
-        fn execute(self) {
-            let Self {
-                name,
-                initial: init,
-                end,
-                cycles,
-            } = self;
-            println!("Running {name:?}");
-            let (mut cpu, mut mem) = init.build();
-            let mut cycles = cycles.len() as u8;
-            while cycles != 0 {
-                let op = cpu.read_op(&mem);
-                println!("{op}");
-                cycles -= op.length(&cpu) / 4;
-                cpu.execute(op, &mut mem);
-            }
-            end.validate((cpu, mem));
-        }
-    }
-
-    #[derive(Serialize, Deserialize)]
-    struct CpuState {
-        a: u8,
-        b: u8,
-        c: u8,
-        d: u8,
-        e: u8,
-        f: u8,
-        h: u8,
-        l: u8,
-        pc: u16,
-        sp: u16,
-        ram: Vec<RegisterState>,
-    }
-
-    impl CpuState {
-        fn build(self) -> (Cpu, Vec<u8>) {
-            let mut cpu = Cpu::default();
-            cpu.a = self.a.into();
-            cpu.b = self.b.into();
-            cpu.c = self.c.into();
-            cpu.d = self.d.into();
-            cpu.e = self.e.into();
-            cpu.f = Flags::from(self.f);
-            cpu.h = self.h.into();
-            cpu.l = self.l.into();
-            cpu.pc = (self.pc - 1).into();
-            cpu.sp = self.sp.into();
-            let mut mem = vec![0; 64 * 1024];
-            self.ram
-                .into_iter()
-                .for_each(|RegisterState(addr, val)| mem[addr] = val);
-            (cpu, mem)
-        }
-
-        fn validate(self, known: (Cpu, Vec<u8>)) {
-            let (cpu, mem) = self.build();
-            assert_eq!(cpu, known.0); //, "Expected: {cpu:#?}\nKnown: {:#?}", known.0);
-            known
-                .1
-                .iter()
-                .zip(mem.iter())
-                .enumerate()
-                .for_each(|(addr, (known, expected))| {
-                    assert_eq!(
-                        known, expected,
-                        "Mismatch @ 0x{addr:0>4X}: known {known}, expected: {expected}"
-                    )
-                });
-        }
-    }
-
-    /// The addr and expected value at that addr in RAM.
-    #[derive(Serialize, Deserialize)]
-    struct RegisterState(usize, u8);
-
-    type Cycle = Option<(usize, u8, CycleStatus)>;
-
-    #[derive(Serialize, Deserialize)]
-    enum CycleStatus {
-        #[serde(rename = "read")]
-        Read,
-        #[serde(rename = "write")]
-        Write,
-    }
-
-    #[test]
-    fn json_tests() {
-        // for file in std::fs::read_dir
-        let manifest = env!("CARGO_MANIFEST_DIR");
-        for file in std::fs::read_dir(format!("{manifest}/tests/data")).unwrap() {
-            let file = file.unwrap();
-            let file_name = file.file_name().to_str().unwrap().to_owned();
-            if file_name.contains("json_test_") {
-                println!("Testing {file_name}");
-                let tests: Vec<CpuTest> =
-                    serde_json::from_str(&std::fs::read_to_string(file.path()).unwrap()).unwrap();
-                tests.into_iter().for_each(CpuTest::execute);
-            }
-        }
-    }
-
-    #[test]
-    fn single_json_test() {
-        let tests: Vec<CpuTest> =
-            serde_json::from_str(include_str!("../tests/data/json_test_c1.json")).unwrap();
-        tests.into_iter().for_each(CpuTest::execute);
     }
 }

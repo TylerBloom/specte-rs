@@ -36,11 +36,9 @@ pub trait MemoryLike {
 
     fn read_op(&self, addr: u16, ime: bool) -> Instruction;
 
-    fn clear_interrupt_req(&mut self, op: InterruptOp) {
-    }
+    fn clear_interrupt_req(&mut self, op: InterruptOp) {}
 
-    fn vram_transfer(&mut self) {
-    }
+    fn vram_transfer(&mut self) {}
 }
 
 /// The `impl FnOnce` in `update_byte` would make `MemoryLike` non-object safe, which is needs for
@@ -161,7 +159,6 @@ impl MemoryLike for MemoryMap {
             self.write_byte(dest + i, byte);
         }
     }
-
 }
 
 impl MemoryLikeExt for MemoryMap {
@@ -713,12 +710,12 @@ impl Index<WindowTileDataIndex> for MemoryMap {
 #[cfg(test)]
 impl MemoryLike for Vec<u8> {
     fn read_byte(&self, addr: u16) -> u8 {
-        println!("Read at 0x{addr:0>4X} (aka {addr})");
+        // println!("Read at 0x{addr:0>4X} (aka {addr})");
         self[addr as usize]
     }
 
     fn write_byte(&mut self, addr: u16, val: u8) {
-        println!("Writing {val} to 0x{addr:0>4X} (aka {addr})");
+        // println!("Writing {val} to 0x{addr:0>4X} (aka {addr})");
         self[addr as usize] = val;
     }
 
