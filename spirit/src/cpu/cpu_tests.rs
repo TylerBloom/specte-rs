@@ -2,6 +2,7 @@ use std::{
     fmt::Display,
     os::fd::AsRawFd,
     path::{Path, PathBuf},
+    rc::Rc,
     u8,
 };
 
@@ -9,6 +10,35 @@ use crate::mem::BgTileMapAttrIndex;
 
 use super::{Cpu, Flags};
 use serde::{Deserialize, Serialize};
+
+#[test]
+fn json_tests() {
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let report = TestBattery::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
+    println!("{report}");
+    if !report.passed() {
+        panic!("One or more failures reported!!");
+    }
+}
+
+#[test]
+fn single_json_test() {
+    let test_num = u8::from_str_radix(
+        &std::env::vars()
+            .find_map(|(var, val)| (var == "CPU_TEST").then_some(val))
+            .unwrap_or_else(|| "00".to_string()),
+        16,
+    )
+    .unwrap();
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push(format!("tests/data/json_test_{test_num:0>2x}.json"));
+    let tests: TestSuite = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let report = tests.execute(test_num);
+    println!("{report}");
+    if !report.passed() {
+        panic!("One or more failures reported!!");
+    }
+}
 
 /// Contains the entire swath of tests for every op code.
 struct TestBattery {
@@ -37,8 +67,8 @@ impl TestBattery {
         let results = self
             .suites
             .into_iter()
-            .map(|(op, suite)| (op, suite.execute()))
-            .take(100 - 50 + 25 - 12 - 6 - 3 - 2 - 1)
+            .map(|(op, suite)| (op, suite.execute(op)))
+            // .take(100 - 50 + 25 - 12 - 6 - 3 - 2 - 1)
             .collect();
         BatteryReport { results }
     }
@@ -91,13 +121,17 @@ impl Display for BatteryReport {
 struct TestSuite(Vec<CpuTest>);
 
 impl TestSuite {
-    fn execute(self) -> SuiteReport {
-        let results = self.0.into_iter().map(|test| test.execute()).collect();
+    fn execute(self, op_code: u8) -> SuiteReport {
+        let results = self
+            .0
+            .into_iter()
+            .map(|test| test.execute(op_code))
+            .collect();
         SuiteReport { results }
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 enum Status {
     // This is the default because we try to find a failure. If a failure doesn't exist, it passed
     #[default]
@@ -106,7 +140,15 @@ enum Status {
 }
 
 struct SuiteReport {
-    results: Vec<Status>,
+    results: Vec<TestReport>,
+}
+
+impl Display for SuiteReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.results
+            .iter()
+            .try_for_each(|report| writeln!(f, "{}: {:?} -> {}", report.name, report.status, report.reason))
+    }
 }
 
 impl SuiteReport {
@@ -114,20 +156,28 @@ impl SuiteReport {
         let passed = self
             .results
             .iter()
-            .filter(|r| matches!(r, Status::Passed))
+            .filter(|r| matches!(r.status, Status::Passed))
             .count();
         let percent = (passed as f32) / (self.results.len() as f32) * 100.0;
         (passed, self.results.len() - passed, percent)
     }
 
     fn passed(&self) -> bool {
-        self.results.iter().all(|r| matches!(r, Status::Passed))
+        self.results
+            .iter()
+            .all(|r| matches!(r.status, Status::Passed))
     }
+}
+
+struct TestReport {
+    name: Rc<str>,
+    status: Status,
+    reason: String,
 }
 
 #[derive(Serialize, Deserialize)]
 struct CpuTest {
-    name: String,
+    name: Rc<str>,
     initial: CpuState,
     #[serde(rename = "final")]
     end: CpuState,
@@ -135,25 +185,36 @@ struct CpuTest {
 }
 
 impl CpuTest {
-    fn execute(self) -> Status {
+    fn execute(self, op_code: u8) -> TestReport {
         let Self {
             name,
             initial: init,
             end,
             cycles,
         } = self;
-        // println!("Running {name:?}");
-        let (mut cpu, mut mem) = init.build();
-        let len = cycles.len() as u8;
-        let mut cycles = len;
-        while cycles != 0 {
-            let op = cpu.read_op(&mem);
-            // println!("{op} ({cycles} left)");
-            // FIXME: This should never underflow!
-            cycles = cycles.saturating_sub(op.length(&cpu) / 4);
-            cpu.execute(op, &mut mem);
-        }
-        end.validate((cpu, mem))
+        let result = std::panic::catch_unwind(|| {
+            let (mut cpu, mut mem) = init.build();
+            let len = cycles.len() as u8;
+            let mut cycles = len;
+            while cycles != 0 {
+                let op = cpu.read_op(&mem);
+                // println!("{op} ({cycles} left)");
+                // FIXME: This should never underflow!
+                cycles = cycles.saturating_sub(op.length(&cpu) / 4);
+                cpu.execute(op, &mut mem);
+            }
+            end.validate((cpu, mem))
+        });
+        let (status, reason) = match result {
+            Ok((status, reason)) => (status, reason),
+            Err(err) => {
+                let reason =
+                    format!("A panic occured while testing op 0x{op_code:0>2X} in test {name:?}");
+                eprintln!("{reason}");
+                (Status::Failed, reason)
+            }
+        };
+        TestReport { name, status, reason }
     }
 }
 
@@ -192,17 +253,29 @@ impl CpuState {
         (cpu, mem)
     }
 
-    fn validate(self, known: (Cpu, Vec<u8>)) -> Status {
+    fn validate(self, known: (Cpu, Vec<u8>)) -> (Status, String) {
         let (cpu, mem) = self.build();
         if cpu != known.0 {
-            return Status::Failed;
+            return (
+                Status::Failed,
+                format!("CPU Mismatch:\n\tExpected {cpu}\n\tKnown    {}", known.0),
+            );
         }
         known
             .1
             .iter()
             .zip(mem.iter())
             .enumerate()
-            .find_map(|(addr, (known, expected))| (known != expected).then_some(Status::Failed))
+            .find_map(|(addr, (known, expected))| {
+                (known != expected).then(|| {
+                    (
+                        Status::Failed,
+                        format!(
+                            "Mismatch value @ 0x{addr:0>4X}: Expected {expected}, Known {known}"
+                        ),
+                    )
+                })
+            })
             .unwrap_or_default()
     }
 }
@@ -220,22 +293,3 @@ enum CycleStatus {
     #[serde(rename = "write")]
     Write,
 }
-
-#[test]
-fn json_tests() {
-    let manifest = env!("CARGO_MANIFEST_DIR");
-    let report = TestBattery::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
-    println!("{report}");
-    if !report.passed() {
-        panic!("One or more failures reported!!");
-    }
-}
-
-/*
-#[test]
-fn single_json_test() {
-    let tests: Vec<CpuTest> =
-        serde_json::from_str(include_str!("../tests/data/json_test_c1.json")).unwrap();
-    tests.into_iter().for_each(CpuTest::execute);
-}
-*/
