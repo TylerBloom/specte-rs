@@ -366,16 +366,11 @@ impl Cpu {
     fn execute_arithmetic_op(&mut self, op: ArithmeticOp, mem: &mut impl MemoryLikeExt) {
         match op {
             ArithmeticOp::AddSP(val) => {
-                let (sp, carry) = self.sp.0.overflowing_add_signed(val as i16);
-                let h = if val < 0 {
-                    (sp & 0x0F) < (val.abs() as u16 & 0x0F)
-                } else {
-                    ((sp & 0x0F) as u8) + ((val.abs() as u8) & 0x0F) > 0x0F
-                };
+                let (sp, c) = self.sp.0.overflowing_add_signed(val as i16);
                 self.f.z = false;
                 self.f.n = false;
-                self.f.h = h;
-                self.f.c = carry;
+                self.f.h = (self.sp.0 << 12) > (sp << 12);
+                self.f.c = (self.sp.0 << 8) > (sp << 8);
                 self.sp = Wrapping(sp);
             }
             ArithmeticOp::Inc16(reg) => {
