@@ -678,7 +678,7 @@ impl Cpu {
                 let mask = carry | (carry << 7);
                 let [c, new] = (u16::from_be_bytes([mask, byte]).rotate_left(1)).to_be_bytes();
                 self.a = Wrapping(new);
-                self.f.set_for_byte_shift_op(new != 0, c & 1 != 0);
+                self.f.set_for_byte_shift_op(false, c & 1 != 0);
             }
             BitShiftOp::Rr(reg) => {
                 let mask = self.f.c as u8;
