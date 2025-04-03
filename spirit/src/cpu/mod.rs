@@ -658,7 +658,7 @@ impl Cpu {
                 let [new, c] = u16::from_be_bytes([byte, 0]).rotate_right(1).to_be_bytes();
                 carry = c == 0x80;
                 self.a = Wrapping(c | new);
-                self.f.set_for_byte_shift_op(byte != 0, carry)
+                self.f.set_for_byte_shift_op(false, carry)
             }
             BitShiftOp::Rl(reg) => {
                 let byte = self.copy_byte(mem, reg);
