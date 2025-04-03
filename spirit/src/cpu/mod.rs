@@ -387,7 +387,7 @@ impl Cpu {
             ArithmeticOp::Add16(reg) => {
                 let value = self.read_wide_reg(reg);
                 let ptr = self.ptr();
-                self.f.h = (ptr & 0x0F) + (value & 0x0F) > 0x0F;
+                self.f.h = (ptr & 0x0FFF) + (value & 0x0FFF) > 0x0FFF;
                 let (ptr, carry) = ptr.overflowing_add(value);
                 self.set_ptr(ptr);
                 self.f.n = false;
