@@ -645,11 +645,10 @@ impl Cpu {
             BitShiftOp::Rrc(reg) => {
                 let mut carry = false;
                 let byte = self.update_byte(reg, mem, |byte| {
-                    let [new, c] = u16::from_be_bytes([*byte, 0]).rotate_right(1).to_be_bytes();
-                    carry = c == 0b1000_0000;
-                    *byte = c | new;
+                    *byte = (*byte).rotate_right(1);
+                    carry = check_bit_const::<7>(*byte);
                 });
-                self.f.set_for_byte_shift_op(byte != 0, carry)
+                self.f.set_for_byte_shift_op(byte == 0, carry)
             }
             BitShiftOp::Rrca => {
                 let mut carry = false;
