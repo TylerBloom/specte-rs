@@ -194,13 +194,10 @@ impl CpuTest {
         } = self;
         let result = std::panic::catch_unwind(|| {
             let (mut cpu, mut mem) = init.build();
-            println!("{cpu}");
             let len = cycles.len() as u8;
             let mut cycles = len;
             while cycles != 0 {
                 let op = cpu.read_op(&mem);
-                // println!("{op} ({cycles} left)");
-                // FIXME: This should never underflow!
                 cycles = cycles.saturating_sub(op.length(&cpu) / 4);
                 cpu.execute(op, &mut mem);
             }
@@ -272,7 +269,7 @@ impl CpuState {
                     (
                         Status::Failed,
                         format!(
-                            "Mismatch value @ 0x{addr:0>4X}: Expected {expected}, Known {known}"
+                            "Mismatch value @ {addr}: Expected {expected}, Known {known}"
                         ),
                     )
                 })

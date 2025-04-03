@@ -715,7 +715,7 @@ impl MemoryLike for Vec<u8> {
     }
 
     fn write_byte(&mut self, addr: u16, val: u8) {
-        // println!("Writing {val} to 0x{addr:0>4X} (aka {addr})");
+        println!("Writing {val} to 0x{addr:0>4X} (aka {addr})");
         self[addr as usize] = val;
     }
 
