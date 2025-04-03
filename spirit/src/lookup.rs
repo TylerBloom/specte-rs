@@ -866,7 +866,7 @@ macro_rules! define_op {
         |data, pc| {
             Instruction::Load(LoadOp::StoreSP(u16::from_le_bytes([
                 data.read_byte(pc + 1),
-                data.read_byte(pc + 1),
+                data.read_byte(pc + 2),
             ])))
         }
     };

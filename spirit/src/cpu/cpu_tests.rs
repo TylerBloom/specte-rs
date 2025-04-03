@@ -281,7 +281,7 @@ impl CpuState {
                 (known != expected).then(|| {
                     (
                         Status::Failed,
-                        format!("Mismatch value @ {addr}: Expected {expected}, Known {known}"),
+                        format!("Mismatch value @ 0x{addr:0>4X} (aka ({addr})): Expected {expected}, Known {known}"),
                     )
                 })
             })
