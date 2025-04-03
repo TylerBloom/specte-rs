@@ -797,12 +797,12 @@ impl Cpu {
             }
             LoadOp::HLIntoSP => self.sp = Wrapping(self.ptr()),
             LoadOp::SPIntoHL(val) => {
-                let [h, l] = self
-                    .sp
-                    .0
-                    .wrapping_add_signed(val as i16)
-                    .to_be_bytes()
-                    .map(Wrapping);
+                let sp = self.sp.0.wrapping_add_signed(val as i16);
+                self.f.z = false;
+                self.f.n = false;
+                self.f.h = (self.sp.0 << 12) > (sp << 12);
+                self.f.c = (self.sp.0 << 8) > (sp << 8);
+                let [h, l] = sp.to_be_bytes().map(Wrapping);
                 self.h = h;
                 self.l = l;
             }
