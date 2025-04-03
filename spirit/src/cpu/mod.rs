@@ -815,10 +815,10 @@ impl Cpu {
                     WideRegWithoutSP::HL => [self.h.0, self.l.0],
                     WideRegWithoutSP::AF => [self.a.0, self.f.as_byte()],
                 };
+                self.sp -= 1u16;
                 mem.write_byte(self.sp.0, a);
                 self.sp -= 1u16;
                 mem.write_byte(self.sp.0, b);
-                self.sp -= 1u16;
             }
             LoadOp::LoadHigh(val) => {
                 trace!("LoadHigh(0x{val:0>2X})");
