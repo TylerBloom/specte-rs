@@ -724,7 +724,7 @@ impl Cpu {
                     let hi = (*byte & 0x0F) << 4;
                     *byte = hi | lw;
                 });
-                self.f.set_for_byte_shift_op(byte != 0, false)
+                self.f.set_for_byte_shift_op(byte == 0, false)
             }
             BitShiftOp::Srl(reg) => {
                 let mut carry = false;
