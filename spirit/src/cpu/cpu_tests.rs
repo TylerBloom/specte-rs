@@ -68,7 +68,6 @@ impl TestBattery {
             .suites
             .into_iter()
             .map(|(op, suite)| (op, suite.execute(op)))
-            // .take(100 - 50 + 25 - 12 - 6 - 3 - 2 - 1)
             .collect();
         BatteryReport { results }
     }
@@ -125,6 +124,7 @@ impl TestSuite {
         let results = self
             .0
             .into_iter()
+            // .take(1)
             .map(|test| test.execute(op_code))
             .collect();
         SuiteReport { results }
@@ -145,9 +145,13 @@ struct SuiteReport {
 
 impl Display for SuiteReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.results
-            .iter()
-            .try_for_each(|report| writeln!(f, "{}: {:?} -> {}", report.name, report.status, report.reason))
+        self.results.iter().try_for_each(|report| {
+            writeln!(
+                f,
+                "{}: {:?} -> {}",
+                report.name, report.status, report.reason
+            )
+        })
     }
 }
 
@@ -196,10 +200,13 @@ impl CpuTest {
             let (mut cpu, mut mem) = init.build();
             let len = cycles.len() as u8;
             let mut cycles = len;
+            // println!("{cpu}");
             while cycles != 0 {
                 let op = cpu.read_op(&mem);
+                // println!("{op}");
                 cycles = cycles.saturating_sub(op.length(&cpu) / 4);
                 cpu.execute(op, &mut mem);
+                // println!("{cpu}");
             }
             end.validate((cpu, mem))
         });
@@ -212,7 +219,11 @@ impl CpuTest {
                 (Status::Failed, reason)
             }
         };
-        TestReport { name, status, reason }
+        TestReport {
+            name,
+            status,
+            reason,
+        }
     }
 }
 
@@ -228,6 +239,7 @@ struct CpuState {
     l: u8,
     pc: u16,
     sp: u16,
+    ime: Option<bool>,
     ram: Vec<RegisterState>,
 }
 
@@ -244,6 +256,7 @@ impl CpuState {
         cpu.l = self.l.into();
         cpu.pc = (self.pc - 1).into();
         cpu.sp = self.sp.into();
+        cpu.ime = self.ime.unwrap_or_default();
         let mut mem = vec![0; 64 * 1024];
         self.ram
             .into_iter()
@@ -268,9 +281,7 @@ impl CpuState {
                 (known != expected).then(|| {
                     (
                         Status::Failed,
-                        format!(
-                            "Mismatch value @ {addr}: Expected {expected}, Known {known}"
-                        ),
+                        format!("Mismatch value @ {addr}: Expected {expected}, Known {known}"),
                     )
                 })
             })
