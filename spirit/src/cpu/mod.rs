@@ -706,7 +706,7 @@ impl Cpu {
                     new_carry = c != 0;
                     *byte = new;
                 });
-                self.f.set_for_byte_shift_op(byte != 0, new_carry)
+                self.f.set_for_byte_shift_op(byte == 0, new_carry)
             }
             BitShiftOp::Sra(reg) => {
                 let mut carry = false;
