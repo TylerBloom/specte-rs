@@ -1304,7 +1304,7 @@ macro_rules! define_op_lookup_table {
                 define_op!(DI),
             ],
             [
-                define_op!(CALL, NotCarry),
+                define_op!(CALL, NotZero),
                 define_op!(CALL, NotCarry),
                 define_op!(), // DONE
                 define_op!(), // DONE
