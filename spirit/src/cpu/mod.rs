@@ -399,8 +399,10 @@ impl Cpu {
             }
             ArithmeticOp::Adc(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
+                let h = (byte & 0x0F) + (self.f.c as u8) + (self.a.0 & 0x0F) > 0x0F;
                 let (byte, carry) = byte.overflowing_add(self.f.c as u8);
                 addition_operation(&mut self.a.0, byte, &mut self.f);
+                self.f.h = h;
                 self.f.c |= carry;
             }
             ArithmeticOp::Sub(byte) => {
