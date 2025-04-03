@@ -411,8 +411,15 @@ impl Cpu {
             }
             ArithmeticOp::Sbc(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
-                let (byte, _) = byte.overflowing_add(self.f.c as u8);
-                subtraction_operation(&mut self.a.0, byte, &mut self.f);
+                let (a, carry1) = self.a.0.overflowing_sub(byte);
+                let (a, carry2) = a.overflowing_sub(self.f.c as u8);
+                let (val, h1) = (self.a.0 & 0x0F).overflowing_sub(byte & 0x0F);
+                let h2 = (val & 0x0F).overflowing_sub(self.f.c as u8).1;
+                self.f.z = a == 0;
+                self.f.n = true;
+                self.f.h = h1 | h2;
+                self.f.c = carry1 | carry2;
+                self.a = a.into();
             }
             ArithmeticOp::And(byte) => {
                 let byte = self.unwrap_some_byte(mem, byte);
