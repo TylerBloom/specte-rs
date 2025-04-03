@@ -716,7 +716,7 @@ impl Cpu {
                     carry = c == 0x80;
                     *byte = new | bit;
                 });
-                self.f.set_for_byte_shift_op(byte != 0, carry)
+                self.f.set_for_byte_shift_op(byte == 0, carry)
             }
             BitShiftOp::Swap(reg) => {
                 let byte = self.update_byte(reg, mem, |byte| {
