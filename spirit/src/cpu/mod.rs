@@ -641,7 +641,7 @@ impl Cpu {
                 let byte = self.a.0;
                 let [c, new] = u16::from_be_bytes([0, byte]).rotate_left(1).to_be_bytes();
                 self.a = Wrapping(c | new);
-                self.f.set_for_byte_shift_op(byte != 0, c == 1)
+                self.f.set_for_byte_shift_op(false, c == 1)
             }
             BitShiftOp::Rrc(reg) => {
                 let mut carry = false;
