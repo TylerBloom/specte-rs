@@ -688,7 +688,7 @@ impl Cpu {
                     new_carry = c == 0x80;
                     *byte = new;
                 });
-                self.f.set_for_byte_shift_op(byte != 0, new_carry)
+                self.f.set_for_byte_shift_op(byte == 0, new_carry)
             }
             BitShiftOp::Rra => {
                 let mask = self.f.c as u8;
