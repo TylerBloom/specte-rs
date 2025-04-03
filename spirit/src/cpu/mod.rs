@@ -699,7 +699,7 @@ impl Cpu {
                     .rotate_right(1)
                     .to_be_bytes();
                 self.a = Wrapping(new);
-                self.f.set_for_byte_shift_op(new != 0, c == 0x80)
+                self.f.set_for_byte_shift_op(false, c == 0x80)
             }
             BitShiftOp::Sla(reg) => {
                 let mut new_carry = false;
