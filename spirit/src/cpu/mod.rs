@@ -516,10 +516,10 @@ impl Cpu {
 
     fn push_pc(&mut self, mem: &mut impl MemoryLikeExt) {
         let [hi, lo] = self.pc_bytes();
+        self.sp -= 1u16;
         mem.write_byte(self.sp.0, hi);
         self.sp -= 1u16;
         mem.write_byte(self.sp.0, lo);
-        self.sp -= 1u16;
     }
 
     fn pop_pc(&mut self, mem: &mut impl MemoryLikeExt) -> u16 {
@@ -538,10 +538,6 @@ impl Cpu {
     }
 
     fn execute_jump_op(&mut self, op: JumpOp, mem: &mut impl MemoryLikeExt) {
-        fn rst<const N: u16>(cpu: &mut Cpu, mem: &mut impl MemoryLikeExt) {
-            cpu.push_pc(mem);
-            cpu.pc = Wrapping(N);
-        }
         match op {
             JumpOp::ConditionalRelative(cond, val) => {
                 if self.matches(cond) {
@@ -587,15 +583,20 @@ impl Cpu {
                 self.state = CpuState::Running;
                 self.pc = Wrapping(self.pop_pc(mem));
             }
-            JumpOp::RST00 => rst::<0x00>(self, mem),
-            JumpOp::RST08 => rst::<0x08>(self, mem),
-            JumpOp::RST10 => rst::<0x10>(self, mem),
-            JumpOp::RST18 => rst::<0x18>(self, mem),
-            JumpOp::RST20 => rst::<0x20>(self, mem),
-            JumpOp::RST28 => rst::<0x28>(self, mem),
-            JumpOp::RST30 => rst::<0x30>(self, mem),
-            JumpOp::RST38 => rst::<0x38>(self, mem),
+            JumpOp::RST00 => self.rst::<0x00>(mem),
+            JumpOp::RST08 => self.rst::<0x08>(mem),
+            JumpOp::RST10 => self.rst::<0x10>(mem),
+            JumpOp::RST18 => self.rst::<0x18>(mem),
+            JumpOp::RST20 => self.rst::<0x20>(mem),
+            JumpOp::RST28 => self.rst::<0x28>(mem),
+            JumpOp::RST30 => self.rst::<0x30>(mem),
+            JumpOp::RST38 => self.rst::<0x38>(mem),
         }
+    }
+
+    fn rst<const N: u16>(&mut self, mem: &mut impl MemoryLikeExt) {
+        self.push_pc(mem);
+        self.pc = Wrapping(N);
     }
 
     fn execute_control_op(&mut self, op: ControlOp, mem: &mut impl MemoryLikeExt) {
