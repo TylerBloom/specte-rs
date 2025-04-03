@@ -124,7 +124,6 @@ impl TestSuite {
         let results = self
             .0
             .into_iter()
-            // .take(1)
             .map(|test| test.execute(op_code))
             .collect();
         SuiteReport { results }
