@@ -733,7 +733,7 @@ impl Cpu {
                     carry = c == 0x80;
                     *byte = new;
                 });
-                self.f.set_for_byte_shift_op(byte != 0, carry)
+                self.f.set_for_byte_shift_op(byte == 0, carry)
             }
         }
     }
