@@ -523,10 +523,10 @@ impl Cpu {
     }
 
     fn pop_pc(&mut self, mem: &mut impl MemoryLikeExt) -> u16 {
-        self.sp += 1u16;
         let lo = mem.read_byte(self.sp.0);
         self.sp += 1u16;
         let hi = mem.read_byte(self.sp.0);
+        self.sp += 1u16;
         u16::from_be_bytes([hi, lo])
     }
 
