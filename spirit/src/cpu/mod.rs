@@ -456,12 +456,12 @@ impl Cpu {
                 let mut h = false;
                 let val = self.update_byte(reg, mem, |byte| {
                     let b = *byte;
-                    h = b == 0;
+                    h = check_bit_const::<4>(b);
                     *byte = b.wrapping_sub(1);
                 });
                 self.f.z = val == 0;
                 self.f.n = true;
-                self.f.h = h;
+                self.f.h = h ^ check_bit_const::<4>(val);
             }
         }
     }
