@@ -194,6 +194,7 @@ impl CpuTest {
         } = self;
         let result = std::panic::catch_unwind(|| {
             let (mut cpu, mut mem) = init.build();
+            println!("{cpu}");
             let len = cycles.len() as u8;
             let mut cycles = len;
             while cycles != 0 {
