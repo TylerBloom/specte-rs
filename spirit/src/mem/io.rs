@@ -24,9 +24,7 @@ pub struct IoRegisters {
     /// ADDR FF0F
     pub interrupt_flags: u8,
     /// ADDR FF10-FF26
-    audio: [u8; 0x17],
-    /// ADDR FF30-FF3F
-    wave: [u8; 0x10],
+    audio: AudioRegisters,
     /// ADDR FF40
     pub lcd_control: u8,
     /// ADDR FF41
@@ -101,6 +99,83 @@ impl Default for IoRegisters {
             boot_status_disabled: false,
         }
     }
+}
+
+#[derive(Debug, Default, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+struct AudioRegisters {
+    ch1_sweep: u8,
+
+    /// NOTE: ch1_len_timer and ch1_wave_duty form the same register, FF11. The length mades up the
+    /// bottom 6 bits of the register and is write-only. The wave duty makes up the top 2 bits and
+    /// is read/write.
+    ch1_len_timer: u8,
+    ch1_wave_duty: u8,
+
+    /// NOTE: These three come together to form the same register, FF12.
+    ch1_sweep_pace: u8,
+    ch1_env_dir: bool,
+    ch1_init_vol: u8,
+
+    /// These two registers, FF13 and FF14, describe the 11-bit "period value". The second
+    /// register's lowest three bits correspond to the upper three bits of this value. These 11
+    /// bits are write-only.
+    ch1_period_low: u8,
+    /// The top two bits correspond to the trigger and "length enabled". The trigger is write only
+    ch1_period_high: u8,
+
+    /// NOTE: ch1_len_timer and ch1_wave_duty form the same register, FF16. The length mades up the
+    /// bottom 6 bits of the register and is write-only. The wave duty makes up the top 2 bits and
+    /// is read/write.
+    ch2_len_timer: u8,
+    ch2_wave_duty: u8,
+
+    /// NOTE: These three come together to form the same register, FF17.
+    ch2_sweep_pace: u8,
+    ch2_env_dir: bool,
+    ch2_init_vol: u8,
+
+    /// These two registers, FF18 and FF19, describe the 11-bit "period value". The second
+    /// register's lowest three bits correspond to the upper three bits of this value. These 11
+    /// bits are write-only.
+    ch2_period_low: u8,
+    /// The top two bits correspond to the trigger and "length enabled". The trigger is write only
+    ch2_period_high: u8,
+
+    /// NOTE: This single bit maps to register FF1A's top bit.
+    ch3_dac: bool,
+
+    /// FF1B, write-only
+    ch3_len_timer: u8,
+
+    /// FF1C, only the 5th and 6th bits are used.
+    ch3_output_lvl: u8,
+
+    ch3_period_low: u8,
+    ch3_period_high: u8,
+    // [u8; 0x17],
+
+    /// FF30-FF3F
+    /// Accessing this region of memory while the channel is active, accessing this region will
+    /// yield in whatever byte the channel is currently reading.
+    /// NOTE: This is more than the DAC being enabled/disabled.
+    ch3_wave_form: [u8; 0x10],
+
+    /// FF20 - write only
+    /// Top 2 bits are ignored.
+    ch4_len_timer: u8,
+
+    /// FF21
+    ch4_vol_env: u8,
+
+    /// FF22
+    /// This channel helps govern the LFSR used by the noise channel.
+    ch4_freq_randomness: u8,
+
+    /// FF23
+    /// Top bit is write-only.
+    /// Second-highest bit is read-write.
+    /// Bottom 6 bits are ignored.
+    ch4_control: u8,
 }
 
 /// This simple wrapper type is used to index into the IO registers by the PPU. Because the PPU
