@@ -1,3 +1,5 @@
 /target
 /Cargo.lock
 roms/*
+/ghast/trove/*
+!/ghast/trove/README.md
