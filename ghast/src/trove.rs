@@ -32,11 +32,13 @@ impl Trove {
     pub fn parse_or_default(path: Option<PathBuf>) -> Self {
         let mut trove_toml = path.unwrap_or_else(|| {
             let mut path = (*CONFIG_PATH).clone();
+            path.pop();
             path.push("trove");
             path
         });
         let path = trove_toml.clone();
         trove_toml.push(".trove.toml");
+        println!("Looking for trove at {trove_toml:?}");
         let trove_data = toml::from_str(&std::fs::read_to_string(trove_toml).unwrap()).unwrap();
         Self { path, trove_data }
     }
@@ -45,5 +47,28 @@ impl Trove {
 /// Contains data about usage, such as the last game played.
 #[derive(Debug, Serialize, Deserialize)]
 struct TroveData {
+    #[serde(default)]
     last_game: Option<String>,
+}
+
+/// Represents a base game and all of its run instances
+pub(crate) struct GameSet {}
+
+/// Represents a run of a given game, all of its screenshots, and a bit of metadata
+pub(crate) struct GameInstance {
+    /// The name of the ROM file.
+    name: String,
+    data: GameInstanceData,
+    path: PathBuf,
+}
+
+impl GameInstance {
+    pub fn screenshots(&self) -> Vec<PathBuf> {
+        todo!()
+    }
+}
+
+/// A bit of a metadata for a given game instance, such as the last screenshot file.
+pub(crate) struct GameInstanceData {
+    last_screenshot: Option<String>,
 }

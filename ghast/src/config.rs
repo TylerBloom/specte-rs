@@ -22,15 +22,18 @@ pub(crate) static CONFIG_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Config {
     /// The path to the game trove.
+    #[serde(default)]
     pub(crate) trove_path: Option<PathBuf>,
     /// Whether or not to launch the last game on start.
     // TODO: This should be more than a bool. Variants such as "launch last snapshot" or "launch to
     // snapshot selection screen" should be options.
+    #[serde(default)]
     launch_on_start: bool,
 }
 
 impl Config {
     pub(crate) fn read() -> Self {
+        println!("Looking for config at {:?}", &*CONFIG_PATH);
         toml::from_str(&std::fs::read_to_string(&*CONFIG_PATH).unwrap()).unwrap()
     }
 
