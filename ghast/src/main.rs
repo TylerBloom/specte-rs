@@ -28,7 +28,7 @@ pub fn main() -> iced::Result {
 
 #[derive(Debug, Clone, PartialEq)]
 enum UiMessage {
-    AddGameSet(Option<PathBuf>),
+    AddGameSet,
     LoadSettings,
 }
 
@@ -47,10 +47,16 @@ impl UiState {
 
     pub fn update(&mut self, msg: UiMessage) {
         match msg {
-            UiMessage::AddGameSet(file) => if let Some(file) = file {
-                println!("Looking for ROM at {file:?}");
-                todo!()
-            },
+            UiMessage::AddGameSet => {
+                let path = home_dir().unwrap();
+                let game = rfd::FileDialog::new().set_directory(&path).pick_file();
+                if let Some(file) = game {
+                    println!("Looking for ROM at {file:?}");
+                    match self {
+                        UiState::Home(trove) => trove.add_game(file),
+                    };
+                }
+            }
             UiMessage::LoadSettings => todo!(),
         }
     }
@@ -82,17 +88,16 @@ impl Trove {
 
     fn add_game_set_button(&self) -> Element<'static, UiMessage> {
         Button::new("Add Game Set")
-            .on_press_with(game_set_dialog)
+            .on_press(UiMessage::AddGameSet)
             .into()
     }
 
     fn game_sets_display(&self) -> impl IntoIterator<Item = Element<'static, UiMessage>> {
-        []
+        std::fs::read_dir(&self.path)
+            .unwrap()
+            .map(Result::unwrap)
+            .filter(|item| item.file_type().unwrap().is_dir())
+            .map(|item| Text::new(item.file_name().to_str().unwrap().to_owned()))
+            .map(Into::into)
     }
-}
-
-fn game_set_dialog() -> UiMessage {
-    let path = home_dir().unwrap();
-    let game = rfd::FileDialog::new().set_directory(&path).pick_file();
-    UiMessage::AddGameSet(game)
 }

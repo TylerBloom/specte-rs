@@ -21,9 +21,9 @@ use crate::config::CONFIG_PATH;
 pub struct Trove {
     /// The trove carries around a path as the trove is largely an interface into the expected file
     /// structure of the trove.
-    path: PathBuf,
+    pub(crate) path: PathBuf,
     /// The trove data at the base of the trove.
-    trove_data: TroveData,
+    pub(crate) trove_data: TroveData,
 }
 
 impl Trove {
@@ -42,6 +42,26 @@ impl Trove {
         let trove_data = toml::from_str(&std::fs::read_to_string(trove_toml).unwrap()).unwrap();
         Self { path, trove_data }
     }
+
+    pub fn add_game(&mut self, path: PathBuf) -> GameSet {
+        // Copy and trim the file name
+        let mut dir = self.path.clone();
+        dir.push(path.file_stem().unwrap());
+        // Create a directory with the file name
+        if dir.exists() && dir.is_dir() {
+            return GameSet {
+                path: dir,
+            };
+        }
+        println!("Creating GameSet at: {dir:?}");
+        std::fs::create_dir(&dir).unwrap();
+
+        // Copy the file into the new directory
+        let set_dir = dir.clone();
+        dir.push(path.file_name().unwrap());
+        std::fs::copy(path, dir).unwrap();
+        GameSet { path: set_dir }
+    }
 }
 
 /// Contains data about usage, such as the last game played.
@@ -52,7 +72,9 @@ struct TroveData {
 }
 
 /// Represents a base game and all of its run instances
-pub(crate) struct GameSet {}
+pub(crate) struct GameSet {
+    path: PathBuf,
+}
 
 /// Represents a run of a given game, all of its screenshots, and a bit of metadata
 pub(crate) struct GameInstance {
