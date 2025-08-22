@@ -26,77 +26,158 @@ pub fn main() -> iced::Result {
         .run_with(move || (UiState::new(conf), Task::none()))
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum UiMessage {
-    AddGameSet,
-    LoadSettings,
+enum UiState {
+    Home(HomeState),
+    InGame(InGameState),
+    Settings(SettingsState),
 }
 
-enum UiState {
-    Home(Trove),
+struct HomeState {
+    trove: Trove,
 }
+
+struct InGameState {}
+
+struct SettingsState {}
+
+#[derive(Debug, Clone, PartialEq)]
+enum UiMessage {
+    HomeMessage(HomeMessage),
+    InGameMessage(InGameMessage),
+    SettingsMessage(SettingsMessage),
+    SwitchToSettings,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum HomeMessage {
+    AddGame,
+    StartGame(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum InGameMessage {}
+
+#[derive(Debug, Clone, PartialEq)]
+enum SettingsMessage {}
 
 impl UiState {
     pub fn new(config: Config) -> Self {
         // Determine how this should load (directly into a game, screenshot selection, or "home"
         // page) and return that state.
         // TODO: Actually implement this
-        let trv = config.get_trove();
-        Self::Home(trv)
+        let trove = config.get_trove();
+        let home = HomeState { trove };
+        Self::Home(home)
     }
 
     pub fn update(&mut self, msg: UiMessage) {
-        match msg {
-            UiMessage::AddGameSet => {
-                let path = home_dir().unwrap();
-                let game = rfd::FileDialog::new().set_directory(&path).pick_file();
-                if let Some(file) = game {
-                    println!("Looking for ROM at {file:?}");
-                    match self {
-                        UiState::Home(trove) => trove.add_game(file),
-                    };
-                }
+        match (self, msg) {
+            (Self::Home(home), UiMessage::HomeMessage(home_message)) => home.update(home_message),
+            (Self::InGame(in_game), UiMessage::InGameMessage(in_game_message)) => {
+                in_game.update(in_game_message)
             }
-            UiMessage::LoadSettings => todo!(),
+            (Self::Settings(settings), UiMessage::SettingsMessage(settings_message)) => {
+                settings.update(settings_message)
+            }
+            (_, UiMessage::SwitchToSettings) => todo!(),
+            _ => unreachable!(),
         }
+        /*
+        UiMessage::AddGame(Str) => {
+
+        }
+        UiMessage::LoadSettings => todo!(),
+        */
     }
 
-    pub fn view(&self) -> Element<UiMessage> {
+    pub fn view(&self) -> Element<'_, UiMessage> {
         match self {
-            UiState::Home(trv) => column![self.settings_button(), trv.display()].into(),
+            UiState::Home(state) => state.view().map(UiMessage::HomeMessage),
+            UiState::InGame(state) => state.view().map(UiMessage::InGameMessage),
+            UiState::Settings(state) => state.view().map(UiMessage::SettingsMessage),
         }
     }
 
     pub fn subscription(&self) -> Subscription<UiMessage> {
         Subscription::none()
     }
+}
 
-    fn settings_button(&self) -> Element<'static, UiMessage> {
-        Button::new("Settings")
-            .on_press(UiMessage::LoadSettings)
-            .into()
+impl HomeState {
+    fn update(&mut self, msg: HomeMessage) {
+        match msg {
+            HomeMessage::AddGame => {
+                let path = home_dir().unwrap();
+                let game = rfd::FileDialog::new().set_directory(&path).pick_file();
+                if let Some(file) = game {
+                    println!("Looking for ROM at {file:?}");
+                    self.trove.add_game(file);
+                }
+            }
+            HomeMessage::StartGame(_) => todo!(),
+        }
+    }
+
+    pub fn view(&self) -> Element<'_, HomeMessage> {
+        column![self.settings_button(), self.trove.display()].into()
+    }
+
+    pub fn subscription(&self) -> Subscription<HomeMessage> {
+        Subscription::none()
+    }
+
+    fn settings_button(&self) -> Element<'static, HomeMessage> {
+        Button::new("Settings").into()
+    }
+}
+
+impl InGameState {
+    fn update(&mut self, msg: InGameMessage) {
+        todo!()
+    }
+
+    pub fn view(&self) -> Element<'_, InGameMessage> {
+        todo!()
+    }
+
+    pub fn subscription(&self) -> Subscription<InGameMessage> {
+        todo!()
+    }
+}
+
+impl SettingsState {
+    fn update(&mut self, msg: SettingsMessage) {
+        todo!()
+    }
+
+    pub fn view(&self) -> Element<'_, SettingsMessage> {
+        todo!()
+    }
+
+    pub fn subscription(&self) -> Subscription<SettingsMessage> {
+        Subscription::none()
     }
 }
 
 impl Trove {
-    fn display(&self) -> Element<'static, UiMessage> {
+    fn display(&self) -> Element<'static, HomeMessage> {
         let children = std::iter::once("Trove".into())
             .chain(std::iter::once(self.add_game_set_button()))
-            .chain(self.game_sets_display());
+            .chain(self.display_games());
         Column::with_children(children).into()
     }
 
-    fn add_game_set_button(&self) -> Element<'static, UiMessage> {
+    fn add_game_set_button(&self) -> Element<'static, HomeMessage> {
         Button::new("Add Game Set")
-            .on_press(UiMessage::AddGameSet)
+            .on_press(HomeMessage::AddGame)
             .into()
     }
 
-    fn game_sets_display(&self) -> impl IntoIterator<Item = Element<'static, UiMessage>> {
+    fn display_games(&self) -> impl IntoIterator<Item = Element<'static, HomeMessage>> {
         std::fs::read_dir(&self.path)
             .unwrap()
             .map(Result::unwrap)
-            .filter(|item| item.file_type().unwrap().is_dir())
+            .filter(|item| item.file_type().unwrap().is_file())
             .map(|item| Text::new(item.file_name().to_str().unwrap().to_owned()))
             .map(Into::into)
     }

@@ -18,6 +18,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::CONFIG_PATH;
 
+
+// TODO: To get an MVP working, the trove will just contain a copy of each can. Later, layers like
+// the game sets will be added.
 pub struct Trove {
     /// The trove carries around a path as the trove is largely an interface into the expected file
     /// structure of the trove.
@@ -39,10 +42,21 @@ impl Trove {
         let path = trove_toml.clone();
         trove_toml.push(".trove.toml");
         println!("Looking for trove at {trove_toml:?}");
+        if !trove_toml.exists() {
+            std::fs::write(&trove_toml, b"").unwrap();
+        }
         let trove_data = toml::from_str(&std::fs::read_to_string(trove_toml).unwrap()).unwrap();
         Self { path, trove_data }
     }
 
+    pub fn add_game(&mut self, path: PathBuf) {
+        // Copy and trim the file name
+        let mut dir = self.path.clone();
+        dir.push(path.file_name().unwrap());
+        std::fs::copy(path, dir).unwrap();
+    }
+
+    /*
     pub fn add_game(&mut self, path: PathBuf) -> GameSet {
         // Copy and trim the file name
         let mut dir = self.path.clone();
@@ -62,11 +76,12 @@ impl Trove {
         std::fs::copy(path, dir).unwrap();
         GameSet { path: set_dir }
     }
+    */
 }
 
 /// Contains data about usage, such as the last game played.
 #[derive(Debug, Serialize, Deserialize)]
-struct TroveData {
+pub(crate) struct TroveData {
     #[serde(default)]
     last_game: Option<String>,
 }
