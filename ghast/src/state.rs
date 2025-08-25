@@ -108,6 +108,10 @@ impl Emulator {
         }
     }
 
+    pub fn just_image(&self) -> Image {
+        create_image(&self.gb.gb().ppu.screen)
+    }
+
     fn screen(&self) -> impl Into<Element<'static, Message>> {
         let gb = self.gb.gb();
         let screen: Element<'static, Message> = match self.duplicated_screens.as_ref() {

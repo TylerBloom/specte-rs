@@ -12,12 +12,11 @@
 // TODO: When ROM patching is supported, ROM "recipes" will be added so users can create new game
 // directories as new versions of the patch get released.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::config::CONFIG_PATH;
-
 
 // TODO: To get an MVP working, the trove will just contain a copy of each can. Later, layers like
 // the game sets will be added.
@@ -54,6 +53,13 @@ impl Trove {
         let mut dir = self.path.clone();
         dir.push(path.file_name().unwrap());
         std::fs::copy(path, dir).unwrap();
+    }
+
+    /// Given the name of a game in the trove, reads the file and returns the contents
+    pub fn fetch_game(&self, game: impl AsRef<Path>) -> Vec<u8> {
+        let mut path = self.path.clone();
+        path.push(game);
+        std::fs::read(path).unwrap()
     }
 
     /*

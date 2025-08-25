@@ -26,7 +26,15 @@ pub fn main() -> iced::Result {
         .run_with(move || (UiState::new(conf), Task::none()))
 }
 
-enum UiState {
+struct UiState {
+    ctx: StateContext,
+    inner: InnerUiState,
+}
+
+struct StateContext {
+}
+
+enum InnerUiState {
     Home(HomeState),
     InGame(InGameState),
     Settings(SettingsState),
@@ -114,7 +122,9 @@ impl HomeState {
                     self.trove.add_game(file);
                 }
             }
-            HomeMessage::StartGame(_) => todo!(),
+            HomeMessage::StartGame(file) => {
+                let data = self.trove.fetch_game(file);
+            }
         }
     }
 
