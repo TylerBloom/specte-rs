@@ -2,13 +2,17 @@
 use std::{env::home_dir, path::PathBuf};
 
 use config::Config;
-use ghast::state::Emulator;
+use ghast::{
+    emu_core::{EmuHandle, EmuRecv, EmuSend},
+    state::Emulator,
+};
 
 use clap::Parser;
 use iced::{
     Element, Subscription, Task,
-    widget::{Button, Column, Text, column},
+    widget::{Button, Column, Image, Text, column, image::Handle},
 };
+use tokio_stream::StreamExt;
 use trove::Trove;
 
 mod config;
@@ -23,7 +27,14 @@ pub fn main() -> iced::Result {
     let conf = Config::read();
     iced::application("Specters - Ghast GBC", UiState::update, UiState::view)
         .subscription(UiState::subscription)
-        .run_with(move || (UiState::new(conf), Task::none()))
+        .run_with(move || {
+            let (send, recv) = EmuHandle::contruct_and_launch().split();
+            let stream = recv
+                .into_stream()
+                .map(InGameMessage::NextFrame)
+                .map(UiMessage::InGameMessage);
+            (UiState::new(conf, send), Task::stream(stream))
+        })
 }
 
 struct UiState {
@@ -32,6 +43,7 @@ struct UiState {
 }
 
 struct StateContext {
+    send: EmuSend,
 }
 
 enum InnerUiState {
@@ -44,11 +56,13 @@ struct HomeState {
     trove: Trove,
 }
 
-struct InGameState {}
+struct InGameState {
+    image: Handle,
+}
 
 struct SettingsState {}
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 enum UiMessage {
     HomeMessage(HomeMessage),
     InGameMessage(InGameMessage),
@@ -62,13 +76,37 @@ enum HomeMessage {
     StartGame(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum InGameMessage {}
+#[derive(Debug)]
+enum InGameMessage {
+    NextFrame(Handle),
+}
 
 #[derive(Debug, Clone, PartialEq)]
 enum SettingsMessage {}
 
 impl UiState {
+    pub fn new(config: Config, send: EmuSend) -> Self {
+        let ctx = StateContext { send };
+        Self {
+            ctx,
+            inner: InnerUiState::new(config),
+        }
+    }
+
+    pub fn update(&mut self, msg: UiMessage) {
+        self.inner.update(msg);
+    }
+
+    pub fn view(&self) -> Element<'_, UiMessage> {
+        self.inner.view()
+    }
+
+    pub fn subscription(&self) -> Subscription<UiMessage> {
+        Subscription::none()
+    }
+}
+
+impl InnerUiState {
     pub fn new(config: Config) -> Self {
         // Determine how this should load (directly into a game, screenshot selection, or "home"
         // page) and return that state.
@@ -79,6 +117,7 @@ impl UiState {
     }
 
     pub fn update(&mut self, msg: UiMessage) {
+        println!("Recv-ed message: {msg:?}");
         match (self, msg) {
             (Self::Home(home), UiMessage::HomeMessage(home_message)) => home.update(home_message),
             (Self::InGame(in_game), UiMessage::InGameMessage(in_game_message)) => {
@@ -100,14 +139,10 @@ impl UiState {
 
     pub fn view(&self) -> Element<'_, UiMessage> {
         match self {
-            UiState::Home(state) => state.view().map(UiMessage::HomeMessage),
-            UiState::InGame(state) => state.view().map(UiMessage::InGameMessage),
-            UiState::Settings(state) => state.view().map(UiMessage::SettingsMessage),
+            InnerUiState::Home(state) => state.view().map(UiMessage::HomeMessage),
+            InnerUiState::InGame(state) => state.view().map(UiMessage::InGameMessage),
+            InnerUiState::Settings(state) => state.view().map(UiMessage::SettingsMessage),
         }
-    }
-
-    pub fn subscription(&self) -> Subscription<UiMessage> {
-        Subscription::none()
     }
 }
 
@@ -143,11 +178,13 @@ impl HomeState {
 
 impl InGameState {
     fn update(&mut self, msg: InGameMessage) {
-        todo!()
+        match msg {
+            InGameMessage::NextFrame(image) => self.image = image,
+        }
     }
 
     pub fn view(&self) -> Element<'_, InGameMessage> {
-        todo!()
+        Image::new(self.image.clone()).into()
     }
 
     pub fn subscription(&self) -> Subscription<InGameMessage> {
@@ -188,7 +225,11 @@ impl Trove {
             .unwrap()
             .map(Result::unwrap)
             .filter(|item| item.file_type().unwrap().is_file())
-            .map(|item| Text::new(item.file_name().to_str().unwrap().to_owned()))
+            .map(|item| {
+                let file_name = item.file_name().to_str().unwrap().to_owned();
+                Button::new(Text::new(file_name.clone()))
+                    .on_press(HomeMessage::StartGame(file_name))
+            })
             .map(Into::into)
     }
 }

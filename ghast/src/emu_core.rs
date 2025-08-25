@@ -1,17 +1,30 @@
+use std::pin::Pin;
+use std::task::Context;
+use std::task::Poll;
 use std::time::Duration;
 
+use iced::futures::StreamExt;
 use iced::widget::Image;
+use iced::advanced::image::Handle;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::error::TryRecvError;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::Stream;
 
 use crate::state::Emulator;
 
 pub struct EmuHandle {
-    send: Sender<EmuMessage>,
-    recv: Receiver<Image>,
+    send: EmuSend,
+    recv: EmuRecv,
 }
+
+pub struct EmuSend(Sender<EmuMessage>);
+
+pub struct EmuRecv(Receiver<Handle>);
+
+pub struct EmuStream(Pin<Box<ReceiverStream<Handle>>>);
 
 impl EmuHandle {
     // TODO: This will need a trove handle to pull in setting and configs
@@ -26,21 +39,62 @@ impl EmuHandle {
         };
         tokio::task::spawn(core.run());
         Self {
-            recv: frame_recv,
-            send: msg_send,
+            recv: EmuRecv(frame_recv),
+            send: EmuSend(msg_send),
         }
     }
 
+    pub fn split(self) -> (EmuSend, EmuRecv) {
+        let Self { send, recv } = self;
+        (send, recv)
+    }
+
     pub async fn pause(&self) {
-        self.send.send(EmuMessage::Pause).await.unwrap()
+        self.send.pause().await
     }
 
     pub async fn resume(&self) {
-        self.send.send(EmuMessage::Resume).await.unwrap()
+        self.send.resume().await
     }
 
     pub async fn start_game(&self, game: Vec<u8>) {
-        self.send.send(EmuMessage::Start(game)).await.unwrap()
+        self.send.start_game(game).await
+    }
+
+    pub async fn next_frame(&mut self) -> Handle {
+        self.recv.next_frame().await
+    }
+}
+
+impl EmuSend {
+    pub async fn pause(&self) {
+        self.0.send(EmuMessage::Pause).await.unwrap()
+    }
+
+    pub async fn resume(&self) {
+        self.0.send(EmuMessage::Resume).await.unwrap()
+    }
+
+    pub async fn start_game(&self, game: Vec<u8>) {
+        self.0.send(EmuMessage::Start(game)).await.unwrap()
+    }
+}
+
+impl EmuRecv {
+    pub async fn next_frame(&mut self) -> Handle {
+        self.0.recv().await.unwrap()
+    }
+
+    pub fn into_stream(self) -> EmuStream {
+        EmuStream(Box::pin(ReceiverStream::new(self.0)))
+    }
+}
+
+impl Stream for EmuStream {
+    type Item = Handle;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::get_mut(self).0.as_mut().poll_next(cx)
     }
 }
 
@@ -48,7 +102,7 @@ impl EmuHandle {
 /// intended that the core is ran in a seperate thread/task from the main core.
 struct EmuCore {
     recv: Receiver<EmuMessage>,
-    send: Sender<Image>,
+    send: Sender<Handle>,
 }
 
 enum EmuMessage {
@@ -87,7 +141,7 @@ impl EmuCore {
             }
             if !is_paused {
                 emu.next_screen();
-                send.send(emu.just_image()).await;
+                send.send(emu.just_pixels()).await;
             }
         }
     }
