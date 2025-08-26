@@ -1,18 +1,21 @@
 use std::fs::{self, File};
 
 use iced::{
-    widget::{column, image::Handle, row, text, Column, Image, Row},
     Element,
+    widget::{Column, Image, Row, column, image::Handle, row, text},
 };
 
 use spirit::{
+    Gameboy,
     cpu::check_bit_const,
     mem::{BgTileDataIndex, BgTileMapIndex, OamObjectIndex, ObjTileDataIndex, WindowTileDataIndex},
-    ppu::{zip_bits, OamObject, Pixel},
-    Gameboy,
+    ppu::{OamObject, Pixel, zip_bits},
 };
 
-use crate::{state::create_image, utils::{pixel_to_bytes, screen_to_image_scaled}};
+use crate::{
+    state::create_image,
+    utils::{pixel_to_bytes, screen_to_image_scaled},
+};
 
 /// Contains all of the data to extract out debug info from the GB.
 pub struct Debugger(pub u8);
