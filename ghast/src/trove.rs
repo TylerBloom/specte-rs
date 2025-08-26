@@ -59,6 +59,7 @@ impl Trove {
     pub fn fetch_game(&self, game: impl AsRef<Path>) -> Vec<u8> {
         let mut path = self.path.clone();
         path.push(game);
+        println!("Looking for game rom at {path:?}");
         std::fs::read(path).unwrap()
     }
 

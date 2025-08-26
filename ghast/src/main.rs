@@ -10,6 +10,10 @@ use ghast::{
 use clap::Parser;
 use iced::{
     Element, Subscription, Task,
+    advanced::{
+        graphics::image::image_rs::imageops::crop,
+        image::{Bytes, Id},
+    },
     widget::{Button, Column, Image, Text, column, image::Handle},
 };
 use tokio_stream::StreamExt;
@@ -38,18 +42,18 @@ pub fn main() -> iced::Result {
 }
 
 struct UiState {
-    ctx: StateContext,
-    inner: InnerUiState,
-}
-
-struct StateContext {
     send: EmuSend,
+    cursor: StateCursor,
+    home: HomeState,
+    game: InGameState,
+    settings: SettingsState,
 }
 
-enum InnerUiState {
-    Home(HomeState),
-    InGame(InGameState),
-    Settings(SettingsState),
+#[derive(Debug, Clone, Copy)]
+enum StateCursor {
+    Home,
+    InGame,
+    Settings,
 }
 
 struct HomeState {
@@ -86,19 +90,42 @@ enum SettingsMessage {}
 
 impl UiState {
     pub fn new(config: Config, send: EmuSend) -> Self {
-        let ctx = StateContext { send };
+        let trove = config.get_trove();
+        let image = Handle::from_rgba(0, 0, Bytes::default());
         Self {
-            ctx,
-            inner: InnerUiState::new(config),
+            send,
+            cursor: StateCursor::Home,
+            home: HomeState { trove },
+            game: InGameState { image },
+            settings: SettingsState {},
         }
     }
 
     pub fn update(&mut self, msg: UiMessage) {
-        self.inner.update(msg);
+        let cursor = match (self.cursor, msg) {
+            (StateCursor::Home, UiMessage::HomeMessage(home_message)) => {
+                self.home.update(&self.send, home_message)
+            }
+            (StateCursor::InGame, UiMessage::InGameMessage(in_game_message)) => {
+                self.game.update(in_game_message)
+            }
+            (StateCursor::Settings, UiMessage::SettingsMessage(settings_message)) => {
+                self.settings.update(settings_message)
+            }
+            (_, UiMessage::SwitchToSettings) => todo!(),
+            _ => unreachable!(),
+        };
+        if let Some(cursor) = cursor {
+            self.cursor = cursor;
+        }
     }
 
     pub fn view(&self) -> Element<'_, UiMessage> {
-        self.inner.view()
+        match self.cursor {
+            StateCursor::Home => self.home.view().map(UiMessage::HomeMessage),
+            StateCursor::InGame => self.game.view().map(UiMessage::InGameMessage),
+            StateCursor::Settings => self.settings.view().map(UiMessage::SettingsMessage),
+        }
     }
 
     pub fn subscription(&self) -> Subscription<UiMessage> {
@@ -106,59 +133,21 @@ impl UiState {
     }
 }
 
-impl InnerUiState {
-    pub fn new(config: Config) -> Self {
-        // Determine how this should load (directly into a game, screenshot selection, or "home"
-        // page) and return that state.
-        // TODO: Actually implement this
-        let trove = config.get_trove();
-        let home = HomeState { trove };
-        Self::Home(home)
-    }
-
-    pub fn update(&mut self, msg: UiMessage) {
-        println!("Recv-ed message: {msg:?}");
-        match (self, msg) {
-            (Self::Home(home), UiMessage::HomeMessage(home_message)) => home.update(home_message),
-            (Self::InGame(in_game), UiMessage::InGameMessage(in_game_message)) => {
-                in_game.update(in_game_message)
-            }
-            (Self::Settings(settings), UiMessage::SettingsMessage(settings_message)) => {
-                settings.update(settings_message)
-            }
-            (_, UiMessage::SwitchToSettings) => todo!(),
-            _ => unreachable!(),
-        }
-        /*
-        UiMessage::AddGame(Str) => {
-
-        }
-        UiMessage::LoadSettings => todo!(),
-        */
-    }
-
-    pub fn view(&self) -> Element<'_, UiMessage> {
-        match self {
-            InnerUiState::Home(state) => state.view().map(UiMessage::HomeMessage),
-            InnerUiState::InGame(state) => state.view().map(UiMessage::InGameMessage),
-            InnerUiState::Settings(state) => state.view().map(UiMessage::SettingsMessage),
-        }
-    }
-}
-
 impl HomeState {
-    fn update(&mut self, msg: HomeMessage) {
+    fn update(&mut self, send: &EmuSend, msg: HomeMessage) -> Option<StateCursor> {
         match msg {
             HomeMessage::AddGame => {
                 let path = home_dir().unwrap();
                 let game = rfd::FileDialog::new().set_directory(&path).pick_file();
                 if let Some(file) = game {
-                    println!("Looking for ROM at {file:?}");
                     self.trove.add_game(file);
                 }
+                None
             }
             HomeMessage::StartGame(file) => {
-                let data = self.trove.fetch_game(file);
+                let game = self.trove.fetch_game(file);
+                send.start_game(game);
+                Some(StateCursor::InGame)
             }
         }
     }
@@ -177,32 +166,25 @@ impl HomeState {
 }
 
 impl InGameState {
-    fn update(&mut self, msg: InGameMessage) {
+    fn update(&mut self, msg: InGameMessage) -> Option<StateCursor> {
         match msg {
             InGameMessage::NextFrame(image) => self.image = image,
         }
+        None
     }
 
     pub fn view(&self) -> Element<'_, InGameMessage> {
         Image::new(self.image.clone()).into()
     }
-
-    pub fn subscription(&self) -> Subscription<InGameMessage> {
-        todo!()
-    }
 }
 
 impl SettingsState {
-    fn update(&mut self, msg: SettingsMessage) {
+    fn update(&mut self, msg: SettingsMessage) -> Option<StateCursor> {
         todo!()
     }
 
     pub fn view(&self) -> Element<'_, SettingsMessage> {
         todo!()
-    }
-
-    pub fn subscription(&self) -> Subscription<SettingsMessage> {
-        Subscription::none()
     }
 }
 

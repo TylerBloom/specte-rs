@@ -3,15 +3,15 @@ use std::task::Context;
 use std::task::Poll;
 use std::time::Duration;
 
+use iced::advanced::image::Handle;
 use iced::futures::StreamExt;
 use iced::widget::Image;
-use iced::advanced::image::Handle;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::error::TryRecvError;
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
+use tokio_stream::wrappers::ReceiverStream;
 
 use crate::state::Emulator;
 
@@ -57,8 +57,8 @@ impl EmuHandle {
         self.send.resume().await
     }
 
-    pub async fn start_game(&self, game: Vec<u8>) {
-        self.send.start_game(game).await
+    pub fn start_game(&self, game: Vec<u8>) {
+        self.send.start_game(game)
     }
 
     pub async fn next_frame(&mut self) -> Handle {
@@ -75,8 +75,9 @@ impl EmuSend {
         self.0.send(EmuMessage::Resume).await.unwrap()
     }
 
-    pub async fn start_game(&self, game: Vec<u8>) {
-        self.0.send(EmuMessage::Start(game)).await.unwrap()
+    pub fn start_game(&self, game: Vec<u8>) {
+        // self.0.send(EmuMessage::Start(game)).await.unwrap()
+        self.0.try_send(EmuMessage::Start(game)).unwrap()
     }
 }
 
@@ -115,7 +116,7 @@ impl EmuCore {
     async fn run(mut self) {
         let mut emu = self.wait_for_cart().await;
         let Self { mut recv, mut send } = self;
-        let mut is_paused = true;
+        let mut is_paused = false;
         // 1/60 of a second is ~17 msec
         let mut timer = tokio::time::interval(tokio::time::Duration::from_millis(17));
         // Initially, this is a very basic cycle. We will always wait 17 ms, check for messages,
