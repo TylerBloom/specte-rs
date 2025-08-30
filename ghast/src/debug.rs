@@ -1,19 +1,13 @@
-use std::fs;
-use std::fs::File;
-
 use iced::Element;
 use iced::widget::Column;
 use iced::widget::Image;
 use iced::widget::Row;
-use iced::widget::column;
 use iced::widget::image::Handle;
 use iced::widget::row;
 use iced::widget::text;
 
 use spirit::Gameboy;
 use spirit::cpu::check_bit_const;
-use spirit::mem::BgTileDataIndex;
-use spirit::mem::BgTileMapIndex;
 use spirit::mem::OamObjectIndex;
 use spirit::mem::ObjTileDataIndex;
 use spirit::mem::WindowTileDataIndex;
@@ -21,7 +15,6 @@ use spirit::ppu::OamObject;
 use spirit::ppu::Pixel;
 use spirit::ppu::zip_bits;
 
-use crate::utils::pixel_to_bytes;
 use crate::utils::screen_to_image_scaled;
 
 /// Contains all of the data to extract out debug info from the GB.
@@ -149,6 +142,7 @@ fn oam_obj_repr<M: 'static>(gb: &Gameboy, obj_data: [u8; 4]) -> impl Into<Elemen
     .spacing(3)
 }
 
+#[allow(dead_code)]
 fn print_tile_map(gb: &Gameboy) {
     let map = if check_bit_const::<3>(gb.mem.io().lcd_control) {
         println!("The second tile map:");

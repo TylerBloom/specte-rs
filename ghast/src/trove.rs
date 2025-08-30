@@ -27,6 +27,7 @@ use crate::state::HomeMessage;
 
 // TODO: To get an MVP working, the trove will just contain a copy of each can. Later, layers like
 // the game sets will be added.
+#[allow(dead_code)]
 pub struct Trove {
     /// The trove carries around a path as the trove is largely an interface into the expected file
     /// structure of the trove.
@@ -126,11 +127,13 @@ pub(crate) struct TroveData {
 }
 
 /// Represents a base game and all of its run instances
+#[allow(dead_code)]
 pub(crate) struct GameSet {
     path: PathBuf,
 }
 
 /// Represents a run of a given game, all of its screenshots, and a bit of metadata
+#[allow(dead_code)]
 pub(crate) struct GameInstance {
     /// The name of the ROM file.
     name: String,
@@ -138,6 +141,7 @@ pub(crate) struct GameInstance {
     path: PathBuf,
 }
 
+#[allow(dead_code)]
 impl GameInstance {
     pub fn screenshots(&self) -> Vec<PathBuf> {
         todo!()
@@ -145,6 +149,7 @@ impl GameInstance {
 }
 
 /// A bit of a metadata for a given game instance, such as the last screenshot file.
+#[allow(dead_code)]
 pub(crate) struct GameInstanceData {
     last_screenshot: Option<String>,
 }

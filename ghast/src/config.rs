@@ -1,12 +1,11 @@
 //! This module contains the data structures for the entire emulator, including the trove location,
 //! emulator config, keybinds, and more.
 
-use std::{
-    path::{Path, PathBuf},
-    sync::LazyLock,
-};
+use std::path::PathBuf;
+use std::sync::LazyLock;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 use crate::trove::Trove;
 

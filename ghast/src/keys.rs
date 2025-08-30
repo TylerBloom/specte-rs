@@ -1,14 +1,14 @@
-use iced::keyboard::{key::Named, Key, Modifiers};
-
-
+use iced::keyboard::Key;
+use iced::keyboard::Modifiers;
+use iced::keyboard::key::Named;
 
 #[derive(Debug)]
 pub enum Keystroke {
-    Escape
+    Escape,
 }
 
 impl Keystroke {
-    pub fn convert(key: Key, mods: Modifiers) -> Option<Self> {
+    pub fn convert(key: Key, _mods: Modifiers) -> Option<Self> {
         match key {
             Key::Named(Named::Escape) => Some(Self::Escape),
             _ => None,

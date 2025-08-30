@@ -1,40 +1,18 @@
-use std::borrow::Cow;
 use std::env::home_dir;
-use std::path::PathBuf;
 
-use clap::Parser;
-use iced::Alignment;
 use iced::Element;
 use iced::Subscription;
-use iced::Task;
-use iced::advanced::graphics::image::image_rs::imageops::crop;
 use iced::advanced::image::Bytes;
-use iced::advanced::image::Id;
 use iced::keyboard::on_key_press;
 use iced::widget::Button;
-use iced::widget::Column;
 use iced::widget::Image;
-use iced::widget::Scrollable;
-use iced::widget::Text;
 use iced::widget::column;
 use iced::widget::image::Handle;
-use iced::widget::row;
-use iced::widget::text;
-use tokio_stream::StreamExt;
-
-use spirit::Gameboy;
-use spirit::StartUpSequence;
-use spirit::ppu::Pixel;
 
 use crate::config::Config;
-use crate::debug::Debugger;
-use crate::emu_core::EmuHandle;
-use crate::emu_core::EmuRecv;
 use crate::emu_core::EmuSend;
 use crate::keys::Keystroke;
 use crate::trove::Trove;
-use crate::utils::pixel_to_bytes;
-use crate::utils::scale_up_image;
 
 pub struct UiState {
     send: EmuSend,
@@ -106,7 +84,10 @@ impl UiState {
             UiMessage::InGameMessage(msg) if matches!(self.cursor, StateCursor::InGame) => {
                 self.game.update(msg)
             }
-            UiMessage::InGameMessage(_) => None,
+            UiMessage::InGameMessage(_) => {
+                self.send.pause();
+                None
+            }
             UiMessage::SettingsMessage(msg) if matches!(self.cursor, StateCursor::Settings) => {
                 self.settings.update(msg)
             }
@@ -183,7 +164,7 @@ impl InGameState {
 }
 
 impl SettingsState {
-    fn update(&mut self, msg: SettingsMessage) -> Option<StateCursor> {
+    fn update(&mut self, _msg: SettingsMessage) -> Option<StateCursor> {
         todo!()
     }
 

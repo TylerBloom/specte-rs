@@ -2,11 +2,8 @@ use std::borrow::Cow;
 use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
-use std::time::Duration;
 
 use iced::advanced::image::Handle;
-use iced::futures::StreamExt;
-use iced::widget::Image;
 use spirit::Gameboy;
 use spirit::StartUpSequence;
 use spirit::ppu::Pixel;
@@ -15,13 +12,11 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::channel;
-use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::error::TryRecvError;
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio::sync::mpsc::unbounded_channel;
 use tokio_stream::Stream;
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::debug::Debugger;
 use crate::utils::screen_to_image_scaled;
 
 pub struct EmuHandle {
@@ -124,7 +119,7 @@ enum EmuMessage {
 impl EmuCore {
     async fn run(mut self) {
         let mut emu = self.wait_for_cart().await;
-        let Self { mut recv, mut send } = self;
+        let Self { mut recv, send } = self;
         let mut is_paused = false;
         // 1/60 of a second is ~17 msec
         let mut timer = tokio::time::interval(tokio::time::Duration::from_millis(17));
@@ -151,7 +146,7 @@ impl EmuCore {
             }
             if !is_paused {
                 emu.next_screen();
-                send.send(emu.just_pixels()).await;
+                send.send(emu.just_pixels()).await.unwrap();
             }
         }
     }
@@ -168,12 +163,9 @@ impl EmuCore {
 
 pub struct Emulator {
     gb: EmulatorInner,
-    frame: usize,
-    count: Option<usize>,
-    dbg: Debugger,
-    duplicated_screens: Option<Vec<Vec<Vec<Pixel>>>>,
 }
 
+#[allow(dead_code)]
 enum EmulatorInner {
     StartUp(Option<StartUpSequence>),
     Ready(Gameboy),
@@ -212,6 +204,7 @@ impl EmulatorInner {
         }
     }
 
+    #[allow(dead_code)]
     fn scanline_step(&mut self) {
         match self {
             EmulatorInner::StartUp(seq) => {
@@ -242,12 +235,7 @@ impl Emulator {
         let gb = Gameboy::new(cart);
         let gb = gb.complete();
         Self {
-            // gb: EmulatorInner::StartUp(Some(gb)),
             gb: EmulatorInner::Ready(gb),
-            count: Some(0),
-            frame: 0,
-            dbg: Debugger(0),
-            duplicated_screens: None,
         }
     }
 
