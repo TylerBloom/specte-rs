@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
@@ -6,21 +7,29 @@ use std::time::Duration;
 use iced::advanced::image::Handle;
 use iced::futures::StreamExt;
 use iced::widget::Image;
+use spirit::Gameboy;
+use spirit::StartUpSequence;
+use spirit::ppu::Pixel;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::channel;
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::error::TryRecvError;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::Stream;
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::state::Emulator;
+use crate::debug::Debugger;
+use crate::utils::screen_to_image_scaled;
 
 pub struct EmuHandle {
     send: EmuSend,
     recv: EmuRecv,
 }
 
-pub struct EmuSend(Sender<EmuMessage>);
+pub struct EmuSend(UnboundedSender<EmuMessage>);
 
 pub struct EmuRecv(Receiver<Handle>);
 
@@ -31,8 +40,8 @@ impl EmuHandle {
     /// This contructs the Emulator core and launches it into a seperate task, returning the handle
     /// in order to interface with it.
     pub fn contruct_and_launch() -> Self {
-        let (msg_send, msg_recv) = channel(100);
-        let (frame_send, frame_recv) = channel(100);
+        let (msg_send, msg_recv) = unbounded_channel();
+        let (frame_send, frame_recv) = channel(10);
         let core = EmuCore {
             recv: msg_recv,
             send: frame_send,
@@ -49,12 +58,12 @@ impl EmuHandle {
         (send, recv)
     }
 
-    pub async fn pause(&self) {
-        self.send.pause().await
+    pub fn pause(&self) {
+        self.send.pause()
     }
 
-    pub async fn resume(&self) {
-        self.send.resume().await
+    pub fn resume(&self) {
+        self.send.resume()
     }
 
     pub fn start_game(&self, game: Vec<u8>) {
@@ -67,17 +76,17 @@ impl EmuHandle {
 }
 
 impl EmuSend {
-    pub async fn pause(&self) {
-        self.0.send(EmuMessage::Pause).await.unwrap()
+    pub fn pause(&self) {
+        self.0.send(EmuMessage::Pause).unwrap()
     }
 
-    pub async fn resume(&self) {
-        self.0.send(EmuMessage::Resume).await.unwrap()
+    pub fn resume(&self) {
+        self.0.send(EmuMessage::Resume).unwrap()
     }
 
     pub fn start_game(&self, game: Vec<u8>) {
         // self.0.send(EmuMessage::Start(game)).await.unwrap()
-        self.0.try_send(EmuMessage::Start(game)).unwrap()
+        self.0.send(EmuMessage::Start(game)).unwrap()
     }
 }
 
@@ -102,7 +111,7 @@ impl Stream for EmuStream {
 /// This is the core of the emulator state. It is interfaced with via the `EmuHandle`. It is
 /// intended that the core is ran in a seperate thread/task from the main core.
 struct EmuCore {
-    recv: Receiver<EmuMessage>,
+    recv: UnboundedReceiver<EmuMessage>,
     send: Sender<Handle>,
 }
 
@@ -126,9 +135,9 @@ impl EmuCore {
             loop {
                 match recv.try_recv() {
                     Ok(msg) => match msg {
-                        EmuMessage::Start(data) => {
+                        EmuMessage::Start(cart) => {
                             is_paused = false;
-                            todo!()
+                            emu = Emulator::new(cart);
                         }
                         EmuMessage::Pause => is_paused = true,
                         EmuMessage::Resume => is_paused = false,
@@ -154,5 +163,107 @@ impl EmuCore {
             }
         };
         Emulator::new(cart)
+    }
+}
+
+pub struct Emulator {
+    gb: EmulatorInner,
+    frame: usize,
+    count: Option<usize>,
+    dbg: Debugger,
+    duplicated_screens: Option<Vec<Vec<Vec<Pixel>>>>,
+}
+
+enum EmulatorInner {
+    StartUp(Option<StartUpSequence>),
+    Ready(Gameboy),
+}
+
+impl EmulatorInner {
+    pub fn gb(&self) -> &Gameboy {
+        match self {
+            EmulatorInner::StartUp(seq) => seq.as_ref().unwrap().gb(),
+            EmulatorInner::Ready(gb) => gb,
+        }
+    }
+
+    pub fn frame_step(&mut self) {
+        match self {
+            EmulatorInner::StartUp(seq) => {
+                seq.as_mut().unwrap().frame_step().complete();
+                if seq.as_ref().unwrap().is_complete() {
+                    *self = EmulatorInner::Ready(seq.take().unwrap().complete())
+                }
+            }
+            EmulatorInner::Ready(gb) => {
+                if !gb.is_stopped() {
+                    gb.next_frame().complete()
+                }
+            }
+        }
+    }
+
+    fn step_op(&mut self) {
+        match self {
+            EmulatorInner::StartUp(gb) => gb.as_mut().unwrap().step(),
+            EmulatorInner::Ready(gb) => {
+                gb.step().complete();
+            }
+        }
+    }
+
+    fn scanline_step(&mut self) {
+        match self {
+            EmulatorInner::StartUp(seq) => {
+                seq.as_mut().unwrap().scanline_step();
+                if seq.as_ref().unwrap().is_complete() {
+                    *self = EmulatorInner::Ready(seq.take().unwrap().complete())
+                }
+            }
+            EmulatorInner::Ready(gb) => {
+                if !gb.is_stopped() {
+                    gb.scanline_step()
+                }
+            }
+        }
+    }
+}
+
+#[allow(clippy::ptr_arg)]
+pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Handle {
+    const SCALE: usize = 4;
+    let (width, height, image) = screen_to_image_scaled(screen, SCALE);
+    assert_eq!(width * height * 4, image.len() as u32);
+    Handle::from_rgba(width, height, image)
+}
+
+impl Emulator {
+    pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
+        let gb = Gameboy::new(cart);
+        let gb = gb.complete();
+        Self {
+            // gb: EmulatorInner::StartUp(Some(gb)),
+            gb: EmulatorInner::Ready(gb),
+            count: Some(0),
+            frame: 0,
+            dbg: Debugger(0),
+            duplicated_screens: None,
+        }
+    }
+
+    pub fn just_pixels(&self) -> Handle {
+        create_image(&self.gb.gb().ppu.screen)
+    }
+
+    pub fn gb(&self) -> &Gameboy {
+        self.gb.gb()
+    }
+
+    pub fn next_screen(&mut self) {
+        self.gb.frame_step()
+    }
+
+    pub fn step_op(&mut self) {
+        self.gb.step_op()
     }
 }

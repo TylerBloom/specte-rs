@@ -20,7 +20,7 @@ pub(crate) static CONFIG_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
 });
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct Config {
+pub struct Config {
     /// The path to the game trove.
     #[serde(default)]
     pub(crate) trove_path: Option<PathBuf>,
@@ -32,16 +32,16 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    pub(crate) fn read() -> Self {
-        println!("Looking for config at {:?}", &*CONFIG_PATH);
+    pub fn read() -> Self {
+        println!("Looking for config at {CONFIG_PATH:?}");
         toml::from_str(&std::fs::read_to_string(&*CONFIG_PATH).unwrap()).unwrap()
     }
 
-    pub(crate) fn save(&self) {
+    pub fn save(&self) {
         std::fs::write(&*CONFIG_PATH, toml::to_string_pretty(self).unwrap()).unwrap()
     }
 
-    pub(crate) fn get_trove(&self) -> Trove {
+    pub fn get_trove(&self) -> Trove {
         Trove::parse_or_default(self.trove_path.clone())
     }
 }

@@ -1,233 +1,193 @@
 use std::borrow::Cow;
+use std::env::home_dir;
+use std::path::PathBuf;
 
-use iced::{
-    Alignment, Element, Subscription,
-    widget::{Button, Column, Image, Scrollable, column, image::Handle, row, text},
-};
-use spirit::{Gameboy, StartUpSequence, ppu::Pixel};
+use clap::Parser;
+use iced::Alignment;
+use iced::Element;
+use iced::Subscription;
+use iced::Task;
+use iced::advanced::graphics::image::image_rs::imageops::crop;
+use iced::advanced::image::Bytes;
+use iced::advanced::image::Id;
+use iced::keyboard::on_key_press;
+use iced::widget::Button;
+use iced::widget::Column;
+use iced::widget::Image;
+use iced::widget::Scrollable;
+use iced::widget::Text;
+use iced::widget::column;
+use iced::widget::image::Handle;
+use iced::widget::row;
+use iced::widget::text;
+use tokio_stream::StreamExt;
 
-use crate::{
-    debug::Debugger,
-    utils::{pixel_to_bytes, scale_up_image, screen_to_image_scaled},
-};
+use spirit::Gameboy;
+use spirit::StartUpSequence;
+use spirit::ppu::Pixel;
 
-pub struct Emulator {
-    gb: EmulatorInner,
-    frame: usize,
-    count: Option<usize>,
-    dbg: Debugger,
-    duplicated_screens: Option<Vec<Vec<Vec<Pixel>>>>,
+use crate::config::Config;
+use crate::debug::Debugger;
+use crate::emu_core::EmuHandle;
+use crate::emu_core::EmuRecv;
+use crate::emu_core::EmuSend;
+use crate::keys::Keystroke;
+use crate::trove::Trove;
+use crate::utils::pixel_to_bytes;
+use crate::utils::scale_up_image;
+
+pub struct UiState {
+    send: EmuSend,
+    cursor: StateCursor,
+    home: HomeState,
+    game: InGameState,
+    settings: SettingsState,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum StateCursor {
+    Home,
+    InGame,
+    Settings,
+}
+
+pub struct HomeState {
+    trove: Trove,
+}
+
+pub struct InGameState {
+    image: Handle,
+}
+
+pub struct SettingsState {}
+
+#[derive(Debug)]
+pub enum UiMessage {
+    HomeMessage(HomeMessage),
+    InGameMessage(InGameMessage),
+    SettingsMessage(SettingsMessage),
+    SwitchToSettings,
+    Keystroke(Keystroke),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Message {
-    Play,
-    Pause,
-    Redraw,
-    ScanLine,
-    Step(usize),
-    Tick,
-    PaletteInc,
-    Screens(Vec<Vec<Vec<Pixel>>>),
+pub enum HomeMessage {
+    AddGame,
+    StartGame(String),
 }
 
-enum EmulatorInner {
-    StartUp(Option<StartUpSequence>),
-    Ready(Gameboy),
+#[derive(Debug)]
+pub enum InGameMessage {
+    NextFrame(Handle),
 }
 
-impl EmulatorInner {
-    pub fn gb(&self) -> &Gameboy {
-        match self {
-            EmulatorInner::StartUp(seq) => seq.as_ref().unwrap().gb(),
-            EmulatorInner::Ready(gb) => gb,
-        }
-    }
+#[derive(Debug, Clone, PartialEq)]
+pub enum SettingsMessage {}
 
-    pub fn frame_step(&mut self) {
-        match self {
-            EmulatorInner::StartUp(seq) => {
-                seq.as_mut().unwrap().frame_step().complete();
-                if seq.as_ref().unwrap().is_complete() {
-                    *self = EmulatorInner::Ready(seq.take().unwrap().complete())
-                }
-            }
-            EmulatorInner::Ready(gb) => {
-                if !gb.is_stopped() {
-                    gb.next_frame().complete()
-                }
-            }
-        }
-    }
-
-    fn step_op(&mut self) {
-        match self {
-            EmulatorInner::StartUp(gb) => gb.as_mut().unwrap().step(),
-            EmulatorInner::Ready(gb) => {
-                gb.step().complete();
-            }
-        }
-    }
-
-    fn scanline_step(&mut self) {
-        match self {
-            EmulatorInner::StartUp(seq) => {
-                seq.as_mut().unwrap().scanline_step();
-                if seq.as_ref().unwrap().is_complete() {
-                    *self = EmulatorInner::Ready(seq.take().unwrap().complete())
-                }
-            }
-            EmulatorInner::Ready(gb) => {
-                if !gb.is_stopped() {
-                    gb.scanline_step()
-                }
-            }
-        }
-    }
-}
-
-#[allow(clippy::ptr_arg)]
-pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Handle {
-    const SCALE: usize = 4;
-    let (width, height, image) = screen_to_image_scaled(screen, SCALE);
-    assert_eq!(width * height * 4, image.len() as u32);
-    Handle::from_rgba(width, height, image)
-}
-
-impl Emulator {
-    pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
-        let gb = Gameboy::new(cart);
-        let gb = gb.complete();
+impl UiState {
+    pub fn new(config: Config, send: EmuSend) -> Self {
+        let trove = config.get_trove();
+        let image = Handle::from_rgba(0, 0, Bytes::default());
         Self {
-            // gb: EmulatorInner::StartUp(Some(gb)),
-            gb: EmulatorInner::Ready(gb),
-            count: Some(0),
-            frame: 0,
-            dbg: Debugger(0),
-            duplicated_screens: None,
+            send,
+            cursor: StateCursor::Home,
+            home: HomeState { trove },
+            game: InGameState { image },
+            settings: SettingsState {},
         }
     }
 
-    pub fn just_pixels(&self) -> Handle {
-        create_image(&self.gb.gb().ppu.screen)
-    }
-
-    fn screen(&self) -> impl Into<Element<'static, Message>> {
-        let gb = self.gb.gb();
-        let screen: Element<'static, Message> = match self.duplicated_screens.as_ref() {
-            Some(screens) => Column::from_vec(
-                screens
-                    .iter()
-                    .map(create_image)
-                    .map(Image::new)
-                    .map(Into::into)
-                    .collect::<Vec<_>>(),
-            )
-            .spacing(8)
-            .into(),
-            None => Image::new(create_image(&gb.ppu.screen)).into(),
-        };
-        let col = Column::from_iter(std::iter::once(screen).chain(self.dbg.view(gb)));
-        Scrollable::new(col)
-    }
-
-    pub fn gb(&self) -> &Gameboy {
-        self.gb.gb()
-    }
-
-    pub fn next_screen(&mut self) {
-        self.gb.frame_step()
-    }
-
-    pub fn step_op(&mut self) {
-        self.gb.step_op()
-    }
-
-    pub fn update(&mut self, msg: Message) {
-        match msg {
-            Message::Play => {
-                self.duplicated_screens = None;
-                self.count = None;
+    pub fn update(&mut self, msg: UiMessage) {
+        let cursor = match msg {
+            UiMessage::HomeMessage(msg) if matches!(self.cursor, StateCursor::Home) => {
+                self.home.update(&self.send, msg)
             }
-            Message::Pause => self.count = Some(0),
-            Message::Step(count) => {
-                if let Some(c) = self.count.as_mut() {
-                    *c += count
-                }
-                if self.duplicated_screens.is_some() {
-                    self.count = Some(0);
-                }
+            UiMessage::HomeMessage(_) => unreachable!(),
+            UiMessage::InGameMessage(msg) if matches!(self.cursor, StateCursor::InGame) => {
+                self.game.update(msg)
             }
-            Message::Tick => match self.count.as_mut() {
-                Some(c) => {
-                    if *c > 0 {
-                        *c -= 1;
-                        self.frame += 1;
-                        if let Some(screens) = self.duplicated_screens.as_ref() {
-                            if screens.len() == self.frame {
-                                self.frame = 0;
-                            }
-                        }
-                        self.gb.frame_step();
-                    }
-                }
-                None => {
-                    self.frame += 1;
-                    if let Some(screens) = self.duplicated_screens.as_ref() {
-                        if screens.len() == self.frame {
-                            self.frame = 0;
-                        }
-                    }
-                    self.gb.frame_step()
+            UiMessage::InGameMessage(_) => None,
+            UiMessage::SettingsMessage(msg) if matches!(self.cursor, StateCursor::Settings) => {
+                self.settings.update(msg)
+            }
+            UiMessage::SettingsMessage(_) => unreachable!(),
+            UiMessage::SwitchToSettings => Some(StateCursor::Settings),
+            UiMessage::Keystroke(key) => match key {
+                Keystroke::Escape => {
+                    self.send.pause();
+                    Some(StateCursor::Home)
                 }
             },
-            Message::ScanLine => self.gb.scanline_step(),
-            Message::PaletteInc => self.dbg.inc(),
-            Message::Redraw => {}
-            Message::Screens(screens) => {
-                self.frame = 0;
-                self.count = Some(0);
-                self.duplicated_screens = Some(screens)
+        };
+        if let Some(cursor) = cursor {
+            self.cursor = cursor;
+        }
+    }
+
+    pub fn view(&self) -> Element<'_, UiMessage> {
+        match self.cursor {
+            StateCursor::Home => self.home.view().map(UiMessage::HomeMessage),
+            StateCursor::InGame => self.game.view().map(UiMessage::InGameMessage),
+            StateCursor::Settings => self.settings.view().map(UiMessage::SettingsMessage),
+        }
+    }
+
+    pub fn subscription(&self) -> Subscription<UiMessage> {
+        on_key_press(Keystroke::convert).map(UiMessage::Keystroke)
+    }
+}
+
+impl HomeState {
+    fn update(&mut self, send: &EmuSend, msg: HomeMessage) -> Option<StateCursor> {
+        match msg {
+            HomeMessage::AddGame => {
+                let path = home_dir().unwrap();
+                let game = rfd::FileDialog::new().set_directory(&path).pick_file();
+                if let Some(file) = game {
+                    self.trove.add_game(file);
+                }
+                None
+            }
+            HomeMessage::StartGame(file) => {
+                let game = self.trove.fetch_game(file);
+                send.start_game(game);
+                Some(StateCursor::InGame)
             }
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
-        self.view_owned()
+    pub fn view(&self) -> Element<'_, HomeMessage> {
+        column![self.settings_button(), self.trove.display()].into()
     }
 
-    /// This function only exists because `view` can not explicitly return an `Element<'static,
-    /// Message>` for... reasons.
-    pub fn view_owned(&self) -> Element<'static, Message> {
-        column![
-            row![
-                Button::new(text(self.to_frame_text(1))).on_press(Message::Step(1)),
-                Button::new(text(self.to_frame_text(10))).on_press(Message::Step(10)),
-                Button::new(text("Next Scanline")).on_press(Message::ScanLine),
-                Button::new(text("Run")).on_press(Message::Play),
-                Button::new(text("Pause")).on_press(Message::Pause),
-                Button::new(text(format!("Change palette from {}", self.dbg.0)))
-                    .on_press(Message::PaletteInc),
-            ],
-            self.screen().into(),
-        ]
-        .padding(20)
-        .spacing(20)
-        .align_x(Alignment::Center)
-        .into()
+    pub fn subscription(&self) -> Subscription<HomeMessage> {
+        Subscription::none()
     }
 
-    fn to_frame_text(&self, inc: usize) -> String {
-        match self.duplicated_screens.as_ref() {
-            Some(screens) => format!("To frame {}/{}", self.frame + inc, screens.len()),
-            None => format!("To frame {}", self.frame + inc),
+    fn settings_button(&self) -> Element<'static, HomeMessage> {
+        Button::new("Settings").into()
+    }
+}
+
+impl InGameState {
+    fn update(&mut self, msg: InGameMessage) -> Option<StateCursor> {
+        match msg {
+            InGameMessage::NextFrame(image) => self.image = image,
         }
+        None
     }
 
-    pub fn subscription(&self) -> Subscription<Message> {
-        match self.count {
-            Some(0) => Subscription::none(),
-            _ => iced::time::every(std::time::Duration::from_millis(33)).map(|_| Message::Tick),
-        }
+    pub fn view(&self) -> Element<'_, InGameMessage> {
+        Image::new(self.image.clone()).into()
+    }
+}
+
+impl SettingsState {
+    fn update(&mut self, msg: SettingsMessage) -> Option<StateCursor> {
+        todo!()
+    }
+
+    pub fn view(&self) -> Element<'_, SettingsMessage> {
+        todo!()
     }
 }

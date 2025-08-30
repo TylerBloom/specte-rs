@@ -12,11 +12,18 @@
 // TODO: When ROM patching is supported, ROM "recipes" will be added so users can create new game
 // directories as new versions of the patch get released.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use iced::Element;
+use iced::widget::Button;
+use iced::widget::Column;
+use iced::widget::Text;
+use serde::Deserialize;
+use serde::Serialize;
 
 use crate::config::CONFIG_PATH;
+use crate::state::HomeMessage;
 
 // TODO: To get an MVP working, the trove will just contain a copy of each can. Later, layers like
 // the game sets will be added.
@@ -84,6 +91,31 @@ impl Trove {
         GameSet { path: set_dir }
     }
     */
+    pub fn display(&self) -> Element<'static, HomeMessage> {
+        let children = std::iter::once("Trove".into())
+            .chain(std::iter::once(self.add_game_set_button()))
+            .chain(self.display_games());
+        Column::with_children(children).into()
+    }
+
+    pub fn add_game_set_button(&self) -> Element<'static, HomeMessage> {
+        Button::new("Add Game Set")
+            .on_press(HomeMessage::AddGame)
+            .into()
+    }
+
+    pub fn display_games(&self) -> impl IntoIterator<Item = Element<'static, HomeMessage>> {
+        std::fs::read_dir(&self.path)
+            .unwrap()
+            .map(Result::unwrap)
+            .filter(|item| item.file_type().unwrap().is_file())
+            .map(|item| {
+                let file_name = item.file_name().to_str().unwrap().to_owned();
+                Button::new(Text::new(file_name.clone()))
+                    .on_press(HomeMessage::StartGame(file_name))
+            })
+            .map(Into::into)
+    }
 }
 
 /// Contains data about usage, such as the last game played.
