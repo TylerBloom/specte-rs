@@ -1,45 +1,62 @@
 use clap::Parser;
-use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::Event as CrosstermEvent;
+use crossterm::event::KeyCode;
+use crossterm::event::KeyEvent;
+use crossterm::event::KeyEventKind;
+use crossterm::event::KeyModifiers;
 use crossterm::execute;
 use crossterm::terminal::LeaveAlternateScreen;
 use ghast::state::Emulator;
 use indexmap::IndexSet;
+use ratatui::Frame;
+use ratatui::Terminal;
+use ratatui::backend::Backend;
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Constraint;
+use ratatui::layout::Direction;
+use ratatui::layout::Layout;
 use ratatui::layout::Position;
-use ratatui::{
-    Frame, Terminal,
-    backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout, Rect},
-    text::Text,
-    widgets::{Block, Paragraph},
-};
+use ratatui::layout::Rect;
+use ratatui::text::Text;
+use ratatui::widgets::Block;
+use ratatui::widgets::Paragraph;
+use spirit::Gameboy;
+use spirit::StartUpSequence;
+use spirit::cpu::Cpu;
 use spirit::cpu::CpuState;
-use spirit::lookup::{InterruptOp, JumpOp};
-use spirit::{Gameboy, StartUpSequence, cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu};
+use spirit::lookup::Instruction;
+use spirit::lookup::InterruptOp;
+use spirit::lookup::JumpOp;
+use spirit::mem::MemoryMap;
+use spirit::ppu::Ppu;
 use std::cell::Cell;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::error::Error;
 use std::fmt::Write;
+use std::io;
+use std::io::Write as _;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::mpsc;
-use std::{
-    cell::RefCell,
-    io,
-    rc::Rc,
-    sync::{Arc, Mutex},
-};
-use std::{error::Error, io::Write as _};
 use tokio::sync::broadcast::Sender;
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::{
-    FmtSubscriber,
-    fmt::{
-        MakeWriter,
-        format::{Compact, DefaultFields, Format},
-    },
-};
+use tracing_subscriber::FmtSubscriber;
+use tracing_subscriber::fmt::MakeWriter;
+use tracing_subscriber::fmt::format::Compact;
+use tracing_subscriber::fmt::format::DefaultFields;
+use tracing_subscriber::fmt::format::Format;
 
-use crate::{
-    Command, IndexOptions, LoopKind, ReplCommand, RunFor, RunLength, RunUntil, ViewCommand,
-    WindowMessage,
-};
+use crate::Command;
+use crate::IndexOptions;
+use crate::LoopKind;
+use crate::ReplCommand;
+use crate::RunFor;
+use crate::RunLength;
+use crate::RunUntil;
+use crate::ViewCommand;
+use crate::WindowMessage;
 
 /// This is the app's state which holds all of the CLI data. This includes all previous commands
 /// that were ran and all data to be displayed in the TUI (prompts, inputs, command outputs).

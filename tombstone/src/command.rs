@@ -1,22 +1,24 @@
-use std::{
-    borrow::Cow,
-    collections::{HashMap, hash_map::Entry},
-    fmt::Write,
-    hash::{DefaultHasher, Hash, Hasher},
-    num::ParseIntError,
-    ops::Range,
-    path::PathBuf,
-    str::FromStr,
-};
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::fmt::Write;
+use std::hash::DefaultHasher;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::num::ParseIntError;
+use std::ops::Range;
+use std::path::PathBuf;
+use std::str::FromStr;
 
-use clap::{Args, Parser, Subcommand};
+use clap::Args;
+use clap::Parser;
+use clap::Subcommand;
 
 use ghast::state::Message;
 use indexmap::IndexSet;
-use spirit::{
-    lookup::{Instruction, JumpOp},
-    ppu::Pixel,
-};
+use spirit::lookup::Instruction;
+use spirit::lookup::JumpOp;
+use spirit::ppu::Pixel;
 
 use crate::AppState;
 

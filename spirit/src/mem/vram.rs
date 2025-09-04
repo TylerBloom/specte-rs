@@ -1,14 +1,22 @@
-use std::ops::{Index, IndexMut};
+use std::ops::Index;
+use std::ops::IndexMut;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use serde_with::serde_as;
-use tracing::{info, trace};
+use tracing::info;
+use tracing::trace;
 
-use super::{
-    BgTileDataIndex, BgTileDataInnerIndex, BgTileMapAttrIndex, BgTileMapAttrInnerIndex,
-    BgTileMapIndex, BgTileMapInnerIndex, OamObjectIndex, ObjTileDataIndex,
-    io::{BgPaletteIndex, ObjPaletteIndex},
-};
+use super::BgTileDataIndex;
+use super::BgTileDataInnerIndex;
+use super::BgTileMapAttrIndex;
+use super::BgTileMapAttrInnerIndex;
+use super::BgTileMapIndex;
+use super::BgTileMapInnerIndex;
+use super::OamObjectIndex;
+use super::ObjTileDataIndex;
+use super::io::BgPaletteIndex;
+use super::io::ObjPaletteIndex;
 
 static DEAD_READ_ONLY_BYTE: u8 = 0xFF;
 

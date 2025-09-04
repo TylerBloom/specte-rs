@@ -1,8 +1,11 @@
 use array_concat::concat_arrays;
 
-use crate::{cpu::Cpu, mem::{MemoryLike, MemoryMap}};
+use crate::cpu::Cpu;
+use crate::mem::MemoryLike;
+use crate::mem::MemoryMap;
 
-use derive_more::{From, IsVariant};
+use derive_more::From;
+use derive_more::IsVariant;
 
 #[cfg(test)]
 pub fn parse_instruction(mem: &dyn MemoryLike, pc: u16) -> Instruction {
@@ -1426,7 +1429,8 @@ static PREFIXED_OP_LOOKUP: OpArray<0x100> = define_op_lookup_table!(PREFIXED);
 mod test {
     use crate::mem::MemoryMap;
 
-    use super::{parse_instruction, parse_prefixed_instruction};
+    use super::parse_instruction;
+    use super::parse_prefixed_instruction;
 
     #[test]
     fn dedupped_op_lookup_tables() {

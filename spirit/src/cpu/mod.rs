@@ -1,24 +1,40 @@
-use std::{
-    borrow::BorrowMut,
-    cell::RefCell,
-    collections::HashSet,
-    hash::{Hash, Hasher},
-    ops::{Add, Index, IndexMut},
-    sync::{Mutex, OnceLock},
-};
+use std::borrow::BorrowMut;
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::ops::Add;
+use std::ops::Index;
+use std::ops::IndexMut;
+use std::sync::Mutex;
+use std::sync::OnceLock;
 
-use serde::{Deserialize, Serialize};
-use tracing::{info, info_span, trace};
+use serde::Deserialize;
+use serde::Serialize;
+use tracing::info;
+use tracing::info_span;
+use tracing::trace;
 
-use crate::{
-    lookup::{
-        ArithmeticOp, BitOp, BitOpInner, BitShiftOp, Condition, ControlOp, HalfRegister,
-        Instruction, InterruptOp, JumpOp, LoadAPointer, LoadOp, RegOrPointer, SomeByte, WideReg,
-        WideRegWithoutSP, parse_instruction,
-    },
-    mem::{MemoryLikeExt, MemoryMap},
-    utils::Wrapping,
-};
+use crate::lookup::ArithmeticOp;
+use crate::lookup::BitOp;
+use crate::lookup::BitOpInner;
+use crate::lookup::BitShiftOp;
+use crate::lookup::Condition;
+use crate::lookup::ControlOp;
+use crate::lookup::HalfRegister;
+use crate::lookup::Instruction;
+use crate::lookup::InterruptOp;
+use crate::lookup::JumpOp;
+use crate::lookup::LoadAPointer;
+use crate::lookup::LoadOp;
+use crate::lookup::RegOrPointer;
+use crate::lookup::SomeByte;
+use crate::lookup::WideReg;
+use crate::lookup::WideRegWithoutSP;
+use crate::lookup::parse_instruction;
+use crate::mem::MemoryLikeExt;
+use crate::mem::MemoryMap;
+use crate::utils::Wrapping;
 
 #[cfg(test)]
 mod cpu_tests;

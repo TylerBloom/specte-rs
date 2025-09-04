@@ -1,9 +1,14 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::Mutex;
 
-use ghast::state::{Emulator, Message};
-use iced::{Element, Subscription, Task};
+use ghast::state::Emulator;
+use ghast::state::Message;
+use iced::Element;
+use iced::Subscription;
+use iced::Task;
 use tokio::sync::broadcast::Receiver;
-use tokio_stream::{StreamExt, wrappers::BroadcastStream};
+use tokio_stream::StreamExt;
+use tokio_stream::wrappers::BroadcastStream;
 
 use crate::WindowMessage;
 

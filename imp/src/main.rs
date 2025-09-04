@@ -1,9 +1,9 @@
-use std::{
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::path::Path;
+use std::path::PathBuf;
+use std::str::FromStr;
 
-use clap::{Parser, Subcommand};
+use clap::Parser;
+use clap::Subcommand;
 use spirit::Gameboy;
 
 #[derive(Debug, Parser)]

@@ -1,8 +1,7 @@
-use std::{
-    borrow::Cow,
-    fmt::Debug,
-    ops::{Index, IndexMut},
-};
+use std::borrow::Cow;
+use std::fmt::Debug;
+use std::ops::Index;
+use std::ops::IndexMut;
 
 mod direct;
 mod mbc1;
@@ -15,7 +14,8 @@ pub use mbc1::*;
 pub use mbc2::*;
 pub use mbc3::*;
 pub use mbc5::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use tracing::error;
 
 static NINTENDO_LOGO: &[u8] = &[

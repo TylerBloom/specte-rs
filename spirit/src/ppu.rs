@@ -1,23 +1,30 @@
-use std::{
-    array,
-    collections::VecDeque,
-    fmt::Display,
-    sync::{LazyLock, Mutex},
-};
+use std::array;
+use std::collections::VecDeque;
+use std::fmt::Display;
+use std::sync::LazyLock;
+use std::sync::Mutex;
 
 use heapless::Vec as InlineVec;
-use serde::{Deserialize, Serialize};
-use tracing::{info_span, trace};
+use serde::Deserialize;
+use serde::Serialize;
+use tracing::info_span;
+use tracing::trace;
 
-use crate::{
-    cpu::{check_bit, check_bit_const},
-    mem::{
-        BgTileDataIndex, BgTileMapAttrIndex, BgTileMapIndex, MemoryMap, OamObjectIndex,
-        ObjTileDataIndex, WindowTileDataIndex, WindowTileMapAttrIndex, WindowTileMapIndex,
-        io::{BgPaletteIndex, ObjPaletteIndex},
-        vram::{PpuMode, VRam},
-    },
-};
+use crate::cpu::check_bit;
+use crate::cpu::check_bit_const;
+use crate::mem::BgTileDataIndex;
+use crate::mem::BgTileMapAttrIndex;
+use crate::mem::BgTileMapIndex;
+use crate::mem::MemoryMap;
+use crate::mem::OamObjectIndex;
+use crate::mem::ObjTileDataIndex;
+use crate::mem::WindowTileDataIndex;
+use crate::mem::WindowTileMapAttrIndex;
+use crate::mem::WindowTileMapIndex;
+use crate::mem::io::BgPaletteIndex;
+use crate::mem::io::ObjPaletteIndex;
+use crate::mem::vram::PpuMode;
+use crate::mem::vram::VRam;
 
 // TODO:
 // 1) There is a gap (12 ticks) between the start of mode 3 and when the first pixel can be output.
@@ -662,15 +669,19 @@ pub fn zip_bits(hi: u8, lo: u8) -> impl Iterator<Item = u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        mem::{
-            io::{BgPaletteIndex, Palette}, vram::PpuMode, MemoryLike, MemoryMap
-        },
-        ppu::{ObjectPixel, Pixel, Ppu},
-    };
+    use crate::mem::MemoryLike;
+    use crate::mem::MemoryMap;
+    use crate::mem::io::BgPaletteIndex;
+    use crate::mem::io::Palette;
+    use crate::mem::vram::PpuMode;
+    use crate::ppu::ObjectPixel;
+    use crate::ppu::Pixel;
+    use crate::ppu::Ppu;
     use heapless::Vec as InlineVec;
 
-    use super::{PixelFetcher, PpuInner, zip_bits};
+    use super::PixelFetcher;
+    use super::PpuInner;
+    use super::zip_bits;
 
     // Test that the fetcher can get the pixel data, populate the buffer at the right time, and
     // reset itself.

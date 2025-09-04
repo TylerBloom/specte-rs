@@ -1,9 +1,11 @@
-use spirit::{
-    cpu::Cpu,
-    lookup::{BitShiftOp, HalfRegister, Instruction, LoadOp, RegOrPointer},
-    mem::MemoryMap,
-    utils::Wrapping,
-};
+use spirit::cpu::Cpu;
+use spirit::lookup::BitShiftOp;
+use spirit::lookup::HalfRegister;
+use spirit::lookup::Instruction;
+use spirit::lookup::LoadOp;
+use spirit::lookup::RegOrPointer;
+use spirit::mem::MemoryMap;
+use spirit::utils::Wrapping;
 
 const WRAM: u16 = 0xC000;
 

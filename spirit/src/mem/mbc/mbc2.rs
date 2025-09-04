@@ -1,6 +1,8 @@
-use std::ops::{Index, IndexMut};
+use std::ops::Index;
+use std::ops::IndexMut;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use serde_with::serde_as;
 
 use crate::cpu::u16_check_bit_const;

@@ -1,16 +1,10 @@
+pub struct Apu {}
 
+pub struct Envelope {}
 
-pub struct Apu {
-}
+pub enum PulseWidthSetting {}
 
-pub struct Envelope {
-}
-
-pub enum PulseWidthSetting {
-}
-
-pub struct PulseWidthChannel {
-}
+pub struct PulseWidthChannel {}
 
 impl PulseWidthChannel {
     fn trigger(&mut self) {
@@ -32,8 +26,7 @@ impl WaveChannel {
     }
 }
 
-pub struct NoiseChannel {
-}
+pub struct NoiseChannel {}
 
 impl NoiseChannel {
     /// The channel can be enabled to automatically turn off. When it does, a counter is ticked up
@@ -45,14 +38,9 @@ impl NoiseChannel {
     }
 }
 
-pub struct Mixer {
-}
+pub struct Mixer {}
 
-pub struct Amplifier {
-}
+pub struct Amplifier {}
 
 // TODO: Will probably be a trait
-pub struct Output {
-}
-
-
+pub struct Output {}

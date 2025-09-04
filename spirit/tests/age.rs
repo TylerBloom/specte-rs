@@ -1,7 +1,8 @@
-use spirit::{
-    Gameboy,
-    lookup::{HalfRegister, Instruction, LoadOp, RegOrPointer},
-};
+use spirit::Gameboy;
+use spirit::lookup::HalfRegister;
+use spirit::lookup::Instruction;
+use spirit::lookup::LoadOp;
+use spirit::lookup::RegOrPointer;
 
 const REG_B: RegOrPointer = RegOrPointer::Reg(HalfRegister::B);
 const END_OP: Instruction = Instruction::Load(LoadOp::Basic {

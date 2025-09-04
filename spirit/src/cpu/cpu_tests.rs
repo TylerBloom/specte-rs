@@ -1,15 +1,16 @@
-use std::{
-    fmt::Display,
-    os::fd::AsRawFd,
-    path::{Path, PathBuf},
-    rc::Rc,
-    u8,
-};
+use std::fmt::Display;
+use std::os::fd::AsRawFd;
+use std::path::Path;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::u8;
 
 use crate::mem::BgTileMapAttrIndex;
 
-use super::{Cpu, Flags};
-use serde::{Deserialize, Serialize};
+use super::Cpu;
+use super::Flags;
+use serde::Deserialize;
+use serde::Serialize;
 
 #[test]
 fn json_tests() {

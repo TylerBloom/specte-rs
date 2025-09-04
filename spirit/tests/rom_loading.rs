@@ -1,7 +1,7 @@
-use spirit::{
-    Gameboy,
-    mem::{MemoryLike, MemoryMap, START_UP_HEADER},
-};
+use spirit::Gameboy;
+use spirit::mem::MemoryLike;
+use spirit::mem::MemoryMap;
+use spirit::mem::START_UP_HEADER;
 
 macro_rules! include_roms {
     ($($file:literal),+) => {{

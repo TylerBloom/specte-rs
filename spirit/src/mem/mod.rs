@@ -3,11 +3,16 @@
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::{Index, IndexMut};
+use std::ops::Index;
+use std::ops::IndexMut;
 
+use crate::ButtonInput;
+use crate::JoypadInput;
+use crate::SsabInput;
 use crate::cpu::check_bit_const;
-use crate::lookup::{Instruction, InterruptOp, parse_instruction};
-use crate::{ButtonInput, JoypadInput, SsabInput};
+use crate::lookup::Instruction;
+use crate::lookup::InterruptOp;
+use crate::lookup::parse_instruction;
 
 pub mod io;
 mod mbc;
@@ -17,12 +22,15 @@ pub use mbc::MemoryBankController;
 use mbc::*;
 
 use io::IoRegisters;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use serde_with::serde_as;
 use tracing::trace;
 use vram::PpuMode;
 
-use self::vram::{CpuOamIndex, CpuVramIndex, VRam};
+use self::vram::CpuOamIndex;
+use self::vram::CpuVramIndex;
+use self::vram::VRam;
 
 pub static START_UP_HEADER: &[u8; 0x900] = include_bytes!("../cgb.bin");
 

@@ -1,28 +1,43 @@
 #![allow(dead_code, unused)]
 
+use std::error::Error;
 use std::fmt::Write;
+use std::io::Write as _;
 use std::panic::PanicHookInfo;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use std::{error::Error, io::Write as _};
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::Duration;
+use std::time::Instant;
 
-use crossterm::event::{Event, poll, read};
+use crossterm::event::Event;
+use crossterm::event::poll;
+use crossterm::event::read;
 use crossterm::execute;
 use crossterm::style::Print;
-use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
+use crossterm::terminal::EnterAlternateScreen;
+use crossterm::terminal::LeaveAlternateScreen;
+use crossterm::terminal::disable_raw_mode;
+use crossterm::terminal::enable_raw_mode;
 use ghast::state::Emulator;
+use ratatui::Frame;
+use ratatui::Terminal;
+use ratatui::backend::Backend;
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Constraint;
+use ratatui::layout::Direction;
+use ratatui::layout::Layout;
 use ratatui::layout::Position;
-use ratatui::{
-    Frame, Terminal,
-    backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout, Rect},
-    text::Text,
-    widgets::{Block, Paragraph},
-};
+use ratatui::layout::Rect;
+use ratatui::text::Text;
+use ratatui::widgets::Block;
+use ratatui::widgets::Paragraph;
+use spirit::Gameboy;
+use spirit::StartUpSequence;
+use spirit::cpu::Cpu;
 use spirit::cpu::CpuState;
-use spirit::{Gameboy, StartUpSequence, cpu::Cpu, lookup::Instruction, mem::MemoryMap, ppu::Ppu};
+use spirit::lookup::Instruction;
+use spirit::mem::MemoryMap;
+use spirit::ppu::Ppu;
 
 use clap::Parser;
 

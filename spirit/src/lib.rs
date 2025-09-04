@@ -14,22 +14,28 @@
     clippy::all
 )]
 
-use std::{
-    borrow::Cow,
-    ops::{Deref, DerefMut},
-};
+use std::borrow::Cow;
+use std::ops::Deref;
+use std::ops::DerefMut;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
-use cpu::{Cpu, CpuState, check_bit_const};
+use cpu::Cpu;
+use cpu::CpuState;
+use cpu::check_bit_const;
 use lookup::Instruction;
-use mem::{vram::PpuMode, MemoryBankController, MemoryLike, MemoryMap, StartUpHeaders};
+use mem::MemoryBankController;
+use mem::MemoryLike;
+use mem::MemoryMap;
+use mem::StartUpHeaders;
+use mem::vram::PpuMode;
 use ppu::Ppu;
 
 use crate::lookup::JumpOp;
 
-pub mod cpu;
 pub mod apu;
+pub mod cpu;
 pub mod lookup;
 pub mod mem;
 pub mod ppu;
