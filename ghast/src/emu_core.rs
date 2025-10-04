@@ -145,7 +145,7 @@ impl EmuCore {
                 }
             }
             if !is_paused {
-                emu.next_screen();
+                emu.next_frame();
                 send.send(emu.just_pixels()).await.unwrap();
             }
         }
@@ -174,48 +174,23 @@ enum EmulatorInner {
 impl EmulatorInner {
     pub fn gb(&self) -> &Gameboy {
         match self {
-            EmulatorInner::StartUp(seq) => seq.as_ref().unwrap().gb(),
+            EmulatorInner::StartUp(seq) => seq.as_ref().unwrap(),
             EmulatorInner::Ready(gb) => gb,
         }
     }
 
-    pub fn frame_step(&mut self) {
+    pub fn next_frame(&mut self) {
         match self {
             EmulatorInner::StartUp(seq) => {
-                seq.as_mut().unwrap().frame_step().complete();
+                seq.as_mut().unwrap().next_frame();
                 if seq.as_ref().unwrap().is_complete() {
+                    println!("Completed!!");
                     *self = EmulatorInner::Ready(seq.take().unwrap().complete())
                 }
             }
             EmulatorInner::Ready(gb) => {
                 if !gb.is_stopped() {
-                    gb.next_frame().complete()
-                }
-            }
-        }
-    }
-
-    fn step_op(&mut self) {
-        match self {
-            EmulatorInner::StartUp(gb) => gb.as_mut().unwrap().step(),
-            EmulatorInner::Ready(gb) => {
-                gb.step().complete();
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    fn scanline_step(&mut self) {
-        match self {
-            EmulatorInner::StartUp(seq) => {
-                seq.as_mut().unwrap().scanline_step();
-                if seq.as_ref().unwrap().is_complete() {
-                    *self = EmulatorInner::Ready(seq.take().unwrap().complete())
-                }
-            }
-            EmulatorInner::Ready(gb) => {
-                if !gb.is_stopped() {
-                    gb.scanline_step()
+                    gb.next_frame()
                 }
             }
         }
@@ -233,9 +208,8 @@ pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Handle {
 impl Emulator {
     pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
         let gb = Gameboy::new(cart);
-        let gb = gb.complete();
         Self {
-            gb: EmulatorInner::Ready(gb),
+            gb: EmulatorInner::StartUp(Some(gb)),
         }
     }
 
@@ -247,11 +221,7 @@ impl Emulator {
         self.gb.gb()
     }
 
-    pub fn next_screen(&mut self) {
-        self.gb.frame_step()
-    }
-
-    pub fn step_op(&mut self) {
-        self.gb.step_op()
+    pub fn next_frame(&mut self) {
+        self.gb.next_frame()
     }
 }

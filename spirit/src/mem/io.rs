@@ -57,7 +57,7 @@ pub struct IoRegisters {
     // """
     pub(super) vram_select: u8,
     /// ADDR FF50
-    boot_status: u8,
+    pub boot_status: u8,
     /// The boot status register is written to exactly once (during the boot process). After that,
     /// it is inaccessible
     boot_status_disabled: bool,
