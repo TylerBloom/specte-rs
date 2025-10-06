@@ -12,7 +12,7 @@ const WRAM: u16 = 0xC000;
 fn init() -> (Cpu, MemoryMap) {
     static CART: &[u8] = include_bytes!("roms/acid/which.gb");
     let cpu = Cpu::default();
-    let mem = MemoryMap::new(CART);
+    let mem = MemoryMap::new(CART.into());
     (cpu, mem)
 }
 

@@ -362,7 +362,7 @@ impl VramDma {
 }
 
 impl MemoryMap {
-    pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
+    pub fn new(cart: Vec<u8>) -> Self {
         Self {
             mbc: MemoryBankController::new(cart),
             vram: VRam::new(),

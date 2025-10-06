@@ -1,9 +1,7 @@
-use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::Parser;
-use clap::Subcommand;
 use spirit::Gameboy;
 
 #[derive(Debug, Parser)]
@@ -23,7 +21,7 @@ fn main() {
     let mut path = PathBuf::from_str(&args.rom).unwrap();
     let rom = std::fs::read(&path).unwrap();
     let mut gb = Gameboy::new(rom).complete();
-    (0..args.frames).for_each(|_| gb.next_frame().complete());
+    (0..args.frames).for_each(|_| gb.next_frame());
 
     let filename_base = path
         .file_name()

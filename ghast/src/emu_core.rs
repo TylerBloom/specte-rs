@@ -191,6 +191,8 @@ impl EmulatorInner {
             EmulatorInner::Ready(gb) => {
                 if !gb.is_stopped() {
                     gb.next_frame()
+                } else {
+                    println!("Is stopped!!");
                 }
             }
         }
@@ -206,7 +208,7 @@ pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Handle {
 }
 
 impl Emulator {
-    pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> Self {
+    pub fn new(cart: Vec<u8>) -> Self {
         let gb = Gameboy::new(cart);
         Self {
             gb: EmulatorInner::StartUp(Some(gb)),

@@ -11,9 +11,9 @@ const END_OP: Instruction = Instruction::Load(LoadOp::Basic {
 });
 
 fn run(cart: &[u8]) {
-    let mut gb = Gameboy::new(cart).complete();
+    let mut gb = Gameboy::new(cart.into()).complete();
     while !matches!(gb.read_op(), END_OP) {
-        gb.step().complete();
+        gb.step();
     }
     const REGS: [(HalfRegister, u8); 6] = [
         (HalfRegister::B, 3),

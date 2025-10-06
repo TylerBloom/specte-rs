@@ -58,9 +58,30 @@ pub struct StartUpSequence {
     remap_mem: Option<Box<StartUpHeaders>>,
 }
 
+pub enum ButtonInput {
+    Joypad(JoypadInput),
+    Ssab(SsabInput),
+}
+
+#[repr(u8)]
+pub enum JoypadInput {
+    Right = 0x1,
+    Left = 0x2,
+    Up = 0x4,
+    Down = 0x8,
+}
+
+#[repr(u8)]
+pub enum SsabInput {
+    A = 0x1,
+    B = 0x2,
+    Select = 0x4,
+    Start = 0x8,
+}
+
 impl Gameboy {
     /// Takes data that represents the data stored on a game cartridge and uses it to construct the
-    pub fn new<'a, C: Into<Cow<'a, [u8]>>>(cart: C) -> StartUpSequence {
+    pub fn new(cart: Vec<u8>) -> StartUpSequence {
         StartUpSequence::new(Self {
             mem: MemoryMap::new(cart),
             cpu: Cpu::new(),
@@ -157,27 +178,6 @@ impl Gameboy {
     }
 }
 
-pub enum ButtonInput {
-    Joypad(JoypadInput),
-    Ssab(SsabInput),
-}
-
-#[repr(u8)]
-pub enum JoypadInput {
-    Right = 0x1,
-    Left = 0x2,
-    Up = 0x4,
-    Down = 0x8,
-}
-
-#[repr(u8)]
-pub enum SsabInput {
-    A = 0x1,
-    B = 0x2,
-    Select = 0x4,
-    Start = 0x8,
-}
-
 impl StartUpSequence {
     fn new(mut gb: Gameboy) -> Self {
         let remap_mem = Some(Box::new(gb.mem.start_up_remap()));
@@ -238,6 +238,6 @@ mod tests {
 
     #[test]
     fn start_up_completion() {
-        Gameboy::new(include_bytes!("../tests/roms/acid/which.gb")).complete();
+        Gameboy::new(include_bytes!("../tests/roms/acid/which.gb").into()).complete();
     }
 }

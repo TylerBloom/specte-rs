@@ -137,7 +137,7 @@ impl MBC3 {
                     0xC => self.ram_clock_index = RamAndClockIndex::Clock(ClockIndex::DayUpper),
                     // NOTE: It is unclear to me what happen if anything else is written into this
                     // register. For now, we are just going to ignore it.
-                    _ => {}
+                    _ => println!("Received unclear RAM/Clock index"),
                 }
                 println!("Set RAM/clock index to {:?}", self.ram_clock_index);
             }
@@ -210,7 +210,6 @@ impl MBC3 {
                 return self.raw_enable_reg;
             }
             _ => return 0,
-            /*
             index @ 0x4000..0x8000 => self.rom[self.rom_bank as usize][(index - 0x4000) as usize],
             0x8000..0xA000 => unreachable!("How did you get here??"),
             index @ 0xA000..0xC000 => {
@@ -223,7 +222,6 @@ impl MBC3 {
                 (!(!self.ram_and_timer_enable as u8)) & digest
             }
             0xC000.. => unreachable!("How did you get here??"),
-            */
         }
     }
 }

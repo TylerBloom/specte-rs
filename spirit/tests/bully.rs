@@ -6,7 +6,7 @@ use spirit::lookup::RegOrPointer;
 
 #[test]
 fn bully() {
-    let mut gb = Gameboy::new(include_bytes!("roms/bully/bully.gb")).complete();
+    let mut gb = Gameboy::new(include_bytes!("roms/bully/bully.gb").into()).complete();
 
     const REG_B: RegOrPointer = RegOrPointer::Reg(HalfRegister::B);
     const END_OP: Instruction = Instruction::Load(LoadOp::Basic {
@@ -15,7 +15,7 @@ fn bully() {
     });
 
     while !matches!(gb.read_op(), END_OP) {
-        gb.step().complete();
+        gb.step();
     }
     const REGS: [(HalfRegister, u8); 6] = [
         (HalfRegister::B, 3),

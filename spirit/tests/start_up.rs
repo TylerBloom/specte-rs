@@ -10,11 +10,11 @@ static START_UP_MEMORY_MAPS: &[u8] = include_bytes!("data/start_up_memory_maps.p
 // #[test]
 #[allow(dead_code)]
 fn generate_frames() {
-    let mut gb = Gameboy::new(include_bytes!("roms/acid/cgb-acid2.gbc"));
+    let mut gb = Gameboy::new(include_bytes!("roms/acid/cgb-acid2.gbc").into());
     let mut datums = Vec::new();
     while !gb.is_complete() {
-        gb.frame_step().complete();
-        datums.push(gb.gb().mem.clone());
+        gb.next_frame();
+        datums.push(gb.mem.clone());
     }
     let data = postcard::to_allocvec(&datums).unwrap();
     std::fs::write("tests/data/start_up_memory_maps.postcard", data).unwrap();
@@ -30,14 +30,14 @@ fn test_startup_frames() {
             .position(|screen| screen.iter().flatten().any(|p| *p != Pixel::BLACK))
             .unwrap()
     );
-    let mut gb = Gameboy::new(include_bytes!("roms/acid/cgb-acid2.gbc"));
-    (0..9).for_each(|_| gb.frame_step().complete());
+    let mut gb = Gameboy::new(include_bytes!("roms/acid/cgb-acid2.gbc").into());
+    (0..9).for_each(|_| gb.next_frame());
     for (frame_num, state) in states.into_iter().enumerate() {
         assert_eq!(state.len(), 144);
-        gb.frame_step().complete();
+        gb.next_frame();
         state
             .iter()
-            .zip(gb.gb().ppu.screen.iter())
+            .zip(gb.ppu.screen.iter())
             .enumerate()
             .filter(|(_, (known, actual))| known != actual)
             .for_each(|(line_num, (known, actual))| {
@@ -55,12 +55,12 @@ fn test_startup_frames() {
 #[test]
 fn test_startup_memory_maps() {
     let states: Vec<MemoryMap> = postcard::from_bytes(START_UP_MEMORY_MAPS).unwrap();
-    let mut gb = Gameboy::new(include_bytes!("roms/acid/cgb-acid2.gbc"));
+    let mut gb = Gameboy::new(include_bytes!("roms/acid/cgb-acid2.gbc").into());
     for (frame_num, state) in states.into_iter().enumerate() {
-        gb.frame_step().complete();
+        gb.next_frame();
         assert_eq!(
             state,
-            gb.gb().mem,
+            gb.mem,
             "Mismatched memory map on frame #{frame_num}"
         );
     }
