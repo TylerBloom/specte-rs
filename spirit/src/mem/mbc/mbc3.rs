@@ -7,6 +7,9 @@ use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::mem::mbc::RAM_BANK_SIZE;
+use crate::mem::mbc::ROM_BANK_SIZE;
+
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum ClockLatchState {
     /// State is reached by writing 0x00 to 0x6000..0x8000
@@ -37,7 +40,6 @@ enum ClockIndex {
 #[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MBC3 {
     ram_and_reg_enabled: u8,
-    rom_bank_zero: Vec<u8>, // Box<[u8; 0x4000]>,
     rom: Vec<Vec<u8>>,
     rom_bank: u8,
     ram_clock_index: RamAndClockIndex,
@@ -48,24 +50,31 @@ pub struct MBC3 {
 }
 
 impl MBC3 {
-    pub fn new(rom_count: usize, ram_count: usize, cart: &[u8]) -> Self {
+    pub fn new(rom_size: usize, ram_size: usize, cart: &[u8]) -> Self {
         println!(
-            "Expecting {rom_count} many ROM banks, requiring {} many bytes from {} many bytes",
-            rom_count * 0x4000,
+            "MBC3 is expecting {} many ROM banks, requiring {} many bytes from {} many bytes",
+            rom_size / ROM_BANK_SIZE,
+            rom_size,
             cart.len()
         );
-        let rom_bank_zero = cart[0..0x4000].to_owned();
-        let rom = (1..rom_count)
-            .map(|i| i * 0x4000)
-            .map(|i| cart[i..i + 0x4000].to_owned())
+        println!(
+            "MBC3 is expecting {} many RAM banks, requiring {} many bytes",
+            ram_size / RAM_BANK_SIZE,
+            ram_size,
+        );
+
+        let rom_count = rom_size / ROM_BANK_SIZE;
+        let rom = (0..rom_count)
+            .map(|i| i * ROM_BANK_SIZE)
+            .map(|i| cart[i..i + ROM_BANK_SIZE].to_owned())
             .collect();
+
         Self {
             ram_and_reg_enabled: 0,
-            rom_bank_zero,
             rom,
-            rom_bank: 0,
+            rom_bank: 1,
             ram_clock_index: RamAndClockIndex::Ram(0),
-            ram: array::from_fn(|_| vec![0; 0x2000]),
+            ram: array::from_fn(|_| vec![0; RAM_BANK_SIZE]),
             clock_data: [0; 5],
             latch_state: ClockLatchState::Unprimed,
             last_latch: Utc::now(),
@@ -73,12 +82,12 @@ impl MBC3 {
     }
 
     pub(super) fn overwrite_rom_zero(&mut self, index: u16, val: &mut u8) {
-        std::mem::swap(&mut self.rom_bank_zero[index as usize], val)
+        std::mem::swap(&mut self.rom[0][index as usize], val)
     }
 
     pub(super) fn read_byte(&self, index: u16) -> u8 {
         match index {
-            0x0000..0x4000 => self.rom_bank_zero[index as usize],
+            0x0000..0x4000 => self.rom[0][index as usize],
             index @ 0x4000..0x8000 => {
                 // println!("Reading from ROM BANK {} @ 0x{index:0>4X}", self.rom_bank + 1);
                 self.rom[self.rom_bank as usize][(index - 0x4000) as usize]
@@ -90,7 +99,7 @@ impl MBC3 {
                 }
                 match self.ram_clock_index {
                     RamAndClockIndex::Ram(bank) => {
-                        println!("Reading from MBC3 RAM bank {bank} at 0x{index:0>4X}");
+                        // println!("Reading from MBC3 RAM bank {bank} at 0x{index:0>4X}");
                         self.ram[bank as usize][(index - 0xA000) as usize]
                     }
                     RamAndClockIndex::Clock(index) => {
@@ -109,15 +118,14 @@ impl MBC3 {
     }
 
     pub(super) fn write_byte(&mut self, index: u16, value: u8) {
+        println!("Writing to MBC3 @ 0x{index:0>4X}");
         match index {
             0x0000..0x2000 => {
                 self.ram_and_reg_enabled = value;
             }
             0x2000..0x4000 => {
                 // We ignore the top bit. If 0 if written in, we treat it as 1.
-                // We then subtract one in order to use `rom_bank` directly as an index. This is
-                // fine because it is never directly read via indexing.
-                self.rom_bank = std::cmp::max(1, value & 0x7F) - 1;
+                self.rom_bank = std::cmp::max(1, value & 0x7F);
             }
             0x4000..0x6000 => {
                 match value {
@@ -152,7 +160,7 @@ impl MBC3 {
                 }
                 match self.ram_clock_index {
                     RamAndClockIndex::Ram(bank) => {
-                        self.ram[bank as usize][(index - 0xA000) as usize] = value
+                self.ram[bank as usize][(index - 0xA000) as usize] = value
                     }
                     RamAndClockIndex::Clock(index) => {
                         println!("Writing to clock: {value}");
@@ -195,6 +203,7 @@ impl MBC3 {
 
     #[track_caller]
     pub(super) fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
+        println!("Updating byte in MBC3 @ 0x{index:0>4X}");
         match index {
             0x0000..0x2000 => {
                 update(&mut self.ram_and_reg_enabled);

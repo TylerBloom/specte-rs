@@ -3,6 +3,9 @@ use std::ops::Range;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::mem::mbc::RAM_BANK_SIZE;
+use crate::mem::mbc::ROM_BANK_SIZE;
+
 #[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MBC1 {
     kind: MBC1Kind,
@@ -38,19 +41,29 @@ pub enum BankingMode {
 
 impl MBC1 {
     pub fn new(rom_size: usize, ram_size: usize, cart: &[u8]) -> Self {
+        println!(
+            "MBC1 is expecting {} many ROM banks, requiring {} many bytes from {} many bytes",
+            rom_size / ROM_BANK_SIZE,
+            rom_size,
+            cart.len()
+        );
+        println!(
+            "MBC1 is expecting {} many RAM banks, requiring {} many bytes",
+            ram_size / RAM_BANK_SIZE,
+            ram_size,
+        );
         // All MBC1 cartridges with 1 MiB of ROM or more use this alternate wiring
         let kind = if rom_size > 1024 * 1024 {
             todo!()
         } else {
             MBC1Kind::Standard
         };
-        let rom_bank_count = rom_size / (16 * 1024);
-        let bank_count = rom_size / 0x4000;
+        let bank_count = rom_size / ROM_BANK_SIZE;
         let rom = (0..bank_count)
-            .map(|i| cart[0x4000 * i..0x4000 * (i + 1)].to_owned())
+            .map(|i| i * ROM_BANK_SIZE)
+            .map(|i| cart[i..i + ROM_BANK_SIZE].to_owned())
             .collect();
-        let ram_bank_count = ram_size / (16 * 1024);
-        let ram = vec![vec![0; 0x2000]; ram_size / 0x2000];
+        let ram = vec![vec![0; RAM_BANK_SIZE]; ram_size / RAM_BANK_SIZE];
         Self {
             kind,
             rom,
@@ -69,16 +82,19 @@ impl MBC1 {
     pub fn read_byte(&self, index: u16) -> u8 {
         match index {
             0x0000..0x4000 => self.rom[0][index as usize],
-            i @ 0x4000..0x8000 => self.rom[self.rom_bank as usize][(i - 0x4000) as usize],
-            i @ 0xA000..0xC000 => self.ram[self.ram_bank as usize][(i - 0xA000) as usize],
-            i => {
-                unreachable!("Memory controller is unable to read from memory address: 0x{i:0>4X}")
+            index @ 0x4000..0x8000 => self.rom[self.rom_bank as usize][(index - 0x4000) as usize],
+            index @ 0xA000..0xC000 => self.ram[self.ram_bank as usize][(index - 0xA000) as usize],
+            index => {
+                unreachable!(
+                    "Memory controller is unable to read from memory address: 0x{index:0>4X}"
+                )
             }
         }
     }
 
     /// Writes to a register or RAM bank
     pub fn write_byte(&mut self, index: u16, value: u8) {
+        println!("Writing to MBC1 @ 0x{index:0>4X}");
         match index {
             0x0000..0x2000 => self.ram_enabled = (value & 0x0F) == 0x0A,
             // TODO: Implement logic for if `value` > # of ROM banks.
