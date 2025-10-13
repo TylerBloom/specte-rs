@@ -120,13 +120,9 @@ impl MBC3 {
     pub(super) fn write_byte(&mut self, index: u16, value: u8) {
         println!("Writing to MBC3 @ 0x{index:0>4X}");
         match index {
-            0x0000..0x2000 => {
-                self.ram_and_reg_enabled = value;
-            }
-            0x2000..0x4000 => {
-                // We ignore the top bit. If 0 if written in, we treat it as 1.
-                self.rom_bank = std::cmp::max(1, value & 0x7F);
-            }
+            0x0000..0x2000 => self.ram_and_reg_enabled = value,
+            // We ignore the top bit. If 0 if written in, we treat it as 1.
+            0x2000..0x4000 => self.rom_bank = std::cmp::max(1, value & 0x7F),
             0x4000..0x6000 => {
                 match value {
                     0..=7 => self.ram_clock_index = RamAndClockIndex::Ram(value),
@@ -160,7 +156,7 @@ impl MBC3 {
                 }
                 match self.ram_clock_index {
                     RamAndClockIndex::Ram(bank) => {
-                self.ram[bank as usize][(index - 0xA000) as usize] = value
+                        self.ram[bank as usize][(index - 0xA000) as usize] = value
                     }
                     RamAndClockIndex::Clock(index) => {
                         println!("Writing to clock: {value}");

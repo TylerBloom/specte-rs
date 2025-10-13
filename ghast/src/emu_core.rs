@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
@@ -209,9 +208,15 @@ pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Handle {
 
 impl Emulator {
     pub fn new(cart: Vec<u8>) -> Self {
+        /*
         let gb = Gameboy::new(cart);
         Self {
             gb: EmulatorInner::StartUp(Some(gb)),
+        }
+        */
+        let gb = Gameboy::new(cart).complete();
+        Self {
+            gb: EmulatorInner::Ready(gb),
         }
     }
 

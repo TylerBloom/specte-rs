@@ -94,15 +94,21 @@ impl MBC1 {
 
     /// Writes to a register or RAM bank
     pub fn write_byte(&mut self, index: u16, value: u8) {
-        println!("Writing to MBC1 @ 0x{index:0>4X}");
+        // println!("Writing to MBC1 @ 0x{index:0>4X}");
         match index {
             0x0000..0x2000 => self.ram_enabled = (value & 0x0F) == 0x0A,
             // TODO: Implement logic for if `value` > # of ROM banks.
-            0x2000..0x4000 => self.rom_bank = std::cmp::max(1, value & 0x1F),
+            0x2000..0x4000 => {
+                println!("Setting the ROM bank to {value}");
+                self.rom_bank = std::cmp::max(1, value & 0x1F)
+            }
             0x4000..0x6000 => self.ram_bank = value & 0x3,
             0x6000..0x8000 if (value & 1) == 0 => self.banking_mode = BankingMode::Advanced,
             0x6000..0x8000 => self.banking_mode = BankingMode::Simple,
-            i @ 0xA000..0xC000 => self.ram[self.ram_bank as usize][(i - 0xA000) as usize] = value,
+            i @ 0xA000..0xC000 =>
+                self.ram[self.ram_bank as usize]
+                [(i - 0xA000) as usize]
+                = value,
             _ => unreachable!(
                 "Memory controller is unable to write to memory address: 0x{index:0>4X}"
             ),

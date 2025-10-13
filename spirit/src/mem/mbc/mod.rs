@@ -104,6 +104,7 @@ impl MemoryBankController {
             0x05 => 8,
             n => panic!("Unknown RAM size: {n}"),
         };
+        println!("The RAM count: {ram_countt }");
         let ram_size = ram_count * RAM_BANK_SIZE;
 
         let head_check = cart[0x014D];
@@ -138,20 +139,11 @@ impl MemoryBankController {
             0x0B => todo!(),
             0x0C => todo!(),
             0x0D => todo!(),
-            0x0F => {
-                println!("ROM Size {rom_size}, RAM Size {ram_size}");
-                Self::MBC3(MBC3::new(rom_size, ram_size, &cart))
-            }
-            0x10 => {
-                println!("ROM Size {rom_size}, RAM Size {ram_size}");
-                Self::MBC3(MBC3::new(rom_size, ram_size, &cart))
-            }
-            0x11 => {
-                println!("ROM Size {rom_size}, RAM Size {ram_size}");
-                Self::MBC3(MBC3::new(rom_size, ram_size, &cart))
-            }
-            0x12 => todo!(),
-            0x13 => todo!(),
+            0x0F => Self::MBC3(MBC3::new(rom_size, ram_size, &cart)),
+            0x10 => Self::MBC3(MBC3::new(rom_size, ram_size, &cart)),
+            0x11 => Self::MBC3(MBC3::new(rom_size, ram_size, &cart)),
+            0x12 => Self::MBC3(MBC3::new(rom_size, ram_size, &cart)),
+            0x13 => Self::MBC3(MBC3::new(rom_size, ram_size, &cart)),
             0x19 => todo!(),
             0x1A => todo!(),
             0x1B => todo!(),
