@@ -36,10 +36,7 @@ enum ClockIndex {
 // TODO: How should clocks be handled...
 #[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MBC3 {
-    ram_and_timer_enable: bool,
-    /// The raw value for this register needs to be stored rather than just the bool because
-    /// operations need to be able to operate on it.
-    raw_enable_reg: u8,
+    ram_and_reg_enabled: u8,
     rom_bank_zero: Vec<u8>, // Box<[u8; 0x4000]>,
     rom: Vec<Vec<u8>>,
     rom_bank: u8,
@@ -63,8 +60,7 @@ impl MBC3 {
             .map(|i| cart[i..i + 0x4000].to_owned())
             .collect();
         Self {
-            ram_and_timer_enable: false,
-            raw_enable_reg: 0,
+            ram_and_reg_enabled: 0,
             rom_bank_zero,
             rom,
             rom_bank: 0,
@@ -89,7 +85,10 @@ impl MBC3 {
             }
             0x8000..0xA000 => unreachable!("How did you get here??"),
             index @ 0xA000..0xC000 => {
-                let digest = match self.ram_clock_index {
+                if !self.is_ram_accessable() {
+                    return 0;
+                }
+                match self.ram_clock_index {
                     RamAndClockIndex::Ram(bank) => {
                         println!("Reading from MBC3 RAM bank {bank} at 0x{index:0>4X}");
                         self.ram[bank as usize][(index - 0xA000) as usize]
@@ -98,28 +97,21 @@ impl MBC3 {
                         println!("Reading from MBC3 clock at {index:?}");
                         self.clock_data[index as usize]
                     }
-                };
-                (!(!self.ram_and_timer_enable as u8)) & digest
+                }
             }
             0xC000.. => unreachable!("How did you get here??"),
         }
     }
 
-    fn sync_enablement(&mut self) {
-        if self.raw_enable_reg == 0 {
-            println!("Disabling RAM/clock");
-            self.ram_and_timer_enable = false;
-        } else if self.raw_enable_reg == 0x0A {
-            println!("Enabling RAM/clock");
-            self.ram_and_timer_enable = true
-        }
+    fn is_ram_accessable(&self) -> bool {
+        // Any value of the form 0xXA enables the RAM/registers
+        (self.ram_and_reg_enabled & 0x0F) == 0x0A
     }
 
     pub(super) fn write_byte(&mut self, index: u16, value: u8) {
         match index {
             0x0000..0x2000 => {
-                self.raw_enable_reg = value;
-                self.sync_enablement();
+                self.ram_and_reg_enabled = value;
             }
             0x2000..0x4000 => {
                 // We ignore the top bit. If 0 if written in, we treat it as 1.
@@ -129,7 +121,7 @@ impl MBC3 {
             }
             0x4000..0x6000 => {
                 match value {
-                    0..4 => self.ram_clock_index = RamAndClockIndex::Ram(value),
+                    0..=7 => self.ram_clock_index = RamAndClockIndex::Ram(value),
                     0x8 => self.ram_clock_index = RamAndClockIndex::Clock(ClockIndex::Seconds),
                     0x9 => self.ram_clock_index = RamAndClockIndex::Clock(ClockIndex::Minutes),
                     0xA => self.ram_clock_index = RamAndClockIndex::Clock(ClockIndex::Hours),
@@ -154,7 +146,7 @@ impl MBC3 {
             }
             0x8000..0xA000 => unreachable!("How did you get here??"),
             0xA000..0xC000 => {
-                if !self.ram_and_timer_enable {
+                if !self.is_ram_accessable() {
                     println!("Not enabled...");
                     return;
                 }
@@ -205,21 +197,25 @@ impl MBC3 {
     pub(super) fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
         match index {
             0x0000..0x2000 => {
-                update(&mut self.raw_enable_reg);
-                self.sync_enablement();
-                return self.raw_enable_reg;
+                update(&mut self.ram_and_reg_enabled);
+                return self.ram_and_reg_enabled;
             }
             _ => return 0,
             index @ 0x4000..0x8000 => self.rom[self.rom_bank as usize][(index - 0x4000) as usize],
             0x8000..0xA000 => unreachable!("How did you get here??"),
             index @ 0xA000..0xC000 => {
+                if !self.is_ram_accessable() {
+                    update(&mut 0);
+                    return 0;
+                }
                 let digest = match self.ram_clock_index {
                     RamAndClockIndex::Ram(bank) => {
-                        self.ram[bank as usize][(index - 0xA000) as usize]
+                        &mut self.ram[bank as usize][(index - 0xA000) as usize]
                     }
-                    RamAndClockIndex::Clock(index) => self.clock_data[index as usize],
+                    RamAndClockIndex::Clock(index) => &mut self.clock_data[index as usize],
                 };
-                (!(!self.ram_and_timer_enable as u8)) & digest
+                update(digest);
+                *digest
             }
             0xC000.. => unreachable!("How did you get here??"),
         }
