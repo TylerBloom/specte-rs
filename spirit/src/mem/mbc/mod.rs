@@ -18,6 +18,12 @@ use serde::Deserialize;
 use serde::Serialize;
 use tracing::error;
 
+/// The size of a ROM banks, 16 KiB.
+pub const ROM_BANK_SIZE: usize = 16 * 1024;
+
+/// The size of a RAM banks, 8 KiB.
+pub const RAM_BANK_SIZE: usize = 8 * 1024;
+
 #[derive(Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MemoryBankController {
     /// There is no external MBC. The game ROM is mapped into the 32 KiB that starts at 0x0000 and
@@ -69,29 +75,37 @@ impl MemoryBankController {
                 false
             }
         };
-        let rom_size = match cart[0x0148] {
-            0x00 => 32,
-            0x01 => 64,
-            0x02 => 128,
-            0x03 => 256,
-            0x04 => 512,
-            0x05 => 1024,
-            0x06 => 2 * 1024,
-            0x07 => 4 * 1024,
-            0x08 => 8 * 1024,
+        let rom_count = match cart[0x0148] {
+            0x00 => 2,
+            0x01 => 4,
+            0x02 => 8,
+            0x03 => 16,
+            0x04 => 32,
+            0x05 => 64,
+            0x06 => 128,
+            0x07 => 256,
+            0x08 => 512,
             0x52 => todo!(), // 1.1 * 1024 * 1024,
             0x53 => todo!(), // 1.2 * 1024 * 1024,
             0x54 => todo!(), // 1.5 * 1024 * 1024,
             n => panic!("Unknown ROM size: {n}"),
-        } * 1024;
-        let ram_size: usize = match cart[0x0149] {
+        };
+        let rom_size = rom_count * ROM_BANK_SIZE;
+        if rom_size > cart.len() {
+            let len = rom_size - cart.len();
+            cart.extend(std::iter::repeat_n(0, len));
+        }
+
+        let ram_count: usize = match cart[0x0149] {
             0x00 => 0,
-            0x02 => 8 * 1024,
-            0x03 => 32 * 1024,
-            0x04 => 128 * 1024,
-            0x05 => 64 * 1024,
+            0x01 | 0x02 => 1,
+            0x03 => 4,
+            0x04 => 16,
+            0x05 => 8,
             n => panic!("Unknown RAM size: {n}"),
         };
+        let ram_size = ram_count * RAM_BANK_SIZE;
+
         let head_check = cart[0x014D];
         assert_eq!(
             head_check,
@@ -126,19 +140,15 @@ impl MemoryBankController {
             0x0D => todo!(),
             0x0F => {
                 println!("ROM Size {rom_size}, RAM Size {ram_size}");
-                Self::MBC3(MBC3::new(rom_size / 0x4000, ram_size as usize / 8, &cart))
+                Self::MBC3(MBC3::new(rom_size, ram_size, &cart))
             }
             0x10 => {
                 println!("ROM Size {rom_size}, RAM Size {ram_size}");
-                Self::MBC3(MBC3::new(rom_size / 0x4000, ram_size as usize / 8, &cart))
+                Self::MBC3(MBC3::new(rom_size, ram_size, &cart))
             }
             0x11 => {
                 println!("ROM Size {rom_size}, RAM Size {ram_size}");
-                if rom_size > cart.len() {
-                    let len = rom_size - cart.len();
-                    cart.extend(std::iter::repeat_n(0, len));
-                }
-                Self::MBC3(MBC3::new(rom_size / 0x4000, ram_size as usize / 8, &cart))
+                Self::MBC3(MBC3::new(rom_size, ram_size, &cart))
             }
             0x12 => todo!(),
             0x13 => todo!(),

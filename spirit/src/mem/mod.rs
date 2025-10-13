@@ -46,7 +46,7 @@ pub trait MemoryLike {
 
     fn clear_interrupt_req(&mut self, op: InterruptOp) {}
 
-    fn vram_transfer(&mut self) {}
+    fn vram_transfer(&mut self);
 }
 
 /// The `impl FnOnce` in `update_byte` would make `MemoryLike` non-object safe, which is needs for
@@ -162,6 +162,7 @@ impl MemoryLike for MemoryMap {
         let Some((src, dest)) = self.vram_dma.next_addrs() else {
             return;
         };
+        println!("VRAM transfer from 0x{src:0>4X} -> 0x{dest:0>4X}");
         for i in 0..16 {
             let byte = self.read_byte(src + i);
             self.write_byte(dest + i, byte);
@@ -324,8 +325,8 @@ impl VramDma {
             println!("Cancelling VRAM DMA transfer");
             self.trigger = value;
             self.len_left = value & 0x7F;
-            self.curr_src = u16::from_be_bytes([self.dest_hi, self.dest_lo & 0xF0]);
-            self.curr_dest = u16::from_be_bytes([self.dest_hi & 0x0F, self.dest_lo & 0xF0]);
+            self.curr_src = 0xFFF0 & u16::from_be_bytes([self.src_hi, self.src_hi]);
+            self.curr_dest = 0x8000 + (0x1FF0 & u16::from_be_bytes([self.dest_hi, self.dest_lo]));
         }
     }
 
@@ -390,6 +391,7 @@ impl MemoryMap {
     }
 
     pub(crate) fn start_up_unmap(&mut self, mut headers: StartUpHeaders) {
+        println!("Starting start up unmapping...");
         for i in 0..=0xFF {
             self.mbc.direct_overwrite(i as u16, &mut headers.0[i]);
         }
@@ -397,6 +399,7 @@ impl MemoryMap {
             self.mbc
                 .direct_overwrite((i + 0x200) as u16, &mut headers.1[i]);
         }
+        println!("Finished start up unmapping!!");
     }
 
     /// This method only exists to sidestep the "DMA contains" check and should only be called by
@@ -730,6 +733,8 @@ impl MemoryLike for Vec<u8> {
     fn read_op(&self, addr: u16, _ime: bool) -> Instruction {
         parse_instruction(self, addr)
     }
+
+    fn vram_transfer(&mut self) {}
 }
 
 #[cfg(test)]
