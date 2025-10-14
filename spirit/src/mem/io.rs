@@ -23,9 +23,8 @@ pub struct IoRegisters {
     serial: (u8, u8),
     /// ADDR FF04, FF05, FF06, FF07
     /// There are the (divider, timer, timer modulo, tac)
-    timer_div: [u8; 4],
     /// The counter for the timer controller
-    tac: TimerControl,
+    tac: TimerRegisters,
     /// ADDR FF0F
     pub interrupt_flags: u8,
     /// ADDR FF10-FF26
@@ -81,8 +80,7 @@ impl Default for IoRegisters {
             undoc_registers: [0, 0, 0, 0b1000_1111],
             joypad: Default::default(),
             serial: Default::default(),
-            timer_div: Default::default(),
-            tac: Default::default(),
+            tac: TimerRegisters::new(),
             interrupt_flags: Default::default(),
             audio: Default::default(),
             lcd_control: Default::default(),
@@ -345,17 +343,8 @@ impl IoRegisters {
         self.joypad.tick();
         self.lcd_status = (0b0000_0111 & self.lcd_status) | (0b0111_1000 & self.lcd_status_dup);
         self.lcd_status_dup = self.lcd_status;
-        let byte = &mut self.timer_div[0];
-        *byte = byte.wrapping_add(1);
-        if self.tac.update_and_tick(self.timer_div[3]) {
-            match self.timer_div[1].checked_add(1) {
-                Some(b) => self.timer_div[1] = b,
-                None => {
-                    let b = self.timer_div[1];
-                    self.timer_div[0] = b;
-                    self.request_timer_int();
-                }
-            }
+        if self.tac.tick() {
+            self.request_timer_int();
         }
     }
 
@@ -417,15 +406,9 @@ impl IoRegisters {
             0xFF00 => self.joypad[()],
             0xFF01 => self.serial.0,
             0xFF02 => self.serial.1,
-            0xFF04 => {
-                let digest = self.timer_div[0];
-                println!("Reading from 0xFF04, found value 0x{digest:0>2x}");
-                // digest
-                0x1F
-            }
-            n @ 0xFF04..=0xFF07 => self.timer_div[(n - 0xFF04) as usize],
+            0xFF04..=0xFF07 => self.tac.read_byte(index),
             0xFF0F => self.interrupt_flags,
-            n @ 0xFF10..=0xFF3F => self.audio.read_byte(n),
+            0xFF10..=0xFF3F => self.audio.read_byte(index),
             0xFF40 => self.lcd_control,
             0xFF41 => self.lcd_status,
             0xFF42 => self.bg_position.0,
@@ -478,13 +461,9 @@ impl IoRegisters {
             0xFF00 => self.joypad[()] = value,
             0xFF01 => self.serial.0 = value,
             0xFF02 => self.serial.1 = value,
-            0xFF04 => {
-                self.timer_div[0] = 0;
-                self.dead_byte = 0;
-            }
-            n @ 0xFF05..=0xFF07 => self.timer_div[(n - 0xFF04) as usize] = value,
+            0xFF04..=0xFF07 => self.tac.write_byte(index, value),
             0xFF0F => self.interrupt_flags = value,
-            n @ 0xFF10..=0xFF3F => self.audio.write_byte(index, value),
+            0xFF10..=0xFF3F => self.audio.write_byte(index, value),
             0xFF40 => self.lcd_control = value,
             // TODO: Only part of this register can be written to. Only bits 3-6 can be written to.
             // This register needs to be reset when ticked.
@@ -698,18 +677,147 @@ impl IndexMut<u8> for PaletteColor {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimerRegisters {
+    /// ADDR FF04
+    divider_reg: u8,
+    // The divider reg is incremented every 64 machine cycles. This tracks those cycles. When the
+    // divider is reset, this counter is reset.
+    divider_counter: u8,
+    /// ADDR FF05
+    /// The counter that is updated at the frequency specified by the TAC. Overflows trigger resets
+    /// to the value in the timer modulo and then an interupt is requested.
+    timer_counter: u8,
+    /// ADDR FF06
+    /// When the timer counter overflows, it resets to the value in this register.
+    timer_modulo: u8,
+    /// ADDR FF07
+    timer_control: TimerControl,
+}
+
+/// Models the timer control (TAC) register, which controls how frequently the timer counter is
+/// incremented. There is a variant for each frequency and the disabled state.
+///
+/// All the variants besides `Disabled` hold a counter that tracks the number of ticks since the
+/// last increment.
+/// The data in `Disabled` tracks the data that was written to the register when disabled. Without
+/// it, the register can not be properly read as part of the memory map.
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TimerControl {
-    #[default]
-    Disabled,
+    Disabled(u8),
     /// Ticks once per 256 M-cycles
-    Slowest(u16),
+    Slowest(u8),
     /// Ticks once per 64 M-cycles
     Slow(u8),
     /// Ticks once per 16 M-cycles
     Fast(u8),
     /// Ticks once per 4 M-cycles
     Fastest(u8),
+}
+
+impl TimerRegisters {
+    fn new() -> Self {
+        Self {
+            divider_reg: 0,
+            divider_counter: 0,
+            timer_counter: 0,
+            timer_modulo: 0,
+            timer_control: TimerControl::Disabled(0),
+        }
+    }
+
+    fn tick(&mut self) -> bool {
+        self.divider_counter += 1;
+        if self.divider_counter == 64 {
+            self.divider_counter = 0;
+            self.divider_reg = self.divider_reg.wrapping_add(1);
+        }
+        let inc = match &mut self.timer_control {
+            TimerControl::Disabled(_) => false,
+            TimerControl::Slowest(counter) => {
+                *counter = counter.wrapping_add(1);
+                *counter == 0
+            }
+            TimerControl::Slow(counter) => {
+                *counter += 1;
+                let digest = *counter == 64;
+                if digest {
+                    *counter = 0;
+                }
+                digest
+            }
+            TimerControl::Fast(counter) => {
+                *counter += 1;
+                let digest = *counter == 16;
+                if digest {
+                    *counter = 0;
+                }
+                digest
+            }
+            TimerControl::Fastest(counter) => {
+                *counter += 1;
+                let digest = *counter == 4;
+                if digest {
+                    *counter = 0;
+                }
+                digest
+            }
+        };
+        let val = self.timer_counter.checked_add(inc as u8);
+        // `None` indicates ther was an overflow, so we need to request an interupt
+        self.timer_modulo = val.unwrap_or(self.timer_modulo);
+        val.is_none()
+    }
+
+    // FIXME: IoRegisters needs to call this method when STOP is called.
+    // NOTE: This method is also called when the STOP instruction is called.
+    fn reset_divider(&mut self) {
+        self.divider_reg = 0;
+        self.divider_counter = 0;
+    }
+
+    fn read_byte(&self, index: u16) -> u8 {
+        match index {
+            0xFF04 => self.divider_reg,
+            0xFF05 => self.timer_counter,
+            0xFF06 => self.timer_modulo,
+            0xFF07 => self.timer_control.as_byte(),
+            _ => unreachable!("How did you get here??"),
+        }
+    }
+
+    fn write_byte(&mut self, index: u16, value: u8) {
+        match index {
+            0xFF04 => self.reset_divider(),
+            0xFF05 => self.timer_counter = value,
+            0xFF06 => self.timer_modulo = value,
+            0xFF07 => self.timer_control = TimerControl::from_byte(value),
+            _ => unreachable!("How did you get here??"),
+        }
+    }
+}
+
+impl TimerControl {
+    fn from_byte(byte: u8) -> Self {
+        // We only care about the first 3 bits.
+        match byte & 0b0000_0111 {
+            0b000 => Self::Slowest(0),
+            0b001 => Self::Fastest(0),
+            0b010 => Self::Fast(0),
+            0b011 => Self::Slow(0),
+            byte => Self::Disabled(byte),
+        }
+    }
+
+    fn as_byte(&self) -> u8 {
+        match self {
+            Self::Slowest(_) => 0b000,
+            Self::Fastest(_) => 0b001,
+            Self::Fast(_) => 0b010,
+            Self::Slow(_) => 0b011,
+            Self::Disabled(byte) => *byte,
+        }
+    }
 }
 
 /// This is a bit messy... The bottom half of this register is read-only via instruction and is
@@ -732,48 +840,6 @@ pub enum TimerControl {
 pub(super) struct Joypad {
     main: u8,
     dup: u8,
-}
-
-impl TimerControl {
-    /// Updates the inner counter that control when the timer register is inc-ed. Note that this
-    /// method is called during every *clock* cycle.
-    fn update_and_tick(&mut self, state: u8) -> bool {
-        fn checked_reset<const R: u8>(byte: &mut u8) -> bool {
-            *byte = byte.checked_add(1).unwrap_or(R);
-            *byte == R
-        }
-        let other = Self::from_byte(state);
-        if std::mem::discriminant(self) != std::mem::discriminant(&other) {
-            // TODO: There are a few goofy things that can happen when changing the timer control,
-            // which are discussed in the pandocs. Those need to be implemented here.
-            *self = other;
-        }
-        match self {
-            TimerControl::Disabled => false,
-            TimerControl::Slowest(count) => {
-                const RESET: u16 = u16::MAX - 256 * 4;
-                *count = count.checked_add(1).unwrap_or(RESET);
-                *count == RESET
-            }
-            TimerControl::Slow(count) => checked_reset::<0>(count),
-            TimerControl::Fast(count) => checked_reset::<191>(count), // u8::MAX - 16*4
-            TimerControl::Fastest(count) => checked_reset::<239>(count), // u8:::MAX - 16
-        }
-    }
-
-    fn from_byte(byte: u8) -> Self {
-        if check_bit_const::<2>(byte) {
-            match byte & 0b11 {
-                0b00 => Self::Slowest(0),
-                0b01 => Self::Fastest(0),
-                0b10 => Self::Fast(0),
-                0b11 => Self::Slow(0),
-                _ => unreachable!(),
-            }
-        } else {
-            Self::Disabled
-        }
-    }
 }
 
 impl Joypad {
@@ -834,6 +900,10 @@ impl IndexMut<()> for Joypad {
 
 #[cfg(test)]
 mod tests {
+    use std::u8;
+
+    use crate::mem::io::TimerRegisters;
+
     use super::ColorPalettes;
     use super::Palette;
     use super::PaletteColor;
@@ -857,5 +927,26 @@ mod tests {
             let data = &mut palettes[1];
             assert_eq!(i as u8, *data);
         }
+    }
+
+    #[test]
+    fn divider_register() {
+        let mut regs = TimerRegisters::new();
+        assert!((0..64).all(|_| !regs.tick()));
+        assert_eq!(regs.divider_reg, 1);
+        assert_eq!(regs.divider_counter, 0);
+        let mut regs = TimerRegisters::new();
+        // We want to tick right up until the register resets. At no point should there be an
+        // interupt request since the timer counter is disabled
+        let digest = std::iter::repeat_n(0..64u8, u8::MAX as usize)
+            .chain(std::iter::once(0..63u8))
+            .flatten()
+            .all(|_| !regs.tick());
+        assert!(digest);
+        assert_eq!(regs.divider_reg, 0xFF);
+        assert_eq!(regs.divider_counter, 63);
+        assert!(!regs.tick());
+        assert_eq!(regs.divider_reg, 0);
+        assert_eq!(regs.divider_counter, 0);
     }
 }
