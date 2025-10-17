@@ -756,7 +756,34 @@ impl TimerRegisters {
 
     // FIXME: IoRegisters needs to call this method when STOP is called.
     // NOTE: This method is also called when the STOP instruction is called.
-    fn reset_divider(&mut self) {
+    fn reset(&mut self) {
+        // Writting to the div to reset can cause the timer counter to increment.
+        // See:
+        match self.timer_control {
+            TimerControl::Disabled(_) => {},
+            TimerControl::Fastest => {
+                if check_bit_const::<3>(self.divider_counter) {
+                    self.timer_counter = self.timer_counter.wrapping_add(1)
+                }
+            }
+            TimerControl::Fast =>  {
+                if check_bit_const::<5>(self.divider_counter) {
+                    self.timer_counter = self.timer_counter.wrapping_add(1)
+                }
+            }
+            TimerControl::Slow => {
+                if check_bit_const::<7>(self.divider_counter) {
+                    self.timer_counter = self.timer_counter.wrapping_add(1)
+                }
+            }
+            TimerControl::Slowest(counter) => {
+                // The counter here acts like bits 8 and 9 in the div counter. So, if bit 1 is set,
+                // that means bit 9 would have been set in the hardware.
+                if check_bit_const::<1>(counter) {
+                    self.timer_counter = self.timer_counter.wrapping_add(1)
+                }
+            }
+        }
         self.divider_reg = 0;
         self.divider_counter = 0;
         self.timer_control.reset();
@@ -776,7 +803,7 @@ impl TimerRegisters {
 
     fn write_byte(&mut self, index: u16, value: u8) {
         match index {
-            0xFF04 => self.reset_divider(),
+            0xFF04 => self.reset(),
             0xFF05 => self.timer_counter = value,
             0xFF06 => self.timer_modulo = value,
             0xFF07 => self.timer_control = TimerControl::from_byte(value),

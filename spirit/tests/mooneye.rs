@@ -1,4 +1,4 @@
-use std::{path::PathBuf};
+use std::path::PathBuf;
 
 use spirit::{
     Gameboy,
@@ -78,8 +78,25 @@ fn timer_div_write() {
 
 #[test]
 fn timer_tim_00() {
-    let mut gb = Gameboy::new(include_bytes!("roms/mooneye/acceptance/timer/tim00.gb").into())
-        .complete();
+    let mut gb =
+        Gameboy::new(include_bytes!("roms/mooneye/acceptance/timer/tim00.gb").into()).complete();
+    while !matches!(gb.read_op(), STOP_OP) {
+        gb.step();
+    }
+    let cpu = gb.cpu();
+    assert_eq!(cpu.b, GOAL_B_REG);
+    assert_eq!(cpu.c, GOAL_C_REG);
+    assert_eq!(cpu.d, GOAL_D_REG);
+    assert_eq!(cpu.e, GOAL_E_REG);
+    assert_eq!(cpu.h, GOAL_H_REG);
+    assert_eq!(cpu.l, GOAL_L_REG);
+}
+
+#[test]
+fn timer_tim_00_div_trigger() {
+    let mut gb =
+        Gameboy::new(include_bytes!("roms/mooneye/acceptance/timer/tim00_div_trigger.gb").into())
+            .complete();
     while !matches!(gb.read_op(), STOP_OP) {
         gb.step();
     }
@@ -94,8 +111,25 @@ fn timer_tim_00() {
 
 #[test]
 fn timer_tim01() {
-    let mut gb = Gameboy::new(include_bytes!("roms/mooneye/acceptance/timer/tim01.gb").into())
-        .complete();
+    let mut gb =
+        Gameboy::new(include_bytes!("roms/mooneye/acceptance/timer/tim01.gb").into()).complete();
+    while !matches!(gb.read_op(), STOP_OP) {
+        gb.step();
+    }
+    let cpu = gb.cpu();
+    assert_eq!(cpu.b, GOAL_B_REG);
+    assert_eq!(cpu.c, GOAL_C_REG);
+    assert_eq!(cpu.d, GOAL_D_REG);
+    assert_eq!(cpu.e, GOAL_E_REG);
+    assert_eq!(cpu.h, GOAL_H_REG);
+    assert_eq!(cpu.l, GOAL_L_REG);
+}
+
+#[test]
+fn timer_tim01_div_trigger() {
+    let mut gb =
+        Gameboy::new(include_bytes!("roms/mooneye/acceptance/timer/tim01_div_trigger.gb").into())
+            .complete();
     while !matches!(gb.read_op(), STOP_OP) {
         gb.step();
     }
@@ -110,8 +144,25 @@ fn timer_tim01() {
 
 #[test]
 fn timer_tim10() {
-    let mut gb = Gameboy::new(include_bytes!("roms/mooneye/acceptance/timer/tim10.gb").into())
-        .complete();
+    let mut gb =
+        Gameboy::new(include_bytes!("roms/mooneye/acceptance/timer/tim10.gb").into()).complete();
+    while !matches!(gb.read_op(), STOP_OP) {
+        gb.step();
+    }
+    let cpu = gb.cpu();
+    assert_eq!(cpu.b, GOAL_B_REG);
+    assert_eq!(cpu.c, GOAL_C_REG);
+    assert_eq!(cpu.d, GOAL_D_REG);
+    assert_eq!(cpu.e, GOAL_E_REG);
+    assert_eq!(cpu.h, GOAL_H_REG);
+    assert_eq!(cpu.l, GOAL_L_REG);
+}
+
+#[test]
+fn timer_tim10_div_trigger() {
+    let mut gb =
+        Gameboy::new(include_bytes!("roms/mooneye/acceptance/timer/tim10_div_trigger.gb").into())
+            .complete();
     while !matches!(gb.read_op(), STOP_OP) {
         gb.step();
     }
@@ -126,8 +177,25 @@ fn timer_tim10() {
 
 #[test]
 fn timer_tim11() {
-    let mut gb = Gameboy::new(include_bytes!("roms/mooneye/acceptance/timer/tim11.gb").into())
-        .complete();
+    let mut gb =
+        Gameboy::new(include_bytes!("roms/mooneye/acceptance/timer/tim11.gb").into()).complete();
+    while !matches!(gb.read_op(), STOP_OP) {
+        gb.step();
+    }
+    let cpu = gb.cpu();
+    assert_eq!(cpu.b, GOAL_B_REG);
+    assert_eq!(cpu.c, GOAL_C_REG);
+    assert_eq!(cpu.d, GOAL_D_REG);
+    assert_eq!(cpu.e, GOAL_E_REG);
+    assert_eq!(cpu.h, GOAL_H_REG);
+    assert_eq!(cpu.l, GOAL_L_REG);
+}
+
+#[test]
+fn timer_tim11_div_trigger() {
+    let mut gb =
+        Gameboy::new(include_bytes!("roms/mooneye/acceptance/timer/tim11_div_trigger.gb").into())
+            .complete();
     while !matches!(gb.read_op(), STOP_OP) {
         gb.step();
     }
