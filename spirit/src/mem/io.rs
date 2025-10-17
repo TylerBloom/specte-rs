@@ -705,14 +705,15 @@ pub struct TimerRegisters {
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TimerControl {
     Disabled(u8),
-    /// Ticks once per 256 M-cycles
+    /// The slowest increment speed should inc the timer counter once every 4 div increments. The
+    /// inner value tracks the number of dev incs that have passed.
     Slowest(u8),
-    /// Ticks once per 64 M-cycles
-    Slow(u8),
-    /// Ticks once per 16 M-cycles
-    Fast(u8),
-    /// Ticks once per 4 M-cycles
-    Fastest(u8),
+    /// The slow increment speed should inc the timer counter every time the div increments.
+    Slow,
+    /// The fast increment speed should inc the timer counter 4 times for every div increment.
+    Fast,
+    /// The fastest increment speed should inc the timer counter 16 times for every div increment.
+    Fastest,
 }
 
 impl TimerRegisters {
@@ -727,35 +728,19 @@ impl TimerRegisters {
     }
 
     fn tick(&mut self) -> bool {
-        self.divider_counter += 1;
-        if self.divider_counter == 64 {
-            self.divider_counter = 0;
+        self.divider_counter = self.divider_counter.wrapping_add(1);
+        if self.divider_counter == 0 {
             self.divider_reg = self.divider_reg.wrapping_add(1);
         }
         let inc = match &mut self.timer_control {
             TimerControl::Disabled(_) => false,
+            TimerControl::Fastest => self.divider_counter % 16 == 0,
+            TimerControl::Fast => self.divider_counter % 64 == 0,
+            TimerControl::Slow => self.divider_counter == 0,
             TimerControl::Slowest(counter) => {
-                *counter = counter.wrapping_add(1);
-                *counter == 0
-            }
-            TimerControl::Slow(counter) => {
-                *counter += 1;
-                let digest = *counter == 64;
-                if digest {
-                    *counter = 0;
+                if self.divider_counter == 0 {
+                    *counter += 1;
                 }
-                digest
-            }
-            TimerControl::Fast(counter) => {
-                *counter += 1;
-                let digest = *counter == 16;
-                if digest {
-                    *counter = 0;
-                }
-                digest
-            }
-            TimerControl::Fastest(counter) => {
-                *counter += 1;
                 let digest = *counter == 4;
                 if digest {
                     *counter = 0;
@@ -774,9 +759,12 @@ impl TimerRegisters {
     fn reset_divider(&mut self) {
         self.divider_reg = 0;
         self.divider_counter = 0;
+        self.timer_control.reset();
+        println!("Resetting: {self:#?}");
     }
 
     fn read_byte(&self, index: u16) -> u8 {
+        println!("{self:#?}");
         match index {
             0xFF04 => self.divider_reg,
             0xFF05 => self.timer_counter,
@@ -801,21 +789,27 @@ impl TimerControl {
     fn from_byte(byte: u8) -> Self {
         // We only care about the first 3 bits.
         match byte & 0b0000_0111 {
-            0b000 => Self::Slowest(0),
-            0b001 => Self::Fastest(0),
-            0b010 => Self::Fast(0),
-            0b011 => Self::Slow(0),
+            0b101 => Self::Fastest,
+            0b110 => Self::Fast,
+            0b111 => Self::Slow,
+            0b100 => Self::Slowest(0),
             byte => Self::Disabled(byte),
         }
     }
 
     fn as_byte(&self) -> u8 {
         match self {
-            Self::Slowest(_) => 0b000,
-            Self::Fastest(_) => 0b001,
-            Self::Fast(_) => 0b010,
-            Self::Slow(_) => 0b011,
             Self::Disabled(byte) => *byte,
+            Self::Slowest(_) => 0b000,
+            Self::Slow => 0b011,
+            Self::Fast => 0b010,
+            Self::Fastest => 0b001,
+        }
+    }
+
+    fn reset(&mut self) {
+        if let TimerControl::Slowest(value) = self {
+            *value = 0
         }
     }
 }
@@ -1000,29 +994,29 @@ mod tests {
         const TICKS: u8 = 64;
         let mut regs = TimerRegisters::new();
         regs.timer_modulo = 10;
-        regs.timer_control = TimerControl::Slow(0);
+        regs.timer_control = TimerControl::Slow;
         // Initial tick
         assert!(!regs.tick());
         assert_eq!(regs.timer_counter, 0);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Slow(1));
+        assert_eq!(regs.timer_control, TimerControl::Slow);
 
         // Tick up until counter increments
         assert!((0..TICKS - 2).all(|_| !regs.tick()));
         assert_eq!(regs.timer_counter, 0);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Slow(TICKS - 1));
+        assert_eq!(regs.timer_control, TimerControl::Slow);
 
         // Tick and the counter should inc
         assert!(!regs.tick());
         assert_eq!(regs.timer_counter, 1);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Slow(0));
+        assert_eq!(regs.timer_control, TimerControl::Slow);
 
         // Tick up until the counter is triggered
         let mut regs = TimerRegisters::new();
         regs.timer_modulo = 10;
-        regs.timer_control = TimerControl::Slow(0);
+        regs.timer_control = TimerControl::Slow;
         let digest = std::iter::repeat_n(0..TICKS, 0xFF)
             .flatten()
             .chain(0..TICKS - 1)
@@ -1030,13 +1024,13 @@ mod tests {
         assert!(digest);
         assert_eq!(regs.timer_counter, 0xFF);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Slow(TICKS - 1));
+        assert_eq!(regs.timer_control, TimerControl::Slow);
 
         // Tick and verify the reset
         assert!(regs.tick());
         assert_eq!(regs.timer_counter, 10);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Slow(0));
+        assert_eq!(regs.timer_control, TimerControl::Slow);
     }
 
     #[test]
@@ -1044,28 +1038,28 @@ mod tests {
         const TICKS: u8 = 16;
         let mut regs = TimerRegisters::new();
         regs.timer_modulo = 10;
-        regs.timer_control = TimerControl::Fast(0);
+        regs.timer_control = TimerControl::Fast;
         // Initial tick
         assert!(!regs.tick());
         assert_eq!(regs.timer_counter, 0);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Fast(1));
+        assert_eq!(regs.timer_control, TimerControl::Fast);
 
         // Tick up until counter increments
         assert!((0..TICKS - 2).all(|_| !regs.tick()));
         assert_eq!(regs.timer_counter, 0);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Fast(TICKS - 1));
+        assert_eq!(regs.timer_control, TimerControl::Fast);
 
         // Tick and the counter should inc
         assert!(!regs.tick());
         assert_eq!(regs.timer_counter, 1);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Fast(0));
+        assert_eq!(regs.timer_control, TimerControl::Fast);
 
         // Tick up until the counter is triggered
         let mut regs = TimerRegisters::new();
-        regs.timer_control = TimerControl::Fast(0);
+        regs.timer_control = TimerControl::Fast;
         regs.timer_modulo = 10;
         let digest = std::iter::repeat_n(0..TICKS, 0xFF)
             .flatten()
@@ -1074,13 +1068,13 @@ mod tests {
         assert!(digest);
         assert_eq!(regs.timer_counter, 0xFF);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Fast(TICKS - 1));
+        assert_eq!(regs.timer_control, TimerControl::Fast);
 
         // Tick and verify the reset
         assert!(regs.tick());
         assert_eq!(regs.timer_counter, 10);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Fast(0));
+        assert_eq!(regs.timer_control, TimerControl::Fast);
     }
 
     #[test]
@@ -1088,28 +1082,28 @@ mod tests {
         const TICKS: u8 = 4;
         let mut regs = TimerRegisters::new();
         regs.timer_modulo = 10;
-        regs.timer_control = TimerControl::Fastest(0);
+        regs.timer_control = TimerControl::Fastest;
         // Initial tick
         assert!(!regs.tick());
         assert_eq!(regs.timer_counter, 0);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Fastest(1));
+        assert_eq!(regs.timer_control, TimerControl::Fastest);
 
         // Tick up until counter increments
         assert!((0..TICKS - 2).all(|_| !regs.tick()));
         assert_eq!(regs.timer_counter, 0);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Fastest(TICKS - 1));
+        assert_eq!(regs.timer_control, TimerControl::Fastest);
 
         // Tick and the counter should inc
         assert!(!regs.tick());
         assert_eq!(regs.timer_counter, 1);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Fastest(0));
+        assert_eq!(regs.timer_control, TimerControl::Fastest);
 
         // Tick up until the counter is triggered
         let mut regs = TimerRegisters::new();
-        regs.timer_control = TimerControl::Fastest(0);
+        regs.timer_control = TimerControl::Fastest;
         regs.timer_modulo = 10;
         let digest = std::iter::repeat_n(0..TICKS, 0xFF)
             .flatten()
@@ -1118,12 +1112,12 @@ mod tests {
         assert!(digest);
         assert_eq!(regs.timer_counter, 0xFF);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Fastest(TICKS - 1));
+        assert_eq!(regs.timer_control, TimerControl::Fastest);
 
         // Tick and verify the reset
         assert!(regs.tick());
         assert_eq!(regs.timer_counter, 10);
         assert_eq!(regs.timer_modulo, 10);
-        assert_eq!(regs.timer_control, TimerControl::Fastest(0));
+        assert_eq!(regs.timer_control, TimerControl::Fastest);
     }
 }

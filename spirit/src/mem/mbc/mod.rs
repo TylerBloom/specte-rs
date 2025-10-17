@@ -104,7 +104,7 @@ impl MemoryBankController {
             0x05 => 8,
             n => panic!("Unknown RAM size: {n}"),
         };
-        println!("The RAM count: {ram_countt }");
+        println!("The RAM count: {ram_count}");
         let ram_size = ram_count * RAM_BANK_SIZE;
 
         let head_check = cart[0x014D];
