@@ -162,7 +162,6 @@ impl MemoryLike for MemoryMap {
         let Some((src, dest)) = self.vram_dma.next_addrs() else {
             return;
         };
-        println!("VRAM transfer from 0x{src:0>4X} -> 0x{dest:0>4X}");
         for i in 0..16 {
             let byte = self.read_byte(src + i);
             self.write_byte(dest + i, byte);

@@ -235,7 +235,8 @@ impl<T: PartialOrd> PartialOrd<T> for Wrapping<T> {
 }
 
 impl<T> Rem<T> for Wrapping<T>
-where T: Rem<Output = T>
+where
+    T: Rem<Output = T>,
 {
     type Output = T;
 
