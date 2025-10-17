@@ -680,17 +680,17 @@ impl IndexMut<u8> for PaletteColor {
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimerRegisters {
     /// ADDR FF04
-    divider_reg: u8,
-    // The divider reg is incremented every 64 machine cycles. This tracks those cycles. When the
-    // divider is reset, this counter is reset.
-    divider_counter: u8,
+    divider_reg: Wrapping<u8>,
+    /// The divider reg is incremented every 256 ticks. This tracks those ticks. When the divider
+    /// is reset, this counter is reset.
+    divider_counter: Wrapping<u8>,
     /// ADDR FF05
     /// The counter that is updated at the frequency specified by the TAC. Overflows trigger resets
     /// to the value in the timer modulo and then an interupt is requested.
-    timer_counter: u8,
+    timer_counter: Wrapping<u8>,
     /// ADDR FF06
     /// When the timer counter overflows, it resets to the value in this register.
-    timer_modulo: u8,
+    timer_modulo: Wrapping<u8>,
     /// ADDR FF07
     timer_control: TimerControl,
 }
@@ -719,23 +719,23 @@ pub enum TimerControl {
 impl TimerRegisters {
     fn new() -> Self {
         Self {
-            divider_reg: 0,
-            divider_counter: 0,
-            timer_counter: 0,
-            timer_modulo: 0,
+            divider_reg: Wrapping(0),
+            divider_counter: Wrapping(0),
+            timer_counter: Wrapping(0),
+            timer_modulo: Wrapping(0),
             timer_control: TimerControl::Disabled(0),
         }
     }
 
     fn tick(&mut self) -> bool {
-        self.divider_counter = self.divider_counter.wrapping_add(1);
-        if self.divider_counter == 0 {
-            self.divider_reg = self.divider_reg.wrapping_add(1);
+        self.divider_counter += 1;
+        if self.divider_counter == 0u8 {
+            self.divider_reg += 1;
         }
         let inc = match &mut self.timer_control {
             TimerControl::Disabled(_) => false,
-            TimerControl::Fastest => self.divider_counter % 16 == 0,
-            TimerControl::Fast => self.divider_counter % 64 == 0,
+            TimerControl::Fastest => self.divider_counter % 16u8 == 0,
+            TimerControl::Fast => self.divider_counter % 64u8 == 0,
             TimerControl::Slow => self.divider_counter == 0,
             TimerControl::Slowest(counter) => {
                 if self.divider_counter == 0 {
@@ -748,9 +748,9 @@ impl TimerRegisters {
                 digest
             }
         };
-        let val = self.timer_counter.checked_add(inc as u8);
+        let val = self.timer_counter.0.checked_add(inc as u8);
         // `None` indicates ther was an overflow, so we need to request an interupt
-        self.timer_counter = val.unwrap_or(self.timer_modulo);
+        self.timer_counter.0 = val.unwrap_or(self.timer_modulo.0);
         val.is_none()
     }
 
@@ -758,44 +758,41 @@ impl TimerRegisters {
     // NOTE: This method is also called when the STOP instruction is called.
     fn reset(&mut self) {
         // Writting to the div to reset can cause the timer counter to increment.
-        // See:
         match self.timer_control {
-            TimerControl::Disabled(_) => {},
+            TimerControl::Disabled(_) => {}
             TimerControl::Fastest => {
-                if check_bit_const::<3>(self.divider_counter) {
-                    self.timer_counter = self.timer_counter.wrapping_add(1)
+                if check_bit_const::<3>(self.divider_counter.0) {
+                    self.timer_counter += 1
                 }
             }
-            TimerControl::Fast =>  {
-                if check_bit_const::<5>(self.divider_counter) {
-                    self.timer_counter = self.timer_counter.wrapping_add(1)
+            TimerControl::Fast => {
+                if check_bit_const::<5>(self.divider_counter.0) {
+                    self.timer_counter += 1
                 }
             }
             TimerControl::Slow => {
-                if check_bit_const::<7>(self.divider_counter) {
-                    self.timer_counter = self.timer_counter.wrapping_add(1)
+                if check_bit_const::<7>(self.divider_counter.0) {
+                    self.timer_counter += 1
                 }
             }
             TimerControl::Slowest(counter) => {
                 // The counter here acts like bits 8 and 9 in the div counter. So, if bit 1 is set,
                 // that means bit 9 would have been set in the hardware.
                 if check_bit_const::<1>(counter) {
-                    self.timer_counter = self.timer_counter.wrapping_add(1)
+                    self.timer_counter += 1
                 }
             }
         }
-        self.divider_reg = 0;
-        self.divider_counter = 0;
+        self.divider_reg.0 = 0;
+        self.divider_counter.0 = 0;
         self.timer_control.reset();
-        println!("Resetting: {self:#?}");
     }
 
     fn read_byte(&self, index: u16) -> u8 {
-        println!("{self:#?}");
         match index {
-            0xFF04 => self.divider_reg,
-            0xFF05 => self.timer_counter,
-            0xFF06 => self.timer_modulo,
+            0xFF04 => self.divider_reg.0,
+            0xFF05 => self.timer_counter.0,
+            0xFF06 => self.timer_modulo.0,
             0xFF07 => self.timer_control.as_byte(),
             _ => unreachable!("How did you get here??"),
         }
@@ -804,8 +801,8 @@ impl TimerRegisters {
     fn write_byte(&mut self, index: u16, value: u8) {
         match index {
             0xFF04 => self.reset(),
-            0xFF05 => self.timer_counter = value,
-            0xFF06 => self.timer_modulo = value,
+            0xFF05 => self.timer_counter.0 = value,
+            0xFF06 => self.timer_modulo.0 = value,
             0xFF07 => self.timer_control = TimerControl::from_byte(value),
             _ => unreachable!("How did you get here??"),
         }
