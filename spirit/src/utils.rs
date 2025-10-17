@@ -3,6 +3,7 @@ use std::ops::AddAssign;
 use std::ops::BitAndAssign;
 use std::ops::BitOrAssign;
 use std::ops::BitXorAssign;
+use std::ops::Rem;
 use std::ops::Sub;
 use std::ops::SubAssign;
 
@@ -50,11 +51,11 @@ pub(crate) fn deserialize_slices_as_one<
     Copy,
     PartialEq,
     Eq,
-    derive_more::Display,
     Serialize,
     Deserialize,
-    derive_more::UpperHex,
     Not,
+    derive_more::Display,
+    derive_more::UpperHex,
     derive_more::BitAndAssign,
     derive_more::BitOrAssign,
     derive_more::BitXorAssign,
@@ -218,5 +219,27 @@ where
 {
     fn sub_assign(&mut self, rhs: T) {
         *self = *self - rhs
+    }
+}
+
+impl<T: PartialEq> PartialEq<T> for Wrapping<T> {
+    fn eq(&self, other: &T) -> bool {
+        &self.0 == other
+    }
+}
+
+impl<T: PartialOrd> PartialOrd<T> for Wrapping<T> {
+    fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(other)
+    }
+}
+
+impl<T> Rem<T> for Wrapping<T>
+where T: Rem<Output = T>
+{
+    type Output = T;
+
+    fn rem(self, rhs: T) -> Self::Output {
+        self.0 % rhs
     }
 }
