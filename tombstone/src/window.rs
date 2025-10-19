@@ -1,8 +1,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use ghast::state::Emulator;
-use ghast::state::Message;
+use ghast::emu_core::Emulator;
 use iced::Element;
 use iced::Subscription;
 use iced::Task;
@@ -12,6 +11,7 @@ use tokio_stream::wrappers::BroadcastStream;
 
 use crate::WindowMessage;
 
+/*
 pub struct WindowState {
     gb: Arc<Mutex<Emulator>>,
     inbound: Receiver<WindowMessage>,
@@ -48,3 +48,4 @@ impl WindowState {
         Subscription::batch([sub, Subscription::run_with_id(0, recv)])
     }
 }
+*/

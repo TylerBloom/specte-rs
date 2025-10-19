@@ -18,7 +18,7 @@ use crossterm::terminal::EnterAlternateScreen;
 use crossterm::terminal::LeaveAlternateScreen;
 use crossterm::terminal::disable_raw_mode;
 use crossterm::terminal::enable_raw_mode;
-use ghast::state::Emulator;
+use ghast::emu_core::Emulator;
 use ratatui::Frame;
 use ratatui::Terminal;
 use ratatui::backend::Backend;
@@ -49,7 +49,7 @@ use command::*;
 use state::*;
 use std::sync::mpsc;
 use tokio::sync::broadcast;
-use window::WindowState;
+// use window::WindowState;
 
 static TMP_ROM: &[u8] = include_bytes!("../../spirit/tests/roms/acid/which.gb");
 
@@ -67,14 +67,14 @@ fn main() {
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut term = Terminal::new(backend).unwrap();
     term.clear().unwrap();
-    let mut gb = Arc::new(Mutex::new(Emulator::new(rom)));
+    let mut gb = Arc::new(Mutex::new(Gameboy::new(rom).complete()));
     let (send_cmd, recv_cmd) = broadcast::channel(100);
     let (send_event, recv_event) = mpsc::channel();
     create_input_thread(send_event);
     let mut state = AppState::new(gb.clone(), recv_event, send_cmd);
     state.mem_start = 0x8000;
     let handle = std::thread::spawn(move || state.run(term));
-    WindowState::new(gb, recv_cmd).run();
+    // WindowState::new(gb, recv_cmd).run();
     handle.join();
     execute!(std::io::stdout(), LeaveAlternateScreen).unwrap();
 }
@@ -86,12 +86,12 @@ fn create_input_thread(sender: mpsc::Sender<Event>) {
         loop {
             // TODO: Bottom's impl used a cancellation token for a gentle shutdown. The same should
             // be done here... eventually.
-            if let Ok(true) = poll(Duration::from_millis(20)) {
-                if let Ok(event) = read() {
-                    // NOTE: We unwrap because the state shouldn't be holding too many
-                    // messages. Perhaps an unbounded channel would be better...
-                    sender.send(event).unwrap();
-                }
+            if let Ok(true) = poll(Duration::from_millis(20))
+                && let Ok(event) = read()
+            {
+                // NOTE: We unwrap because the state shouldn't be holding too many
+                // messages. Perhaps an unbounded channel would be better...
+                sender.send(event).unwrap();
             }
         }
     });

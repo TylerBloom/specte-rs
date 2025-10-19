@@ -6,7 +6,7 @@ use crossterm::event::KeyEventKind;
 use crossterm::event::KeyModifiers;
 use crossterm::execute;
 use crossterm::terminal::LeaveAlternateScreen;
-use ghast::state::Emulator;
+use ghast::emu_core::Emulator;
 use indexmap::IndexSet;
 use ratatui::Frame;
 use ratatui::Terminal;
@@ -20,6 +20,8 @@ use ratatui::layout::Rect;
 use ratatui::text::Text;
 use ratatui::widgets::Block;
 use ratatui::widgets::Paragraph;
+use spirit::mem::io::timers::TimerRegisters;
+use spirit::mem::MemoryLike;
 use spirit::Gameboy;
 use spirit::StartUpSequence;
 use spirit::cpu::Cpu;
@@ -74,7 +76,7 @@ pub(crate) struct AppState {
     // TODO: Add command history (don't store the actual command, store the string that then get
     // parsed into commands.
     // TODO: We should limit the command and output history. We don't want it to grow forever.
-    gb: Arc<Mutex<Emulator>>,
+    gb: Arc<Mutex<Gameboy>>,
     processor: CommandProcessor,
     outbound: Sender<WindowMessage>,
     pub(crate) cli_history: Vec<String>,
@@ -166,7 +168,7 @@ pub enum Verbosity {
 
 impl AppState {
     pub fn new(
-        gb: Arc<Mutex<Emulator>>,
+        gb: Arc<Mutex<Gameboy>>,
         inbound: mpsc::Receiver<CrosstermEvent>,
         outbound: Sender<WindowMessage>,
     ) -> Self {
@@ -227,7 +229,7 @@ impl AppState {
     fn process(&mut self, cmd: Command) {
         match cmd {
             Command::Read { index } => {
-                let val = self.gb.lock().unwrap().gb().mem.read_byte(index);
+                let val = self.gb.lock().unwrap().mem.read_byte(index);
                 self.cli_history
                     .push(format!("0x{index:0>4X} -> 0b{val:0>8b}"));
             }
@@ -238,7 +240,7 @@ impl AppState {
             }
             Command::Step { count } => {
                 let mut gb = self.gb.lock().unwrap();
-                (0..count).for_each(|_| gb.step_op());
+                (0..count).for_each(|_| gb.step());
             }
             Command::Info => todo!(),
             Command::Index(options) => match options {
@@ -259,28 +261,28 @@ impl AppState {
                     RunUntil::Return => {
                         let mut gb = self.gb.lock().unwrap();
                         while !matches!(
-                            gb.gb().op_iter().next().unwrap().1,
+                            gb.op_iter().next().unwrap().1,
                             Instruction::Jump(JumpOp::Return | JumpOp::ReturnAndEnable)
                         ) {
-                            gb.step_op()
+                            gb.step()
                         }
                     }
-                    RunUntil::Frame => self.gb.lock().unwrap().next_screen(),
+                    RunUntil::Frame => self.gb.lock().unwrap().next_frame(),
                     RunUntil::Pause => {
                         self.outbound.send(WindowMessage::Run).unwrap();
                     }
                     RunUntil::Interupt => {
                         let mut gb = self.gb.lock().unwrap();
-                        let ints = gb.gb().mem.io().interrupt_flags;
-                        while gb.gb().mem.io().interrupt_flags == ints {
-                            gb.step_op();
+                        let ints = gb.mem.io().interrupt_flags;
+                        while gb.mem.io().interrupt_flags == ints {
+                            gb.step();
                         }
                     }
                     RunUntil::Custom => {
                         let mut gb = self.gb.lock().unwrap();
-                        let mut cond = custom_until_condition(gb.gb());
-                        while cond(gb.gb()) {
-                            gb.step_op();
+                        let mut cond = custom_until_condition(&gb);
+                        while cond(&gb) {
+                            gb.step();
                         }
                     }
                 },
@@ -386,17 +388,16 @@ impl AppState {
         let mut screens = IndexSet::new();
         let mut gb = self.gb.lock().unwrap();
         loop {
-            if !screens.insert(gb.gb().ppu.screen.clone()) {
+            if !screens.insert(gb.ppu.screen.clone()) {
                 break;
             }
-            gb.next_screen();
+            gb.next_frame();
         }
         self.outbound.send(WindowMessage::DuplicateScreens(screens));
     }
 
     fn render_frame(&mut self, frame: &mut Frame) {
         let gb = self.gb.lock().unwrap();
-        let gb = gb.gb();
         let sections = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Fill(1), Constraint::Length(40)])
@@ -420,10 +421,10 @@ impl AppState {
             .set(render_cli(frame, &self.cli_history, left[0]));
         self.render_mem(frame, left[1], &gb.mem);
         render_cpu(frame, right[0], gb.cpu());
-        render_ppu(frame, right[1], &gb.ppu);
+        render_tiemrs(frame, right[1], &gb.mem.io().tac);
         render_interrupts(frame, right[2], &gb.mem);
         // render_stack(frame, right[3], &gb.mem);
-        self.pc_state.render(frame, right[3], gb);
+        self.pc_state.render(frame, right[3], &gb);
     }
 
     fn render_mem(&self, frame: &mut Frame, area: Rect, mem: &MemoryMap) {
@@ -553,11 +554,11 @@ fn render_cpu(frame: &mut Frame, area: Rect, cpu: &Cpu) {
     frame.render_widget(para, area);
 }
 
-fn render_ppu(frame: &mut Frame, area: Rect, ppu: &Ppu) {
+fn render_tiemrs(frame: &mut Frame, area: Rect, timers: &TimerRegisters) {
     let block = Block::bordered()
-        .title("PPU")
+        .title(" Timers ")
         .title_alignment(ratatui::layout::Alignment::Center);
-    let para = Paragraph::new(format!("{:#?}", ppu.inner)).block(block);
+    let para = Paragraph::new(format!("{timers}")).block(block);
     frame.render_widget(para, area);
 }
 
