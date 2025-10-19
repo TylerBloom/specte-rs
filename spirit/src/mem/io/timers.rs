@@ -225,19 +225,19 @@ mod test {
     #[test]
     fn divider_register() {
         let mut regs = TimerRegisters::new();
-        assert!((0..64).all(|_| !regs.tick()));
+        assert!((0..0x100).all(|_| !regs.tick()));
         assert_eq!(regs.divider_reg, 1);
         assert_eq!(regs.divider_counter, 0);
         let mut regs = TimerRegisters::new();
         // We want to tick right up until the register resets. At no point should there be an
         // interupt request since the timer counter is disabled
-        let digest = std::iter::repeat_n(0..64u8, u8::MAX as usize)
-            .chain(std::iter::once(0..63u8))
+        let digest = std::iter::repeat_n(0..0x100, u8::MAX as usize)
+            .chain(std::iter::once(0..0xFF))
             .flatten()
             .all(|_| !regs.tick());
         assert!(digest);
         assert_eq!(regs.divider_reg, 0xFF);
-        assert_eq!(regs.divider_counter, 63);
+        assert_eq!(regs.divider_counter, 0xFF);
         assert!(!regs.tick());
         assert_eq!(regs.divider_reg, 0);
         assert_eq!(regs.divider_counter, 0);

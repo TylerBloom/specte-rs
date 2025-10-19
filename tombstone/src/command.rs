@@ -14,7 +14,6 @@ use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
 
-use ghast::emu_core::EmuMessage;
 use indexmap::IndexSet;
 use spirit::lookup::Instruction;
 use spirit::lookup::JumpOp;
