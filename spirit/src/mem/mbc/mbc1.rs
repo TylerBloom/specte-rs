@@ -105,10 +105,7 @@ impl MBC1 {
             0x4000..0x6000 => self.ram_bank = value & 0x3,
             0x6000..0x8000 if (value & 1) == 0 => self.banking_mode = BankingMode::Advanced,
             0x6000..0x8000 => self.banking_mode = BankingMode::Simple,
-            i @ 0xA000..0xC000 =>
-                self.ram[self.ram_bank as usize]
-                [(i - 0xA000) as usize]
-                = value,
+            i @ 0xA000..0xC000 => self.ram[self.ram_bank as usize][(i - 0xA000) as usize] = value,
             _ => unreachable!(
                 "Memory controller is unable to write to memory address: 0x{index:0>4X}"
             ),
