@@ -16,7 +16,7 @@ use super::MemoryMap;
 use super::vram::PpuMode;
 use super::vram::VRam;
 
-mod timers;
+pub mod timers;
 
 use timers::TimerRegisters;
 
@@ -29,7 +29,7 @@ pub struct IoRegisters {
     /// ADDR FF04, FF05, FF06, FF07
     /// There are the (divider, timer, timer modulo, tac)
     /// The counter for the timer controller
-    tac: TimerRegisters,
+    pub tac: TimerRegisters,
     /// ADDR FF0F
     pub interrupt_flags: u8,
     /// ADDR FF10-FF26
