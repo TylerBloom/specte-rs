@@ -1,8 +1,9 @@
-use spirit::{
-    Gameboy,
-    lookup::{HalfRegister, Instruction, LoadOp, RegOrPointer},
-    utils::Wrapping,
-};
+use spirit::Gameboy;
+use spirit::lookup::HalfRegister;
+use spirit::lookup::Instruction;
+use spirit::lookup::LoadOp;
+use spirit::lookup::RegOrPointer;
+use spirit::utils::Wrapping;
 
 const STOP_OP: Instruction = Instruction::Load(LoadOp::Basic {
     dest: RegOrPointer::Reg(HalfRegister::B),
@@ -235,9 +236,10 @@ fn timer_tma_write_reloading() {
 #[test]
 #[should_panic]
 fn timer_tima_write_reloading() {
-    let mut gb =
-        Gameboy::new(include_bytes!("roms/mooneye/acceptance/timer/tima_write_reloading.gb").into())
-            .complete();
+    let mut gb = Gameboy::new(
+        include_bytes!("roms/mooneye/acceptance/timer/tima_write_reloading.gb").into(),
+    )
+    .complete();
     while !matches!(gb.read_op(), STOP_OP) {
         gb.step();
     }
