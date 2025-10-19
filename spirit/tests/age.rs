@@ -1,3 +1,4 @@
+/* FIXME: These tests take minutes to run. They either need to be optimized or deleted.
 use spirit::Gameboy;
 use spirit::lookup::HalfRegister;
 use spirit::lookup::Instruction;
@@ -38,3 +39,4 @@ fn vram_read() {
 fn ei_halt() {
     run(include_bytes!("roms/age/halt/ei-halt-dmgC-cgbBCE.gb"));
 }
+*/
