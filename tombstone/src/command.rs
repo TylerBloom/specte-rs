@@ -14,7 +14,7 @@ use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
 
-use ghast::state::Message;
+use ghast::emu_core::EmuMessage;
 use indexmap::IndexSet;
 use spirit::lookup::Instruction;
 use spirit::lookup::JumpOp;
@@ -153,20 +153,6 @@ pub enum WindowMessage {
     Run,
     Pause,
     Redraw,
-}
-
-impl From<WindowMessage> for ghast::state::Message {
-    fn from(value: WindowMessage) -> Self {
-        match value {
-            WindowMessage::Frames(count) => Message::Step(count),
-            WindowMessage::Run => Message::Play,
-            WindowMessage::Pause => Message::Pause,
-            WindowMessage::Redraw => Message::Redraw,
-            WindowMessage::DuplicateScreens(screens) => {
-                Message::Screens(screens.into_iter().collect())
-            }
-        }
-    }
 }
 
 fn parse_int(input: &str) -> Result<u16, ParseIntError> {
