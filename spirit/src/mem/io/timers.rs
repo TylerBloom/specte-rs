@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -22,6 +24,27 @@ pub struct TimerRegisters {
     timer_modulo: Wrapping<u8>,
     /// ADDR FF07
     timer_control: TimerControl,
+}
+
+impl Display for TimerRegisters {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Timers {{")?;
+        writeln!(f, "  DIV: 0x{:0>2X}", self.divider_reg.0)?;
+        writeln!(f, "  DIV counter: 0x{:0>2X}", self.divider_counter.0)?;
+        match self.timer_counter {
+            TimerCounter::Loading(count) => writeln!(f, "  TIMA: Loading(0x{count:0>2X})")?,
+            TimerCounter::Ready(count) => writeln!(f, "  TIMA: 0x{count:0>2X}")?,
+        }
+        writeln!(f, "  TMA: 0x{:0>2X}", self.timer_modulo.0)?;
+        match self.timer_control {
+            TimerControl::Disabled(_) => writeln!(f, "  TAC: Disabled")?,
+            TimerControl::Slowest(count) => writeln!(f, "  TAC: Slowest(0x{count:0>2X})")?,
+            TimerControl::Slow => writeln!(f, "  TAC: Slow")?,
+            TimerControl::Fast => writeln!(f, "  TAC: Fast")?,
+            TimerControl::Fastest => writeln!(f, "  TAC: Fastest")?,
+        }
+        write!(f, "}}")
+    }
 }
 
 /// When the timer counter overflows, it does not immediately load the timer modulo value. That
