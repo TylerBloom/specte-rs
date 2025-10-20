@@ -19,7 +19,7 @@ jobs:
         with:
           rust-version: nightly
           components: rustfmt, clippy
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: cargo fmt --check
       - run: cargo clippy --all
   tests:
@@ -32,7 +32,7 @@ jobs:
           rust-version: stable
           components: rustfmt
           targets: wasm32-unknown-unknown
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Fetch Trunk
         uses: jetli/trunk-action@v0.5.0
         with:
