@@ -13,9 +13,9 @@ use serde::Deserialize;
 use serde::Serialize;
 
 #[test]
-fn json_tests() {
+fn json_tests_00() {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    let report = TestBattery::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
+    let report = TestBattery::<0x00>::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
     println!("{report}");
     if !report.passed() {
         panic!("One or more failures reported!!");
@@ -23,18 +23,29 @@ fn json_tests() {
 }
 
 #[test]
-fn single_json_test() {
-    let test_num = u8::from_str_radix(
-        &std::env::vars()
-            .find_map(|(var, val)| (var == "CPU_TEST").then_some(val))
-            .unwrap_or_else(|| "00".to_string()),
-        16,
-    )
-    .unwrap();
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push(format!("tests/data/json_test_{test_num:0>2x}.json"));
-    let tests: TestSuite = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let report = tests.execute(test_num);
+fn json_tests_40() {
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let report = TestBattery::<0x40>::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
+    println!("{report}");
+    if !report.passed() {
+        panic!("One or more failures reported!!");
+    }
+}
+
+#[test]
+fn json_tests_80() {
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let report = TestBattery::<0x80>::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
+    println!("{report}");
+    if !report.passed() {
+        panic!("One or more failures reported!!");
+    }
+}
+
+#[test]
+fn json_tests_c0() {
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let report = TestBattery::<0xC0>::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
     println!("{report}");
     if !report.passed() {
         panic!("One or more failures reported!!");
@@ -42,21 +53,21 @@ fn single_json_test() {
 }
 
 /// Contains the entire swath of tests for every op code.
-struct TestBattery {
+struct TestBattery<const START: u8> {
     /// Contains a op code and that operation's test suite
     suites: Vec<(u8, TestSuite)>,
 }
 
-impl TestBattery {
+impl<const START: u8> TestBattery<START> {
     fn construct(mut path: PathBuf) -> Self {
         let mut suites = Vec::new();
-        path.push("tmp");
-        for i in 0u8..=u8::MAX {
-            path.pop();
+        let end: u8 = START + 0x3F;
+        for i in START..=end {
             path.push(format!("json_test_{i:0>2x}.json"));
             let Ok(file) = std::fs::read_to_string(&path) else {
                 continue;
             };
+            path.pop();
             let suite: TestSuite = serde_json::from_str(&file).unwrap();
             suites.push((i, suite));
         }
