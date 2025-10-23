@@ -304,3 +304,20 @@ fn bits_mem_oam() {
     assert_eq!(cpu.h, GOAL_H_REG);
     assert_eq!(cpu.l, GOAL_L_REG);
 }
+
+#[test]
+fn instr_daa() {
+    let mut gb =
+        Gameboy::new(include_bytes!("roms/mooneye/acceptance/instr/daa.gb").into())
+            .complete();
+    while !matches!(gb.read_op(), STOP_OP) {
+        gb.step();
+    }
+    let cpu = gb.cpu();
+    assert_eq!(cpu.b, GOAL_B_REG);
+    assert_eq!(cpu.c, GOAL_C_REG);
+    assert_eq!(cpu.d, GOAL_D_REG);
+    assert_eq!(cpu.e, GOAL_E_REG);
+    assert_eq!(cpu.h, GOAL_H_REG);
+    assert_eq!(cpu.l, GOAL_L_REG);
+}
