@@ -15,7 +15,8 @@ use serde::Serialize;
 #[test]
 fn json_tests_00() {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    let report = TestBattery::<0x00>::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
+    let report =
+        TestBattery::<0x00>::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
     println!("{report}");
     if !report.passed() {
         panic!("One or more failures reported!!");
@@ -25,7 +26,8 @@ fn json_tests_00() {
 #[test]
 fn json_tests_40() {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    let report = TestBattery::<0x40>::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
+    let report =
+        TestBattery::<0x40>::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
     println!("{report}");
     if !report.passed() {
         panic!("One or more failures reported!!");
@@ -35,7 +37,8 @@ fn json_tests_40() {
 #[test]
 fn json_tests_80() {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    let report = TestBattery::<0x80>::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
+    let report =
+        TestBattery::<0x80>::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
     println!("{report}");
     if !report.passed() {
         panic!("One or more failures reported!!");
@@ -45,7 +48,8 @@ fn json_tests_80() {
 #[test]
 fn json_tests_c0() {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    let report = TestBattery::<0xC0>::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
+    let report =
+        TestBattery::<0xC0>::construct(PathBuf::from(format!("{manifest}/tests/data"))).execute();
     println!("{report}");
     if !report.passed() {
         panic!("One or more failures reported!!");
