@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use iced::Element;
 use iced::widget::Button;
 use iced::widget::Column;
+use iced::widget::Scrollable;
 use iced::widget::Text;
 use serde::Deserialize;
 use serde::Serialize;
@@ -95,7 +96,11 @@ impl Trove {
     pub fn display(&self) -> Element<'static, HomeMessage> {
         let children = std::iter::once("Trove".into())
             .chain(std::iter::once(self.add_game_set_button()))
-            .chain(self.display_games());
+            .chain(std::iter::once(
+                Scrollable::new(Column::from_iter(self.display_games()))
+                    .anchor_left()
+                    .into(),
+            ));
         Column::with_children(children).into()
     }
 
@@ -106,12 +111,18 @@ impl Trove {
     }
 
     pub fn display_games(&self) -> impl IntoIterator<Item = Element<'static, HomeMessage>> {
-        std::fs::read_dir(&self.path)
+        let mut files: Vec<_> = std::fs::read_dir(&self.path)
             .unwrap()
             .map(Result::unwrap)
             .filter(|item| item.file_type().unwrap().is_file())
-            .map(|item| {
-                let file_name = item.file_name().to_str().unwrap().to_owned();
+            .map(|item| item.file_name().to_str().unwrap().to_owned())
+            .collect();
+
+        files.sort();
+
+        files
+            .into_iter()
+            .map(|file_name| {
                 Button::new(Text::new(file_name.clone()))
                     .on_press(HomeMessage::StartGame(file_name))
             })
