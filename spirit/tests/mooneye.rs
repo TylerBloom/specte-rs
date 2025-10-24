@@ -365,7 +365,7 @@ fn mbc1_bits_ramg() {
 #[test]
 #[should_panic]
 fn mbc1_multicart_rom_8mb() {
-    mooneye_test!("../emulator-only/mbc1/multicart_rom_8mb.gb")
+    mooneye_test!("../emulator-only/mbc1/multicart_rom_8Mb.gb")
 }
 
 #[test]
@@ -383,30 +383,30 @@ fn mbc1_ram_256kb() {
 #[test]
 #[should_panic]
 fn mbc1_rom_1mb() {
-    mooneye_test!("../emulator-only/mbc1/rom_1mb.gb")
+    mooneye_test!("../emulator-only/mbc1/rom_1Mb.gb")
 }
 
 #[test]
 #[should_panic]
 fn mbc1_rom_2mb() {
-    mooneye_test!("../emulator-only/mbc1/rom_2mb.gb")
+    mooneye_test!("../emulator-only/mbc1/rom_2Mb.gb")
 }
 
 #[test]
 fn mbc1_rom_4mb() {
-    mooneye_test!("../emulator-only/mbc1/rom_4mb.gb")
+    mooneye_test!("../emulator-only/mbc1/rom_4Mb.gb")
 }
 
 #[test]
 #[should_panic]
 fn mbc1_rom_8mb() {
-    mooneye_test!("../emulator-only/mbc1/rom_8mb.gb")
+    mooneye_test!("../emulator-only/mbc1/rom_8Mb.gb")
 }
 
 #[test]
 #[should_panic]
 fn mbc1_rom_16mb() {
-    mooneye_test!("../emulator-only/mbc1/rom_16mb.gb")
+    mooneye_test!("../emulator-only/mbc1/rom_16Mb.gb")
 }
 
 #[test]
@@ -424,7 +424,7 @@ fn mbc2_bits_ramg() {
 #[test]
 #[should_panic]
 fn mbc2_bits_romb() {
-    mooneye_test!("../emulator-only/mbc2/bits_romb.gb")
+    mooneye_test!("../emulator-only/mbc2/bits_roMb.gb")
 }
 
 #[test]
@@ -442,13 +442,13 @@ fn mbc2_ram() {
 #[test]
 #[should_panic]
 fn mbc2_rom_1mb() {
-    mooneye_test!("../emulator-only/mbc2/rom_1mb.gb")
+    mooneye_test!("../emulator-only/mbc2/rom_1Mb.gb")
 }
 
 #[test]
 #[should_panic]
 fn mbc2_rom_2mb() {
-    mooneye_test!("../emulator-only/mbc2/rom_2mb.gb")
+    mooneye_test!("../emulator-only/mbc2/rom_2Mb.gb")
 }
 
 #[test]
@@ -460,43 +460,43 @@ fn mbc2_rom_512kb() {
 #[test]
 #[should_panic]
 fn mbc5_rom_1mb() {
-    mooneye_test!("../emulator-only/mbc5/rom_1mb.gb")
+    mooneye_test!("../emulator-only/mbc5/rom_1Mb.gb")
 }
 
 #[test]
 #[should_panic]
 fn mbc5_rom_2mb() {
-    mooneye_test!("../emulator-only/mbc5/rom_2mb.gb")
+    mooneye_test!("../emulator-only/mbc5/rom_2Mb.gb")
 }
 
 #[test]
 #[should_panic]
 fn mbc5_rom_4mb() {
-    mooneye_test!("../emulator-only/mbc5/rom_4mb.gb")
+    mooneye_test!("../emulator-only/mbc5/rom_4Mb.gb")
 }
 
 #[test]
 #[should_panic]
 fn mbc5_rom_8mb() {
-    mooneye_test!("../emulator-only/mbc5/rom_8mb.gb")
+    mooneye_test!("../emulator-only/mbc5/rom_8Mb.gb")
 }
 
 #[test]
 #[should_panic]
 fn mbc5_rom_16mb() {
-    mooneye_test!("../emulator-only/mbc5/rom_16mb.gb")
+    mooneye_test!("../emulator-only/mbc5/rom_16Mb.gb")
 }
 
 #[test]
 #[should_panic]
 fn mbc5_rom_32mb() {
-    mooneye_test!("../emulator-only/mbc5/rom_32mb.gb")
+    mooneye_test!("../emulator-only/mbc5/rom_32Mb.gb")
 }
 
 #[test]
 #[should_panic]
 fn mbc5_rom_64mb() {
-    mooneye_test!("../emulator-only/mbc5/rom_64mb.gb")
+    mooneye_test!("../emulator-only/mbc5/rom_64Mb.gb")
 }
 
 #[test]
