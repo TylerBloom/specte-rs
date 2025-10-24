@@ -424,7 +424,7 @@ fn mbc2_bits_ramg() {
 #[test]
 #[should_panic]
 fn mbc2_bits_romb() {
-    mooneye_test!("../emulator-only/mbc2/bits_roMb.gb")
+    mooneye_test!("../emulator-only/mbc2/bits_romb.gb")
 }
 
 #[test]
