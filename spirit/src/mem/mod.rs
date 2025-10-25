@@ -245,7 +245,6 @@ impl OamDma {
         if self.ticks >= 640 {
             return false;
         }
-        println!("DMA is on, indexing @ 0x{index:0>4X}");
         match (self.bus, index) {
             (ConflictBus::Wram, 0xC000..0xE000) => true,
             (ConflictBus::Wram, _) => false,

@@ -116,6 +116,7 @@ impl MemoryBankController {
                 .fold(0u8, |acc, b| acc.wrapping_sub(b).wrapping_sub(1))
         );
         // Check cartridge type
+        println!("Cartridge type: {}", cart[0x0147]);
         match cart[0x0147] {
             0x00 => {
                 let rom = Vec::from(&cart[0x0000..=0x7FFF]);
