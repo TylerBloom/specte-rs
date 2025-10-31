@@ -1,3 +1,6 @@
+use std::cell::Cell;
+use std::fmt::Display;
+use std::hash::Hash;
 use std::ops::Range;
 
 use serde::Deserialize;
@@ -6,7 +9,7 @@ use serde::Serialize;
 use crate::mem::mbc::RAM_BANK_SIZE;
 use crate::mem::mbc::ROM_BANK_SIZE;
 
-#[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MBC1 {
     kind: MBC1Kind,
     rom: Vec<Vec<u8>>,
@@ -33,6 +36,46 @@ pub struct MBC1 {
     /// This relies on the number of ROM banks being a multiple of two; otherwise, a simple bit
     /// mask would not work.
     index_mask: u8,
+
+    // debug: Cell<bool>,
+}
+
+impl Hash for MBC1 {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.kind.hash(state);
+        self.rom.hash(state);
+        self.ram.hash(state);
+        self.bank_index_one.hash(state);
+        self.bank_index_two.hash(state);
+        self.ram_enabled.hash(state);
+        self.banking_mode.hash(state);
+        self.index_mask.hash(state);
+    }
+}
+
+impl Display for MBC1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            kind,
+            rom: _,
+            ram: _,
+            bank_index_one,
+            bank_index_two,
+            ram_enabled,
+            banking_mode,
+            index_mask,
+            // debug,
+        } = self;
+        writeln!(f, "MBC1 {{")?;
+        writeln!(f, "  MODE:  {}", self.banking_mode)?;
+        writeln!(f, "  RAMG:  {}", self.ram_enabled)?;
+        writeln!(f, "  BANK1: 0b{:0>8b}", self.bank_index_one)?;
+        writeln!(f, "  BANK2: 0b{:0>8b}", self.bank_index_two)?;
+        writeln!(f, "  mask:  0b{:0>8b}", self.index_mask)?;
+        writeln!(f, "  mask:  0b{:0>8b}", self.index_mask)?;
+        writeln!(f, "  rom_bank:  0x{:0>2X}", self.rom_bank())?;
+        writeln!(f, "}}")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -41,7 +84,7 @@ pub enum MBC1Kind {
     Rewired,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, derive_more::Display)]
 pub enum BankingMode {
     Simple = 0,
     Advanced = 1,
@@ -99,7 +142,20 @@ impl MBC1 {
             ram_enabled: false,
             banking_mode: BankingMode::Simple,
             index_mask,
+            // debug: Cell::new(false),
         }
+    }
+
+    pub fn first_rom(&self) -> &[u8] {
+        self.rom[self.first_rom_bank()].as_slice()
+    }
+
+    pub fn rom(&self) -> &[u8] {
+        self.rom[self.rom_bank()].as_slice()
+    }
+
+    pub fn ram(&self) -> &[u8] {
+        self.ram[self.ram_bank()].as_slice()
     }
 
     pub(super) fn overwrite_rom_zero(&mut self, index: u16, val: &mut u8) {
@@ -111,16 +167,35 @@ impl MBC1 {
         let base = matches!(self.banking_mode, BankingMode::Advanced)
             .then(|| self.bank_index_two << 5)
             .unwrap_or_default();
-        (base & self.index_mask) as usize
+        let digest = (base & self.index_mask) as usize;
+        /*
+        if self.debug.take() {
+            self.debug.set(false);
+            println!(
+                "Calculating first bank index from: MODE={}, BANK2=0b{:0>2b}, mask=0b{:0>8b}, index=0x{digest:0>2X}",
+                self.banking_mode, self.bank_index_two, self.index_mask,
+            );
+        }
+        */
+        digest
     }
 
     #[inline]
     fn rom_bank(&self) -> usize {
         let bank = self.bank_index_two << 5 | self.bank_index_one;
-        (bank & self.index_mask) as usize
+        let digest = (bank & self.index_mask) as usize;
+        /*
+        if self.debug.take() {
+            self.debug.set(false);
+            println!(
+                "Calculating second bank index from: BANK1=0x{:0>2X}, BANK2=0x{:0>2X}, mask=0x{:0>2X}, index=0x{digest:0>2X}",
+                self.bank_index_one, self.bank_index_two, self.index_mask,
+            );
+        }
+        */
+        digest
     }
 
-    // TODO: Write a small test for this
     /// NOTE: This does *not* take RAM enablement into consideration.
     #[inline]
     fn ram_bank(&self) -> usize {
@@ -149,14 +224,21 @@ impl MBC1 {
     /// Writes to a register or RAM bank
     #[inline]
     pub fn write_byte(&mut self, index: u16, value: u8) {
+        // self.debug.set(true);
         match index {
-            0x0000..0x2000 => self.ram_enabled = (value & 0x0F) == 0b0101,
+            0x0000..0x2000 => self.ram_enabled = (value & 0x0F) == 0b1010,
             0x2000..0x4000 => {
-                // println!("Setting ROM bank one to {value}");
-                self.bank_index_one = 0x1F & value;
+                self.bank_index_one = std::cmp::max(0x1F & value, 1);
+                // println!("Writing 0b{value:0>8b} to bank index one",);
             }
-            0x4000..0x6000 => self.bank_index_two = 0x3 & value,
-            0x6000..0x8000 => self.banking_mode = BankingMode::from_byte(value),
+            0x4000..0x6000 => {
+                self.bank_index_two = 0x3 & value;
+                // println!("Writing 0b{value:0>8b} to bank index two",);
+            }
+            0x6000..0x8000 => {
+                self.banking_mode = BankingMode::from_byte(value);
+                // println!("Writing 0b{value:0>8b} to MODE",);
+            }
             0xA000..0xC000 => {
                 if self.ram_enabled {
                     let bank = self.ram_bank();
@@ -197,6 +279,7 @@ mod tests {
             ram_enabled: false,
             banking_mode: BankingMode::Simple,
             index_mask: u8::MAX >> 1,
+            // debug: false.into(),
         };
 
         // While in simple mode
@@ -236,6 +319,7 @@ mod tests {
             ram_enabled: false,
             banking_mode: BankingMode::Simple,
             index_mask: u8::MAX >> 1,
+            // debug: false.into(),
         };
 
         // While in simple mode

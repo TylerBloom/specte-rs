@@ -64,7 +64,7 @@ pub trait MemoryLikeExt: MemoryLike {
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryMap {
     // The MBC
-    mbc: MemoryBankController,
+    pub mbc: MemoryBankController,
     // The video RAM and Object attribute map
     pub vram: VRam,
     // The working RAM
