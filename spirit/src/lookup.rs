@@ -8,11 +8,13 @@ use derive_more::From;
 use derive_more::IsVariant;
 
 #[cfg(test)]
+#[track_caller]
 pub fn parse_instruction(mem: &dyn MemoryLike, pc: u16) -> Instruction {
     OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
 }
 
 #[cfg(test)]
+#[track_caller]
 fn parse_prefixed_instruction(mem: &dyn MemoryLike, pc: u16) -> Instruction {
     PREFIXED_OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
 }
@@ -21,11 +23,13 @@ fn parse_prefixed_instruction(mem: &dyn MemoryLike, pc: u16) -> Instruction {
 type OpArray<const N: usize> = [fn(&dyn MemoryLike, u16) -> Instruction; N];
 
 #[cfg(not(test))]
+#[track_caller]
 pub fn parse_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
     OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
 }
 
 #[cfg(not(test))]
+#[track_caller]
 fn parse_prefixed_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
     PREFIXED_OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
 }
@@ -723,14 +727,27 @@ impl BitOp {
     }
 }
 
+#[cfg(test)]
+#[track_caller]
+fn invalid_op_code(mem: &dyn MemoryLike, pc: u16) -> Instruction {
+    unreachable!(
+        "Op code '0x{:0>2X}' @ 0x{pc:0>4X} does not correspond to any valid operation",
+        mem.read_byte(pc)
+    )
+}
+
+#[cfg(not(test))]
+#[track_caller]
+fn invalid_op_code(mem: &MemoryMap, pc: u16) -> Instruction {
+    unreachable!(
+        "Op code '0x{:0>2X}' @ 0x{pc:0>4X} does not correspond to any valid operation",
+        mem.read_byte(pc)
+    )
+}
+
 macro_rules! define_op {
     () => {
-        |data, pc| {
-            unreachable!(
-                "Op code '0x{:X}' does not correspond to any valid operation",
-                data.read_byte(pc)
-            )
-        }
+        invalid_op_code
     };
     (DAA) => {
         |_, _| Instruction::Daa

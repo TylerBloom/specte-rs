@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::fmt::Display;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -10,9 +10,9 @@ use crate::mem::mbc::ROM_BANK_SIZE;
 pub struct MBC1 {
     kind: MBC1Kind,
     rom: Vec<Vec<u8>>,
-    rom_bank: u8,
     ram: Vec<Vec<u8>>,
-    ram_bank: u8,
+    bank_index_one: u8,
+    bank_index_two: u8,
     /// Determines if RAM can be read from and written to. The actual hardware uses an 8-bit
     /// register, so RAM is enabled when the lower 4 bits are set.
     ///
@@ -25,6 +25,40 @@ pub struct MBC1 {
     /// Initially set to `false`, any writes to the memory addresses 0x0000 through 0x1FFF write to
     /// this register.
     banking_mode: BankingMode,
+
+    /// Calculated on construction and does not represent a register. Rather, it models the wiring
+    /// to the banks on a cart. For example, if a cart only has four ROM banks, the highest needed
+    /// index to a bank is three. This is particularly useful for advanced mode rom indexing.
+    ///
+    /// This relies on the number of ROM banks being a multiple of two; otherwise, a simple bit
+    /// mask would not work.
+    rom_index_mask: u8,
+    ram_index_mask: u8,
+}
+
+impl Display for MBC1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            kind,
+            rom: _,
+            ram: _,
+            bank_index_one,
+            bank_index_two,
+            ram_enabled,
+            banking_mode,
+            rom_index_mask,
+            ram_index_mask,
+        } = self;
+        writeln!(f, "MBC1 {{")?;
+        writeln!(f, "  MODE:  {}", self.banking_mode)?;
+        writeln!(f, "  RAMG:  {}", self.ram_enabled)?;
+        writeln!(f, "  BANK1: 0b{:0>8b}", self.bank_index_one)?;
+        writeln!(f, "  BANK2: 0b{:0>8b}", self.bank_index_two)?;
+        writeln!(f, "  ROM mask: 0b{:0>8b}", self.rom_index_mask)?;
+        writeln!(f, "  RAM mask: 0b{:0>8b}", self.ram_index_mask)?;
+        writeln!(f, "  rom_bank: 0x{:0>2X}", self.rom_bank())?;
+        writeln!(f, "}}")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -33,10 +67,20 @@ pub enum MBC1Kind {
     Rewired,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, derive_more::Display)]
 pub enum BankingMode {
     Simple = 0,
     Advanced = 1,
+}
+
+impl BankingMode {
+    fn from_byte(value: u8) -> Self {
+        if (value & 0x1) == 0 {
+            Self::Simple
+        } else {
+            Self::Advanced
+        }
+    }
 }
 
 impl MBC1 {
@@ -58,8 +102,26 @@ impl MBC1 {
         } else {
             MBC1Kind::Standard
         };
-        let bank_count = rom_size / ROM_BANK_SIZE;
-        let rom = (0..bank_count)
+
+        let rom_bank_count = rom_size / ROM_BANK_SIZE;
+        let rom_index_mask = (rom_bank_count - 1) as u8;
+        // I.e. bank_count is a multiple of two.
+        debug_assert_eq!(
+            (rom_bank_count as u8).leading_zeros(),
+            rom_index_mask.leading_zeros() - 1
+        );
+
+        let ram_bank_count = ram_size / RAM_BANK_SIZE;
+        let ram_index_mask = ram_bank_count.saturating_sub(1) as u8;
+        // I.e. bank_count is a multiple of two.
+        if ram_bank_count > 0 {
+            debug_assert_eq!(
+                (ram_bank_count as u8).leading_zeros(),
+                ram_index_mask.leading_zeros() - 1
+            );
+        }
+
+        let rom = (0..rom_bank_count)
             .map(|i| i * ROM_BANK_SIZE)
             .map(|i| cart[i..i + ROM_BANK_SIZE].to_owned())
             .collect();
@@ -67,23 +129,66 @@ impl MBC1 {
         Self {
             kind,
             rom,
-            rom_bank: 1,
+            bank_index_one: 1,
             ram,
-            ram_bank: 0,
+            bank_index_two: 0,
             ram_enabled: false,
             banking_mode: BankingMode::Simple,
+            rom_index_mask,
+            ram_index_mask,
         }
+    }
+
+    pub fn first_rom(&self) -> &[u8] {
+        self.rom[self.first_rom_bank()].as_slice()
+    }
+
+    pub fn rom(&self) -> &[u8] {
+        self.rom[self.rom_bank()].as_slice()
+    }
+
+    pub fn ram(&self) -> &[u8] {
+        self.ram[self.ram_bank()].as_slice()
     }
 
     pub(super) fn overwrite_rom_zero(&mut self, index: u16, val: &mut u8) {
         std::mem::swap(&mut self.rom[0][index as usize], val)
     }
 
+    #[inline]
+    fn first_rom_bank(&self) -> usize {
+        let base = matches!(self.banking_mode, BankingMode::Advanced)
+            .then(|| self.bank_index_two << 5)
+            .unwrap_or_default();
+        let digest = (base & self.rom_index_mask) as usize;
+        digest
+    }
+
+    #[inline]
+    fn rom_bank(&self) -> usize {
+        let bank = self.bank_index_two << 5 | self.bank_index_one;
+        let digest = (bank & self.rom_index_mask) as usize;
+        digest
+    }
+
+    /// NOTE: This does *not* take RAM enablement into consideration.
+    #[inline]
+    fn ram_bank(&self) -> usize {
+        (matches!(self.banking_mode, BankingMode::Advanced)
+            .then_some(self.bank_index_two)
+            .unwrap_or_default()
+            & self.ram_index_mask) as usize
+    }
+
+    #[inline]
     pub fn read_byte(&self, index: u16) -> u8 {
         match index {
-            0x0000..0x4000 => self.rom[0][index as usize],
-            index @ 0x4000..0x8000 => self.rom[self.rom_bank as usize][(index - 0x4000) as usize],
-            index @ 0xA000..0xC000 => self.ram[self.ram_bank as usize][(index - 0xA000) as usize],
+            0x0000..0x4000 => self.rom[self.first_rom_bank()][index as usize],
+            0x4000..0x8000 => self.rom[self.rom_bank()][(index - 0x4000) as usize],
+            0xA000..0xC000 => self
+                .ram_enabled
+                .then(|| self.ram[self.ram_bank()][(index - 0xA000) as usize])
+                .unwrap_or(0xFF),
             index => {
                 unreachable!(
                     "Memory controller is unable to read from memory address: 0x{index:0>4X}"
@@ -93,19 +198,25 @@ impl MBC1 {
     }
 
     /// Writes to a register or RAM bank
+    #[inline]
     pub fn write_byte(&mut self, index: u16, value: u8) {
-        // println!("Writing to MBC1 @ 0x{index:0>4X}");
         match index {
-            0x0000..0x2000 => self.ram_enabled = (value & 0x0F) == 0x0A,
-            // TODO: Implement logic for if `value` > # of ROM banks.
+            0x0000..0x2000 => self.ram_enabled = (value & 0x0F) == 0b1010,
             0x2000..0x4000 => {
-                println!("Setting the ROM bank to {value}");
-                self.rom_bank = std::cmp::max(1, value & 0x1F)
+                self.bank_index_one = std::cmp::max(0x1F & value, 1);
             }
-            0x4000..0x6000 => self.ram_bank = value & 0x3,
-            0x6000..0x8000 if (value & 1) == 0 => self.banking_mode = BankingMode::Advanced,
-            0x6000..0x8000 => self.banking_mode = BankingMode::Simple,
-            i @ 0xA000..0xC000 => self.ram[self.ram_bank as usize][(i - 0xA000) as usize] = value,
+            0x4000..0x6000 => {
+                self.bank_index_two = 0x3 & value;
+            }
+            0x6000..0x8000 => {
+                self.banking_mode = BankingMode::from_byte(value);
+            }
+            0xA000..0xC000 => {
+                if self.ram_enabled {
+                    let bank = self.ram_bank();
+                    self.ram[bank][(index - 0xA000) as usize] = value
+                }
+            }
             _ => unreachable!(
                 "Memory controller is unable to write to memory address: 0x{index:0>4X}"
             ),
@@ -118,3 +229,89 @@ impl MBC1 {
 // https://gbdev.io/pandocs/MBC1.html#20003fff--rom-bank-number-write-only
 //
 // Also, add tests for reads and writes from smaller carts.
+
+#[cfg(test)]
+mod tests {
+    use crate::mem::mbc::BankingMode;
+    use crate::mem::mbc::ROM_BANK_SIZE;
+
+    use super::MBC1;
+    use super::MBC1Kind;
+
+    // This test comes from the complete technical reference
+    #[test]
+    fn rom_bank_example_one() {
+        let rom = (0..128).map(|i| vec![i; ROM_BANK_SIZE]).collect();
+        let mut mbc = MBC1 {
+            kind: MBC1Kind::Standard,
+            rom,
+            ram: Vec::new(),
+            bank_index_one: 0x12,
+            bank_index_two: 0x01,
+            ram_enabled: false,
+            banking_mode: BankingMode::Simple,
+            rom_index_mask: u8::MAX >> 1,
+            ram_index_mask: 3,
+        };
+
+        // While in simple mode
+        let bank_one = mbc.read_byte(0x0000);
+        assert_eq!(bank_one, 0);
+        let bank_one = mbc.read_byte(0x3FFF);
+        assert_eq!(bank_one, 0);
+
+        let bank_two = mbc.read_byte(0x4000);
+        assert_eq!(bank_two, 0x32);
+        let bank_two = mbc.read_byte(0x7FFF);
+        assert_eq!(bank_two, 0x32);
+
+        // While in advanced mode
+        mbc.banking_mode = BankingMode::Advanced;
+        let bank_one = mbc.read_byte(0x0000);
+        assert_eq!(bank_one, 0x20);
+        let bank_one = mbc.read_byte(0x3FFF);
+        assert_eq!(bank_one, 0x20);
+
+        let bank_two = mbc.read_byte(0x4000);
+        assert_eq!(bank_two, 0x32);
+        let bank_two = mbc.read_byte(0x7FFF);
+        assert_eq!(bank_two, 0x32);
+    }
+
+    // This test comes from the complete technical reference
+    #[test]
+    fn rom_bank_example_two() {
+        let rom = (0..128).map(|i| vec![i; ROM_BANK_SIZE]).collect();
+        let mut mbc = MBC1 {
+            kind: MBC1Kind::Standard,
+            rom,
+            ram: Vec::new(),
+            bank_index_one: 0x12,
+            bank_index_two: 0x01,
+            ram_enabled: false,
+            banking_mode: BankingMode::Simple,
+            rom_index_mask: u8::MAX >> 1,
+            ram_index_mask: 3,
+        };
+
+        // While in simple mode
+        mbc.bank_index_one = 0b00100;
+        mbc.bank_index_two = 0b10;
+        assert_eq!(mbc.rom_bank(), 0x44);
+
+        let bank_one = mbc.read_byte(0x0000);
+        assert_eq!(bank_one, 0);
+        let bank_one = mbc.read_byte(0x3FFF);
+        assert_eq!(bank_one, 0);
+
+        let bank_two = mbc.read_byte(0x4000);
+        assert_eq!(bank_two, 0x44);
+        let bank_two = mbc.read_byte(0x7FFF);
+        assert_eq!(bank_two, 0x44);
+    }
+
+    #[test]
+    fn bank_mode_creation() {
+        (0..u8::MAX).for_each(|i| assert_eq!(BankingMode::from_byte(i) as u8, 0x1 & i))
+    }
+}

@@ -64,7 +64,7 @@ pub trait MemoryLikeExt: MemoryLike {
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryMap {
     // The MBC
-    mbc: MemoryBankController,
+    pub mbc: MemoryBankController,
     // The video RAM and Object attribute map
     pub vram: VRam,
     // The working RAM
@@ -245,7 +245,6 @@ impl OamDma {
         if self.ticks >= 640 {
             return false;
         }
-        println!("DMA is on, indexing @ 0x{index:0>4X}");
         match (self.bus, index) {
             (ConflictBus::Wram, 0xC000..0xE000) => true,
             (ConflictBus::Wram, _) => false,
