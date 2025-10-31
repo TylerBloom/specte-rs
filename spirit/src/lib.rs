@@ -115,8 +115,8 @@ impl Gameboy {
     /// into region around the PC.
     pub fn op_iter(&self) -> impl Iterator<Item = (u16, Instruction)> {
         let mut pc = self.cpu.pc.0;
-        std::iter::repeat(()).map(move |()| {
-            let op = self.mem.read_op(pc, self.cpu.ime);
+        std::iter::repeat(()).map_while(move |()| {
+            let op = std::panic::catch_unwind(|| self.mem.read_op(pc, self.cpu.ime)).ok()?;
             let old_pc = pc;
             // TODO: Either commit to this all of the way or don't. The core issue here is that
             // some data might be read and is not meant to be an instruction. Panic catching is
@@ -126,7 +126,7 @@ impl Gameboy {
             } else {
                 pc += op.size() as u16;
             }
-            (old_pc, op)
+            Some((old_pc, op))
         })
     }
 

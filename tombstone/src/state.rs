@@ -27,6 +27,7 @@ use spirit::cpu::CpuState;
 use spirit::lookup::Instruction;
 use spirit::lookup::InterruptOp;
 use spirit::lookup::JumpOp;
+use spirit::mem::MemoryBankController;
 use spirit::mem::MemoryLike;
 use spirit::mem::MemoryMap;
 use spirit::mem::io::timers::TimerRegisters;
@@ -79,7 +80,7 @@ pub(crate) struct AppState {
     gb: Arc<Mutex<Gameboy>>,
     processor: CommandProcessor,
     outbound: Sender<WindowMessage>,
-    pub(crate) cli_history: Vec<String>,
+    pub(crate) cli_history: CliHistory,
     pub(crate) subscriber:
         Option<FmtSubscriber<DefaultFields, Format<Compact, ()>, LevelFilter, GameboySubscriber>>,
     buffer: Arc<Mutex<Vec<u8>>>,
@@ -87,6 +88,22 @@ pub(crate) struct AppState {
     /// Tracks where the user input is at. This used to maintain the input data.
     cursor_position: Cell<Position>,
     pc_state: PcState,
+}
+
+#[derive(Default)]
+pub struct CliHistory {
+    // The hsitory that is displayed (contains dups)
+    visual_history: Vec<String>,
+    // The "up arrow" history (removes dups and is ordered by last use)
+    minimized_history: Vec<String>,
+}
+
+impl CliHistory {
+    fn push(&mut self, value: String) {
+        self.visual_history.push(value.clone());
+        self.minimized_history.retain(|val| val != &value);
+        self.minimized_history.push(value);
+    }
 }
 
 pub struct PcState {
@@ -174,7 +191,7 @@ impl AppState {
     ) -> Self {
         Self {
             gb,
-            cli_history: Vec::new(),
+            cli_history: CliHistory::default(),
             subscriber: None,
             buffer: Arc::new(Mutex::new(Vec::new())),
             mem_start: 0,
@@ -408,6 +425,10 @@ impl AppState {
             .direction(Direction::Vertical)
             .constraints([Constraint::Fill(1), Constraint::Fill(1)])
             .split(left);
+        let mem = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Fill(1), Constraint::Fill(1)])
+            .split(left[1]);
         let right = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -418,10 +439,11 @@ impl AppState {
             ])
             .split(right);
         self.cursor_position
-            .set(render_cli(frame, &self.cli_history, left[0]));
-        self.render_mem(frame, left[1], &gb.mem);
+            .set(render_cli(frame, &self.cli_history.visual_history, left[0]));
+        self.render_mem(frame, mem[0], &gb.mem);
+        self.render_ram(frame, mem[1], &gb.mem.mbc);
         render_cpu(frame, right[0], gb.cpu());
-        render_tiemrs(frame, right[1], &gb.mem.io().tac);
+        render_mbc(frame, right[1], &gb.mem.mbc);
         render_interrupts(frame, right[2], &gb.mem);
         // render_stack(frame, right[3], &gb.mem);
         self.pc_state.render(frame, right[3], &gb);
@@ -429,7 +451,7 @@ impl AppState {
 
     fn render_mem(&self, frame: &mut Frame, area: Rect, mem: &MemoryMap) {
         let block = Block::bordered()
-            .title("Memory")
+            .title(" Memory ")
             .title_alignment(ratatui::layout::Alignment::Center);
         // let mem_start = state.mem_start & 0xFFF0;
         let mem_start = self.mem_start;
@@ -439,16 +461,45 @@ impl AppState {
             *byte = std::panic::catch_unwind(|| mem.read_byte(i)).unwrap_or_default()
         });
 
+        self.render_byte_slice(frame, area, block, mem_start, &buffer);
+    }
+
+    fn render_ram(&self, frame: &mut Frame, area: Rect, mbc: &MemoryBankController) {
+        let block = Block::bordered()
+            .title(" MBC RAM ")
+            .title_alignment(ratatui::layout::Alignment::Center);
+
+        let ram = match mbc {
+            MemoryBankController::Direct { ram, .. } => ram.as_slice(),
+            MemoryBankController::MBC1(mbc) => mbc.ram(),
+            MemoryBankController::MBC2(mbc) => todo!(),
+            MemoryBankController::MBC3(mbc) => todo!(),
+            MemoryBankController::MBC5(mbc) => todo!(),
+        };
+
+        self.render_byte_slice(frame, area, block, 0xA000, ram);
+    }
+
+    fn render_byte_slice(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        block: Block<'_>,
+        mem_start: u16,
+        bytes: &[u8],
+    ) {
+        let lines = area.height - 2;
         let mut data = String::from("  ADDR | 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F\n");
         data.push_str("-------|------------------------------------------------\n");
         for i in 0..lines {
             let start = i * 16;
             let end = (i + 1) * 16;
             write!(data, "0x{:0>4X} |", mem_start + start);
-            (start..end).try_for_each(|i| write!(data, " {:0>2X}", buffer[i as usize]));
+            (start..end).try_for_each(|i| write!(data, " {:0>2X}", bytes[i as usize]));
             data.push('\n');
         }
         let para = Paragraph::new(data).block(block);
+
         frame.render_widget(para, area);
     }
 
@@ -478,6 +529,7 @@ impl AppState {
             .finish()
     }
 
+    /*
     pub fn get_log(&mut self) -> Option<&str> {
         // There should never be non-utf8 characters writen out.
         let mut lock = self.buffer.lock().unwrap();
@@ -488,6 +540,7 @@ impl AppState {
         self.cli_history.push(log);
         Some(self.cli_history.last().unwrap().as_str())
     }
+    */
 }
 
 #[derive(Debug, Clone)]
@@ -554,12 +607,19 @@ fn render_cpu(frame: &mut Frame, area: Rect, cpu: &Cpu) {
     frame.render_widget(para, area);
 }
 
-fn render_tiemrs(frame: &mut Frame, area: Rect, timers: &TimerRegisters) {
+fn render_mbc(frame: &mut Frame, area: Rect, mbc: &MemoryBankController) {
     let block = Block::bordered()
         .title(" Timers ")
         .title_alignment(ratatui::layout::Alignment::Center);
-    let para = Paragraph::new(format!("{timers}")).block(block);
-    frame.render_widget(para, area);
+    let para = match mbc {
+        MemoryBankController::Direct { .. } => todo!(),
+        MemoryBankController::MBC1(mbc) => format!("{mbc}"),
+        MemoryBankController::MBC2(_mbc) => todo!(),
+        MemoryBankController::MBC3(_mbc) => todo!(),
+        MemoryBankController::MBC5(_mbc) => todo!(),
+    };
+
+    frame.render_widget(Paragraph::new(para).block(block), area);
 }
 
 fn render_interrupts(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
@@ -597,7 +657,7 @@ impl CommandProcessor {
         self.last_longest_input = std::cmp::max(self.last_longest_input, self.buffer.len());
     }
 
-    fn next_event(&mut self, cli_history: &mut Vec<String>) -> Option<Command> {
+    fn next_event(&mut self, cli_history: &mut CliHistory) -> Option<Command> {
         match self.inbound.recv().unwrap() {
             CrosstermEvent::Resize(_, _) => Some(Command::Redraw),
             CrosstermEvent::Paste(data) => {
@@ -620,10 +680,12 @@ impl CommandProcessor {
                             .unwrap_or_else(|_| Command::Redraw),
                     )
                 }
-                KeyCode::Up if self.index < cli_history.len() => {
-                    self.index = std::cmp::min(self.index + 1, cli_history.len());
-                    self.buffer
-                        .clone_from(&cli_history[cli_history.len() - self.index]);
+                KeyCode::Up if self.index < cli_history.minimized_history.len() => {
+                    self.index = std::cmp::min(self.index + 1, cli_history.minimized_history.len());
+                    self.buffer.clone_from(
+                        &cli_history.minimized_history
+                            [cli_history.minimized_history.len() - self.index],
+                    );
                     self.update_last_longest();
                     None
                 }
@@ -632,8 +694,10 @@ impl CommandProcessor {
                     if self.index == 0 {
                         self.buffer.clear();
                     } else {
-                        self.buffer
-                            .clone_from(&cli_history[cli_history.len() - self.index]);
+                        self.buffer.clone_from(
+                            &cli_history.minimized_history
+                                [cli_history.minimized_history.len() - self.index],
+                        );
                     }
                     self.update_last_longest();
                     None

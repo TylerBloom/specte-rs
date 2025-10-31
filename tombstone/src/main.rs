@@ -100,6 +100,7 @@ fn create_input_thread(sender: mpsc::Sender<Event>) {
 /// A panic hook to properly restore the terminal in the case of a panic. Originally based on
 /// [spotify-tui's implementation](https://github.com/Rigellute/spotify-tui/blob/master/src/main.rs).
 fn panic_hook(panic_info: &PanicHookInfo<'_>) {
+    /*
     let mut stdout = std::io::stdout();
 
     let msg = match panic_info.payload().downcast_ref::<&'static str>() {
@@ -122,8 +123,9 @@ fn panic_hook(panic_info: &PanicHookInfo<'_>) {
             )),
         );
     }
+    */
 
     // TODO: Might be cleaner in the future to use a cancellation token, but that causes some fun
     // issues with lifetimes; for now if it panics then shut down the main program entirely ASAP.
-    std::process::exit(1);
+    // std::process::exit(1);
 }

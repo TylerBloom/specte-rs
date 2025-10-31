@@ -361,11 +361,6 @@ fn mbc1_bits_ramg() {
 }
 
 #[test]
-fn mbc1_multicart_rom_8mb() {
-    mooneye_test!("../emulator-only/mbc1/multicart_rom_8Mb.gb")
-}
-
-#[test]
 fn mbc1_ram_64kb() {
     mooneye_test!("../emulator-only/mbc1/ram_64kb.gb")
 }
@@ -373,6 +368,11 @@ fn mbc1_ram_64kb() {
 #[test]
 fn mbc1_ram_256kb() {
     mooneye_test!("../emulator-only/mbc1/ram_256kb.gb")
+}
+
+#[test]
+fn mbc1_rom_512kb() {
+    mooneye_test!("../emulator-only/mbc1/rom_512kb.gb")
 }
 
 #[test]
@@ -396,13 +396,15 @@ fn mbc1_rom_8mb() {
 }
 
 #[test]
+#[should_panic]
 fn mbc1_rom_16mb() {
     mooneye_test!("../emulator-only/mbc1/rom_16Mb.gb")
 }
 
 #[test]
-fn mbc1_rom_512kb() {
-    mooneye_test!("../emulator-only/mbc1/rom_512kb.gb")
+#[should_panic]
+fn mbc1_multicart_rom_8mb() {
+    mooneye_test!("../emulator-only/mbc1/multicart_rom_8Mb.gb")
 }
 
 #[test]

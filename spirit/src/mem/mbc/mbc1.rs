@@ -9,7 +9,7 @@ use serde::Serialize;
 use crate::mem::mbc::RAM_BANK_SIZE;
 use crate::mem::mbc::ROM_BANK_SIZE;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MBC1 {
     kind: MBC1Kind,
     rom: Vec<Vec<u8>>,
@@ -35,22 +35,9 @@ pub struct MBC1 {
     ///
     /// This relies on the number of ROM banks being a multiple of two; otherwise, a simple bit
     /// mask would not work.
-    index_mask: u8,
-
+    rom_index_mask: u8,
+    ram_index_mask: u8,
     // debug: Cell<bool>,
-}
-
-impl Hash for MBC1 {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.kind.hash(state);
-        self.rom.hash(state);
-        self.ram.hash(state);
-        self.bank_index_one.hash(state);
-        self.bank_index_two.hash(state);
-        self.ram_enabled.hash(state);
-        self.banking_mode.hash(state);
-        self.index_mask.hash(state);
-    }
 }
 
 impl Display for MBC1 {
@@ -63,17 +50,17 @@ impl Display for MBC1 {
             bank_index_two,
             ram_enabled,
             banking_mode,
-            index_mask,
-            // debug,
+            rom_index_mask,
+            ram_index_mask,
         } = self;
         writeln!(f, "MBC1 {{")?;
         writeln!(f, "  MODE:  {}", self.banking_mode)?;
         writeln!(f, "  RAMG:  {}", self.ram_enabled)?;
         writeln!(f, "  BANK1: 0b{:0>8b}", self.bank_index_one)?;
         writeln!(f, "  BANK2: 0b{:0>8b}", self.bank_index_two)?;
-        writeln!(f, "  mask:  0b{:0>8b}", self.index_mask)?;
-        writeln!(f, "  mask:  0b{:0>8b}", self.index_mask)?;
-        writeln!(f, "  rom_bank:  0x{:0>2X}", self.rom_bank())?;
+        writeln!(f, "  ROM mask: 0b{:0>8b}", self.rom_index_mask)?;
+        writeln!(f, "  RAM mask: 0b{:0>8b}", self.ram_index_mask)?;
+        writeln!(f, "  rom_bank: 0x{:0>2X}", self.rom_bank())?;
         writeln!(f, "}}")
     }
 }
@@ -119,16 +106,26 @@ impl MBC1 {
         } else {
             MBC1Kind::Standard
         };
-        let bank_count = rom_size / ROM_BANK_SIZE;
 
-        let index_mask = (bank_count - 1) as u8;
+        let rom_bank_count = rom_size / ROM_BANK_SIZE;
+        let rom_index_mask = (rom_bank_count - 1) as u8;
         // I.e. bank_count is a multiple of two.
         debug_assert_eq!(
-            (bank_count as u8).leading_zeros(),
-            index_mask.leading_zeros() - 1
+            (rom_bank_count as u8).leading_zeros(),
+            rom_index_mask.leading_zeros() - 1
         );
 
-        let rom = (0..bank_count)
+        let ram_bank_count = ram_size / RAM_BANK_SIZE;
+        let ram_index_mask = ram_bank_count.saturating_sub(1) as u8;
+        // I.e. bank_count is a multiple of two.
+        if ram_bank_count > 0 {
+            debug_assert_eq!(
+                (ram_bank_count as u8).leading_zeros(),
+                ram_index_mask.leading_zeros() - 1
+            );
+        }
+
+        let rom = (0..rom_bank_count)
             .map(|i| i * ROM_BANK_SIZE)
             .map(|i| cart[i..i + ROM_BANK_SIZE].to_owned())
             .collect();
@@ -141,8 +138,8 @@ impl MBC1 {
             bank_index_two: 0,
             ram_enabled: false,
             banking_mode: BankingMode::Simple,
-            index_mask,
-            // debug: Cell::new(false),
+            rom_index_mask,
+            ram_index_mask,
         }
     }
 
@@ -167,7 +164,7 @@ impl MBC1 {
         let base = matches!(self.banking_mode, BankingMode::Advanced)
             .then(|| self.bank_index_two << 5)
             .unwrap_or_default();
-        let digest = (base & self.index_mask) as usize;
+        let digest = (base & self.rom_index_mask) as usize;
         /*
         if self.debug.take() {
             self.debug.set(false);
@@ -183,7 +180,7 @@ impl MBC1 {
     #[inline]
     fn rom_bank(&self) -> usize {
         let bank = self.bank_index_two << 5 | self.bank_index_one;
-        let digest = (bank & self.index_mask) as usize;
+        let digest = (bank & self.rom_index_mask) as usize;
         /*
         if self.debug.take() {
             self.debug.set(false);
@@ -199,9 +196,10 @@ impl MBC1 {
     /// NOTE: This does *not* take RAM enablement into consideration.
     #[inline]
     fn ram_bank(&self) -> usize {
-        matches!(self.banking_mode, BankingMode::Advanced)
-            .then_some(self.bank_index_two as usize)
+        (matches!(self.banking_mode, BankingMode::Advanced)
+            .then_some(self.bank_index_two)
             .unwrap_or_default()
+            & self.ram_index_mask) as usize
     }
 
     #[inline]
@@ -212,7 +210,7 @@ impl MBC1 {
             0xA000..0xC000 => self
                 .ram_enabled
                 .then(|| self.ram[self.ram_bank()][(index - 0xA000) as usize])
-                .unwrap_or_default(),
+                .unwrap_or(0xFF),
             index => {
                 unreachable!(
                     "Memory controller is unable to read from memory address: 0x{index:0>4X}"
@@ -278,8 +276,8 @@ mod tests {
             bank_index_two: 0x01,
             ram_enabled: false,
             banking_mode: BankingMode::Simple,
-            index_mask: u8::MAX >> 1,
-            // debug: false.into(),
+            rom_index_mask: u8::MAX >> 1,
+            ram_index_mask: 3,
         };
 
         // While in simple mode
@@ -318,8 +316,8 @@ mod tests {
             bank_index_two: 0x01,
             ram_enabled: false,
             banking_mode: BankingMode::Simple,
-            index_mask: u8::MAX >> 1,
-            // debug: false.into(),
+            rom_index_mask: u8::MAX >> 1,
+            ram_index_mask: 3,
         };
 
         // While in simple mode
