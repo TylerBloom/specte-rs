@@ -98,7 +98,9 @@ impl MBC1 {
         );
         // All MBC1 cartridges with 1 MiB of ROM or more use this alternate wiring
         let kind = if rom_size > 1024 * 1024 {
-            todo!()
+            // TODO: This should be Advanced, but it would require reworking the indexing logic at
+            // bit more...
+            MBC1Kind::Standard
         } else {
             MBC1Kind::Standard
         };

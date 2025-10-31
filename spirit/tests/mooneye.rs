@@ -126,7 +126,6 @@ fn instr_daa() {
 }
 
 #[test]
-#[should_panic]
 fn oam_dma_basic() {
     mooneye_test!("oam_dma/basic.gb")
 }
@@ -396,7 +395,6 @@ fn mbc1_rom_8mb() {
 }
 
 #[test]
-#[should_panic]
 fn mbc1_rom_16mb() {
     mooneye_test!("../emulator-only/mbc1/rom_16Mb.gb")
 }
