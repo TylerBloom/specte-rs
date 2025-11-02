@@ -465,7 +465,8 @@ impl IoRegisters {
                     self.request_timer_int();
                 }
             }
-            0xFF0F => self.interrupt_flags = value,
+            // Top three bits are ignored because there are only 5 types of interrupts
+            0xFF0F => self.interrupt_flags = 0x1F & value,
             0xFF10..=0xFF3F => self.audio.write_byte(index, value),
             0xFF40 => self.lcd_control = value,
             // TODO: Only part of this register can be written to. Only bits 3-6 can be written to.
