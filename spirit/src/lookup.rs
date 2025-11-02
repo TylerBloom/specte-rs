@@ -88,7 +88,7 @@ impl Instruction {
             Instruction::Bit(op) => op.length(),
             Instruction::Jump(op) => op.length(cpu),
             Instruction::Arithmetic(op) => op.length(),
-            Instruction::Interrupt(_) => 5, // Interrupts are, basically, calls but last 5 cycles
+            Instruction::Interrupt(_) => 20, // Interrupts are, basically, calls but last 5 cycles
             Instruction::Daa => 4,
             Instruction::Scf => 4,
             Instruction::Cpl => 4,
