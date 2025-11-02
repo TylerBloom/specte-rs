@@ -131,7 +131,6 @@ fn oam_dma_basic() {
 }
 
 #[test]
-#[should_panic]
 fn oam_dma_reg_read() {
     mooneye_test!("oam_dma/reg_read.gb")
 }
@@ -251,7 +250,6 @@ fn if_ie_registers() {
 }
 
 #[test]
-#[should_panic]
 fn intr_timing() {
     mooneye_test!("intr_timing.gb")
 }
@@ -281,7 +279,6 @@ fn oam_dma_restart() {
 }
 
 #[test]
-#[should_panic]
 fn oam_dma_start() {
     mooneye_test!("oam_dma_start.gb")
 }
