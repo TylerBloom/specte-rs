@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 use std::fmt::Debug;
+use std::fmt::Display;
 use std::hash::Hash;
 use std::ops::Index;
 use std::ops::IndexMut;
@@ -76,7 +77,7 @@ pub struct MemoryMap {
     #[serde_as(as = "serde_with::Bytes")]
     hr: [u8; 0x7F],
     /// ADDR FF46
-    oam_dma: OamDma,
+    pub oam_dma: OamDma,
     /// ADDR FF51-FF55
     vram_dma: VramDma,
     /// The interrupt enable register. Bits 0-4 flag where or not certain interrupt handlers can be
@@ -95,7 +96,7 @@ impl MemoryLike for MemoryMap {
     /// trait.
     fn read_byte(&self, addr: u16) -> u8 {
         if self.oam_dma.in_conflict(addr) {
-            println!("DMA Bus conflict @ {addr:0x}");
+            println!("DMA Bus read conflict @ 0x{addr:0>4X}");
             return 0xFF;
         }
         self.dma_read_byte(addr)
@@ -105,9 +106,10 @@ impl MemoryLike for MemoryMap {
     /// trait. Unlike the index method, this provides control to the map around what gets written.
     /// For example, some registers only have some bits that can be written to. This allows all
     /// other bits to be masked out.
+    #[track_caller]
     fn write_byte(&mut self, addr: u16, val: u8) {
         if self.oam_dma.in_conflict(addr) {
-            println!("DMA Bus conflict @ {addr:0x}");
+            println!("DMA Bus write conflict @ 0x{addr:0>4X}");
             return;
         }
         trace!("Mut index into MemMap: 0x{addr:0>4X}");
@@ -212,7 +214,7 @@ impl MemoryLikeExt for MemoryMap {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
-struct OamDma {
+pub struct OamDma {
     register: u8,
     read_addr: u16,
     write_addr: u16,
@@ -220,10 +222,29 @@ struct OamDma {
     bus: ConflictBus,
 }
 
+impl Display for OamDma {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            register,
+            read_addr,
+            write_addr,
+            ticks,
+            bus,
+        } = self;
+        writeln!(f, "OamDma {{")?;
+        writeln!(f, "  register:   0x{register:0>2X}")?;
+        writeln!(f, "  read_addr:  0x{read_addr:0>4X}")?;
+        writeln!(f, "  write_addr: 0x{write_addr:0>4X}")?;
+        writeln!(f, "  ticks:      {ticks}")?;
+        writeln!(f, "  bus:        {bus}")?;
+        writeln!(f, "}}")
+    }
+}
+
 /// When the OAM DMA is active, the transfer occurs on one of two busses. If a read or write occurs
 /// from the CPU (including a push/pop to/from the stack or instruction read), the operation needs
 /// to be ignored (reads get 0xFF).
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize, derive_more::Display)]
 enum ConflictBus {
     Wram,
     Cartridge,
@@ -245,19 +266,30 @@ impl OamDma {
         if self.ticks >= 640 {
             return false;
         }
+
+        // TODO: For the DMG, the only memory that can be accessed is HRAM. It is unclear if that
+        // "only" restriction applies to the GBC. That is, if transferring from WRAM, can the CPU
+        // *only* access cartridge memory?
+        // For now, the less restrictive route will be taken as we can assume that any ROM authors
+        // will have taken the correct behavior into account.
+        //
+        // When transferring from WRAM, the CPU and access cartridge memory (ROM or RAM).
+        // When transferring from the cartridge, the CPU can access WRAM.
+        //
+        // See here: https://gbdev.io/pandocs/OAM_DMA_Transfer.html#oam-dma-bus-conflicts
         match (self.bus, index) {
             (ConflictBus::Wram, 0xC000..0xE000) => true,
             (ConflictBus::Wram, _) => false,
-            (ConflictBus::Cartridge, 0xC000..0xE000) => false,
-            (ConflictBus::Cartridge, _) => true,
+            (ConflictBus::Cartridge, 0x0000..0x8000 | 0xA000..0xC000) => true,
+            (ConflictBus::Cartridge, _) => false,
         }
     }
 
     fn trigger(&mut self, value: u8) {
         self.register = value;
-        // TODO: Verify that this is correct. The docs say that `value` must be below 0xDF, but the
-        // multiplication should handle that.
-        self.read_addr = (value as u16) << 8;
+        // TODO: Verify that this is correct. The docs say that `value` must be below 0xDF, but
+        // this seems like a note for ROM authors not Emu authors.
+        self.read_addr = u16::from_be_bytes([value, 0]);
         self.bus = match self.read_addr {
             0xC000..0xE000 => ConflictBus::Wram,
             _ => ConflictBus::Cartridge,
@@ -456,7 +488,7 @@ impl MemoryMap {
     pub fn tick(&mut self) {
         if let Some((r, w)) = self.oam_dma.tick() {
             let byte = self.dma_read_byte(r);
-            // println!("Transferring byte to OAM: 0x{byte:0>2X}");
+            // println!("Transferring byte to OAM @ 0x{r:0>4X}: 0x{byte:0>2X}");
             self.vram.oam[w as usize] = byte;
         }
         self.io.tick();
