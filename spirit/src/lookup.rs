@@ -202,9 +202,9 @@ impl ArithmeticOp {
             ArithmeticOp::Cp(SomeByte::Referenced(RegOrPointer::Reg(_))) => 4,
             ArithmeticOp::Cp(_) => 8,
             ArithmeticOp::Inc(RegOrPointer::Pointer) => 12,
-            ArithmeticOp::Inc(_) => 8,
+            ArithmeticOp::Inc(RegOrPointer::Reg(_)) => 4,
             ArithmeticOp::Dec(RegOrPointer::Pointer) => 12,
-            ArithmeticOp::Dec(_) => 8,
+            ArithmeticOp::Dec(RegOrPointer::Reg(_)) => 4,
             ArithmeticOp::Inc16(_) => 8,
             ArithmeticOp::Dec16(_) => 8,
             ArithmeticOp::AddSP(_) => 16,
@@ -457,6 +457,8 @@ pub enum LoadOp {
     /// Used for opcode 0xF2
     #[display("LDHAC")]
     Ldhac,
+    // TODO: These are backwards. For `LoadA`, the ptr is the dest and A is the value. The reverse
+    // is true for `StoreA`.
     /// Used for opcode 0xEA
     #[display("LD 0x{ptr:0>4X} -> A")]
     LoadA { ptr: u16 },
