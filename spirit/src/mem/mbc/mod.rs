@@ -121,7 +121,7 @@ impl MemoryBankController {
             0x00 => {
                 let rom = Vec::from(&cart[0x0000..=0x7FFF]);
                 assert_eq!(rom_size, rom.len());
-                let ram = vec![0; ram_size];
+                let ram = vec![0; RAM_BANK_SIZE];
                 Self::Direct {
                     rom,
                     ram,
@@ -201,7 +201,7 @@ impl MemoryBankController {
                 ram,
                 dead_byte,
             } => match index {
-                0xA000..0xC000 => ram[index as usize - rom.len()] = value,
+                0xA000..0xC000 => ram[index as usize - 0xA000] = value,
                 // NOTE: This shouldn't happen
                 _ => {}
             },
