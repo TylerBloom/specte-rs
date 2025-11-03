@@ -38,9 +38,6 @@ pub struct IoRegisters {
     pub lcd_control: u8,
     /// ADDR FF41
     lcd_status: u8,
-    /// A duplicate value of the LCD status register. A reference to this byte is given out when
-    /// mutably indexing as some of the bytes are read-only
-    lcd_status_dup: u8,
     /// ADDR FF42 & FF43
     pub(crate) bg_position: (u8, u8),
     /// ADDR FF44 (set by the PPU)
@@ -90,7 +87,6 @@ impl Default for IoRegisters {
             audio: Default::default(),
             lcd_control: Default::default(),
             lcd_status: Default::default(),
-            lcd_status_dup: Default::default(),
             bg_position: Default::default(),
             lcd_y: Default::default(),
             lcd_cmp: Default::default(),
@@ -346,15 +342,16 @@ impl Index<ObjPaletteIndex> for MemoryMap {
 impl IoRegisters {
     pub(super) fn tick(&mut self) {
         self.joypad.tick();
-        self.lcd_status = (0b0000_0111 & self.lcd_status) | (0b0111_1000 & self.lcd_status_dup);
-        self.lcd_status_dup = self.lcd_status;
         if self.tac.tick() {
             self.request_timer_int();
         }
     }
 
     pub(crate) fn set_ppu_status(&mut self, state: PpuMode) {
-        self.lcd_status &= 0b1111_1100 | state as u8;
+        // Clear the bottom two bits
+        self.lcd_status &= 0b1111_1100;
+        // Update the bottom two bits to be the state
+        self.lcd_status |= state as u8;
     }
 
     /// Called by the PPU when it finishes a scan line
@@ -471,7 +468,7 @@ impl IoRegisters {
             0xFF40 => self.lcd_control = value,
             // TODO: Only part of this register can be written to. Only bits 3-6 can be written to.
             // This register needs to be reset when ticked.
-            0xFF41 => self.lcd_status_dup = value,
+            0xFF41 => self.lcd_status = 0b0111_1000 & value,
             0xFF42 => self.bg_position.0 = value,
             0xFF43 => self.bg_position.1 = value,
             0xFF44 => {}
