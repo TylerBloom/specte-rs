@@ -127,7 +127,7 @@ impl MBC1 {
             .map(|i| i * ROM_BANK_SIZE)
             .map(|i| cart[i..i + ROM_BANK_SIZE].to_owned())
             .collect();
-        let ram = vec![vec![0; RAM_BANK_SIZE]; ram_size / RAM_BANK_SIZE];
+        let ram = vec![vec![0; RAM_BANK_SIZE]; std::cmp::max(ram_size / RAM_BANK_SIZE, 1)];
         Self {
             kind,
             rom,
