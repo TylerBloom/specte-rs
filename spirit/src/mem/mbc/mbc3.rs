@@ -13,6 +13,19 @@ use crate::mem::RomBank;
 use crate::mem::mbc::RAM_BANK_SIZE;
 use crate::mem::mbc::ROM_BANK_SIZE;
 
+// TODO: How should clocks be handled...
+#[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MBC3 {
+    ram_and_reg_enabled: u8,
+    rom: Box<[RomBank]>,
+    rom_bank: u8,
+    ram_clock_index: RamAndClockIndex,
+    ram: [RamBank; 4],
+    clock_data: [u8; 5],
+    latch_state: ClockLatchState,
+    last_latch: DateTime<Utc>,
+}
+
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum ClockLatchState {
     /// State is reached by writing 0x00 to 0x6000..0x8000
@@ -37,19 +50,6 @@ enum ClockIndex {
     Hours = 0x02,
     DayLower = 0x03,
     DayUpper = 0x04,
-}
-
-// TODO: How should clocks be handled...
-#[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MBC3 {
-    ram_and_reg_enabled: u8,
-    rom: Box<[RomBank]>,
-    rom_bank: u8,
-    ram_clock_index: RamAndClockIndex,
-    ram: [RamBank; 4],
-    clock_data: [u8; 5],
-    latch_state: ClockLatchState,
-    last_latch: DateTime<Utc>,
 }
 
 impl MBC3 {

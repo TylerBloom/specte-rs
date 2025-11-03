@@ -136,6 +136,26 @@ fn oam_dma_reg_read() {
     mooneye_test!("oam_dma/reg_read.gb")
 }
 
+// TODO: These three OAM DMA tests require sub-instruction timing precision. This is not needed for
+// the MVP.
+#[test]
+#[should_panic]
+fn oam_dma_start() {
+    mooneye_test!("oam_dma_start.gb")
+}
+
+#[test]
+#[should_panic]
+fn oam_dma_restart() {
+    mooneye_test!("oam_dma_restart.gb")
+}
+
+#[test]
+#[should_panic]
+fn oam_dma_timing() {
+    mooneye_test!("oam_dma_timing.gb")
+}
+
 #[test]
 #[should_panic]
 fn interrups_ie_push() {
@@ -271,24 +291,6 @@ fn jp_timing() {
 #[should_panic]
 fn ld_hl_sp_e_timing() {
     mooneye_test!("ld_hl_sp_e_timing.gb")
-}
-
-#[test]
-#[should_panic]
-fn oam_dma_restart() {
-    mooneye_test!("oam_dma_restart.gb")
-}
-
-#[test]
-#[should_panic]
-fn oam_dma_start() {
-    mooneye_test!("oam_dma_start.gb")
-}
-
-#[test]
-#[should_panic]
-fn oam_dma_timing() {
-    mooneye_test!("oam_dma_timing.gb")
 }
 
 #[test]

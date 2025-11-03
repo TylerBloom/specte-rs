@@ -21,6 +21,7 @@ use mem::StartUpHeaders;
 use mem::vram::PpuMode;
 use ppu::Ppu;
 
+use crate::lookup::InterruptOp;
 use crate::lookup::JumpOp;
 
 pub mod apu;
@@ -124,6 +125,9 @@ impl Gameboy {
     /// the intruction is automatically ran.
     pub fn step(&mut self) {
         let op = self.read_op();
+        if let Instruction::Interrupt(op) = op {
+            println!("Interrupt: {op}");
+        }
         (0..op.length(&self.cpu)).for_each(|_| self.tick());
         self.apply_op(op);
     }
