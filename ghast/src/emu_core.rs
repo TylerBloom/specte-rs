@@ -208,15 +208,10 @@ pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Handle {
 
 impl Emulator {
     pub fn new(cart: Vec<u8>) -> Self {
-        /*
-        let gb = Gameboy::new(cart);
+        let gb = Gameboy::load_cartridge(cart);
         Self {
-            gb: EmulatorInner::StartUp(Some(gb)),
-        }
-        */
-        let gb = Gameboy::load_cartridge(cart).complete();
-        Self {
-            gb: EmulatorInner::Ready(gb),
+            gb: EmulatorInner::Ready(gb.complete()),
+            // gb: EmulatorInner::StartUp(Some(gb)),
         }
     }
 
