@@ -1,11 +1,7 @@
 use std::fmt::Display;
-use std::os::fd::AsRawFd;
-use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::u8;
-
-use crate::mem::BgTileMapAttrIndex;
 
 use super::Cpu;
 use super::Flags;
@@ -120,15 +116,14 @@ impl Display for BatteryReport {
                     "|  0x{op:0>2X}   |  {passed: >5}   |  {failed: >5}   | {percent:>5.1}% |"
                 )
             })?;
-        writeln!(f, "------------------------------------------");
+        writeln!(f, "------------------------------------------")?;
         writeln!(
             f,
             "|  TOTAL  |  {p: >5}   |  {: >5}   | {:>5.1}% |",
             t - p,
             (p as f32) / (t as f32) * 100.0
-        );
-        writeln!(f, "------------------------------------------");
-        Ok(())
+        )?;
+        writeln!(f, "------------------------------------------")
     }
 }
 
@@ -227,7 +222,7 @@ impl CpuTest {
         });
         let (status, reason) = match result {
             Ok((status, reason)) => (status, reason),
-            Err(err) => {
+            Err(_err) => {
                 let reason =
                     format!("A panic occured while testing op 0x{op_code:0>2X} in test {name:?}");
                 eprintln!("{reason}");

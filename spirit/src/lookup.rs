@@ -2,6 +2,7 @@ use array_concat::concat_arrays;
 
 use crate::cpu::Cpu;
 use crate::mem::MemoryLike;
+#[cfg(not(test))]
 use crate::mem::MemoryMap;
 
 use derive_more::From;

@@ -6,15 +6,8 @@
 
 // TODO: The `tick` methods on most of the processes is incorrect, but the step methods are fine.
 
-#![allow(
-    dead_code,
-    unused,
-    private_interfaces,
-    clippy::diverging_sub_expression,
-    clippy::all
-)]
+#![allow(private_interfaces, clippy::diverging_sub_expression, clippy::all)]
 
-use std::borrow::Cow;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
@@ -23,9 +16,7 @@ use serde::Serialize;
 
 use cpu::Cpu;
 use cpu::CpuState;
-use cpu::check_bit_const;
 use lookup::Instruction;
-use mem::MemoryBankController;
 use mem::MemoryLike;
 use mem::MemoryMap;
 use mem::StartUpHeaders;
@@ -159,10 +150,6 @@ impl Gameboy {
 
     fn apply_op(&mut self, op: Instruction) {
         self.cpu.execute(op, &mut self.mem)
-    }
-
-    fn start_up_apply_op(&mut self, op: Instruction) -> Option<Instruction> {
-        self.cpu.start_up_execute(op, &mut self.mem)
     }
 
     pub fn is_running(&self) -> bool {

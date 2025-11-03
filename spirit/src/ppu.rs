@@ -1,14 +1,9 @@
-use std::array;
 use std::collections::VecDeque;
 use std::fmt::Display;
-use std::sync::LazyLock;
-use std::sync::Mutex;
 
 use heapless::Vec as InlineVec;
 use serde::Deserialize;
 use serde::Serialize;
-use tracing::info_span;
-use tracing::trace;
 
 use crate::cpu::check_bit;
 use crate::cpu::check_bit_const;
@@ -24,7 +19,6 @@ use crate::mem::WindowTileMapIndex;
 use crate::mem::io::BgPaletteIndex;
 use crate::mem::io::ObjPaletteIndex;
 use crate::mem::vram::PpuMode;
-use crate::mem::vram::VRam;
 
 // TODO:
 // 1) There is a gap (12 ticks) between the start of mode 3 and when the first pixel can be output.
@@ -88,6 +82,7 @@ impl Ppu {
 
     /// Ticks the PPU until it finishes the current screen drawing sequence. After this, the PPU
     /// will be ready to start rendering the next screen.
+    #[cfg(test)]
     pub(crate) fn finish_screen(&mut self, mem: &mut MemoryMap) {
         while !self.tick(mem) {}
     }
@@ -105,16 +100,6 @@ impl Default for PpuInner {
     fn default() -> Self {
         Self::OamScan { dots: 0 }
     }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum StateTransition {
-    Nothing,
-    EnteringOam,
-    EnteringDrawing,
-    EnteringHBlank,
-    EnteringVBlank,
-    ExitingVBlank,
 }
 
 impl PpuInner {
@@ -342,16 +327,6 @@ pub struct ObjectPixel {
 }
 
 impl BgPixel {
-    /// This is the same as `Self::default`, but with a clearer name
-    #[inline]
-    const fn transparent() -> Self {
-        Self {
-            color: 0,
-            palette: 0,
-            priority: false,
-        }
-    }
-
     fn mix(self, obj: ObjectPixel, mem: &MemoryMap) -> Pixel {
         if obj.color == 0 {
             return mem[BgPaletteIndex(self.palette)]
@@ -537,7 +512,7 @@ impl PixelFetcher {
             }
             PixelFetcher::DataHigh { ticked, .. } if !*ticked => *ticked = true,
             &mut PixelFetcher::DataHigh {
-                ticked,
+                ticked: _,
                 index,
                 x,
                 lo,
@@ -618,7 +593,7 @@ impl OamObject {
         self.generate_pixels(y, mem)
             .into_iter()
             .enumerate()
-            .filter(|(i, pixel)| pixel != &ObjectPixel::transparent())
+            .filter(|(_, pixel)| pixel != &ObjectPixel::transparent())
             .for_each(|(i, pixel)| buffer[x + i] = pixel);
     }
 
@@ -671,8 +646,6 @@ pub fn zip_bits(hi: u8, lo: u8) -> impl Iterator<Item = u8> {
 mod tests {
     use crate::mem::MemoryLike;
     use crate::mem::MemoryMap;
-    use crate::mem::io::BgPaletteIndex;
-    use crate::mem::io::Palette;
     use crate::mem::vram::PpuMode;
     use crate::ppu::ObjectPixel;
     use crate::ppu::Pixel;
@@ -680,7 +653,6 @@ mod tests {
     use heapless::Vec as InlineVec;
 
     use super::PixelFetcher;
-    use super::PpuInner;
     use super::zip_bits;
 
     // Test that the fetcher can get the pixel data, populate the buffer at the right time, and
@@ -689,7 +661,6 @@ mod tests {
     fn single_pass_fetcher() {
         let mem = MemoryMap::construct();
         let mut fetcher = PixelFetcher::new();
-        let mut counter = 0;
         let mut buffer = InlineVec::new();
         // The buffer should be empty until at least the 7th tick
         for _ in 0..=7 {
@@ -708,7 +679,6 @@ mod tests {
         println!("{}", std::mem::size_of::<ObjectPixel>());
         let mem = MemoryMap::construct();
         let mut fetcher = PixelFetcher::new();
-        let mut counter = 0;
         let mut buffer = InlineVec::new();
         // The buffer should be empty until at least the 7th tick
         for _ in 0..=7 {
