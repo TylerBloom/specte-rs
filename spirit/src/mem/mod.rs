@@ -495,10 +495,12 @@ impl MemoryMap {
     }
 
     pub(crate) fn reset_ppu_status(&mut self) {
+        self.io.set_ppu_status(PpuMode::default());
         self.vram.reset_status()
     }
 
     pub(crate) fn inc_ppu_status(&mut self, state: PpuMode) {
+        self.io.set_ppu_status(state);
         self.vram.inc_status(state)
     }
 
