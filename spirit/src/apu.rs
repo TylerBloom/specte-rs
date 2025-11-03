@@ -1,3 +1,6 @@
+#![allow(unused)]
+// FIXME: Unused code is being allowed here only because this is *very* much under construction.
+
 pub struct Apu {}
 
 pub struct Envelope {}

@@ -45,7 +45,7 @@ pub(super) struct CpuOamIndex(pub u16);
     Serialize,
     Deserialize,
 )]
-pub(crate) enum PpuMode {
+pub enum PpuMode {
     /// Also refered to as "Mode 2" in the pandocs.
     #[default]
     OamScan = 0,
@@ -101,12 +101,10 @@ impl Index<CpuVramIndex> for VRam {
         if self.status.is_drawing() {
             println!("Attempting to read from VRAM while locked!!!");
             &DEAD_READ_ONLY_BYTE
+        } else if bank {
+            &self.vram[1][index as usize - 0x8000]
         } else {
-            if bank {
-                &self.vram[1][index as usize - 0x8000]
-            } else {
-                &self.vram[0][index as usize - 0x8000]
-            }
+            &self.vram[0][index as usize - 0x8000]
         }
     }
 }
@@ -117,12 +115,10 @@ impl IndexMut<CpuVramIndex> for VRam {
             println!("Attempting to write to VRAM while locked!!!");
             self.dead_byte = 0xFF;
             &mut self.dead_byte
+        } else if bank {
+            &mut self.vram[1][index as usize - 0x8000]
         } else {
-            if bank {
-                &mut self.vram[1][index as usize - 0x8000]
-            } else {
-                &mut self.vram[0][index as usize - 0x8000]
-            }
+            &mut self.vram[0][index as usize - 0x8000]
         }
     }
 }
@@ -224,13 +220,11 @@ impl Index<BgTileDataInnerIndex> for VRam {
     ) -> &Self::Output {
         let index = if unsigned_indexing {
             16 * index as usize
+        } else if index > 127 {
+            let offset = (index as i8) as isize;
+            0x1000usize.wrapping_add_signed(16 * offset)
         } else {
-            if index > 127 {
-                let offset = (index as i8) as isize;
-                0x1000usize.wrapping_add_signed(16 * offset)
-            } else {
-                0x1000 + (16 * index as usize)
-            }
+            0x1000 + (16 * index as usize)
         };
         let bank = &self.vram[bank as usize];
         (&bank[index..index + 16]).try_into().unwrap()

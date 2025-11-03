@@ -2,6 +2,7 @@ use array_concat::concat_arrays;
 
 use crate::cpu::Cpu;
 use crate::mem::MemoryLike;
+#[cfg(not(test))]
 use crate::mem::MemoryMap;
 
 use derive_more::From;
@@ -1478,7 +1479,7 @@ mod test {
         assert_eq!(0x100, more_ops.len());
         more_ops.dedup();
         assert_eq!(0x100, more_ops.len());
-        ops.extend(more_ops.into_iter());
+        ops.extend(more_ops);
         ops.dedup();
         assert_eq!(len + 0x100, ops.len());
     }

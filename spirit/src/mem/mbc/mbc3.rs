@@ -203,9 +203,9 @@ impl MBC3 {
         match index {
             0x0000..0x2000 => {
                 update(&mut self.ram_and_reg_enabled);
-                return self.ram_and_reg_enabled;
+                self.ram_and_reg_enabled
             }
-            _ => return 0,
+            _ => 0,
             index @ 0x4000..0x8000 => self.rom[self.rom_bank as usize][(index - 0x4000) as usize],
             0x8000..0xA000 => unreachable!("How did you get here??"),
             index @ 0xA000..0xC000 => {

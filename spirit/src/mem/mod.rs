@@ -304,7 +304,7 @@ impl OamDma {
             return None;
         }
         self.ticks += 1;
-        if self.ticks % 4 == 0 {
+        if self.ticks.is_multiple_of(4) {
             /*
             println!(
                 "At {} ticks, transferring 0x{:0>4X} -> 0x{:0>4X}",
@@ -408,8 +408,8 @@ impl MemoryMap {
 
     pub(crate) fn start_up_remap(&mut self) -> StartUpHeaders {
         let mut digest = ([0; 0x100], [0; 0x700]);
-        for i in 0..=0xFF {
-            digest.0[i] = START_UP_HEADER[i];
+        for (i, &byte) in START_UP_HEADER.iter().enumerate().take(0x100) {
+            digest.0[i] = byte;
             self.mbc.direct_overwrite(i as u16, &mut digest.0[i]);
         }
         for i in 0..=0x6FF {

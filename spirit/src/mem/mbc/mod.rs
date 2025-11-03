@@ -200,11 +200,11 @@ impl MemoryBankController {
                 rom,
                 ram,
                 dead_byte,
-            } => match index {
-                0xA000..0xC000 => ram[index as usize - 0xA000] = value,
-                // NOTE: This shouldn't happen
-                _ => {}
-            },
+            } => {
+                if (0xA000..0xC000).contains(&index) {
+                    ram[index as usize - 0xA000] = value
+                } // We drop any writes not to RAM
+            }
             MemoryBankController::MBC1(controller) => controller.write_byte(index, value),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
             MemoryBankController::MBC3(controller) => controller.write_byte(index, value),

@@ -6,15 +6,6 @@
 
 // TODO: The `tick` methods on most of the processes is incorrect, but the step methods are fine.
 
-#![allow(
-    dead_code,
-    unused,
-    private_interfaces,
-    clippy::diverging_sub_expression,
-    clippy::all
-)]
-
-use std::borrow::Cow;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
@@ -23,9 +14,7 @@ use serde::Serialize;
 
 use cpu::Cpu;
 use cpu::CpuState;
-use cpu::check_bit_const;
 use lookup::Instruction;
-use mem::MemoryBankController;
 use mem::MemoryLike;
 use mem::MemoryMap;
 use mem::StartUpHeaders;
@@ -81,7 +70,7 @@ pub enum SsabInput {
 
 impl Gameboy {
     /// Takes data that represents the data stored on a game cartridge and uses it to construct the
-    pub fn new(cart: Vec<u8>) -> StartUpSequence {
+    pub fn load_cartridge(cart: Vec<u8>) -> StartUpSequence {
         StartUpSequence::new(Self {
             mem: MemoryMap::new(cart),
             cpu: Cpu::new(),
@@ -161,10 +150,6 @@ impl Gameboy {
         self.cpu.execute(op, &mut self.mem)
     }
 
-    fn start_up_apply_op(&mut self, op: Instruction) -> Option<Instruction> {
-        self.cpu.start_up_execute(op, &mut self.mem)
-    }
-
     pub fn is_running(&self) -> bool {
         self.cpu.state == CpuState::Running
     }
@@ -238,6 +223,6 @@ mod tests {
 
     #[test]
     fn start_up_completion() {
-        Gameboy::new(include_bytes!("../tests/roms/acid/which.gb").into()).complete();
+        Gameboy::load_cartridge(include_bytes!("../tests/roms/acid/which.gb").into()).complete();
     }
 }

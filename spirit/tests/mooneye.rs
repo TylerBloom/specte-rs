@@ -19,9 +19,10 @@ const GOAL_L_REG: Wrapping<u8> = Wrapping(34u8);
 
 macro_rules! mooneye_test {
     ($path: literal) => {{
-        let mut gb =
-            Gameboy::new(include_bytes!(concat!("roms/mooneye/acceptance/", $path)).into())
-                .complete();
+        let mut gb = Gameboy::load_cartridge(
+            include_bytes!(concat!("roms/mooneye/acceptance/", $path)).into(),
+        )
+        .complete();
         while {
             assert!(!gb.is_stopped());
             !matches!(gb.read_op(), STOP_OP)

@@ -1,19 +1,9 @@
-use std::borrow::BorrowMut;
-use std::cell::RefCell;
-use std::collections::HashSet;
 use std::hash::Hash;
-use std::hash::Hasher;
-use std::ops::Add;
 use std::ops::Index;
 use std::ops::IndexMut;
-use std::sync::Mutex;
-use std::sync::OnceLock;
 
 use serde::Deserialize;
 use serde::Serialize;
-use tracing::debug;
-use tracing::info;
-use tracing::info_span;
 use tracing::trace;
 
 use crate::lookup::ArithmeticOp;
@@ -32,9 +22,7 @@ use crate::lookup::RegOrPointer;
 use crate::lookup::SomeByte;
 use crate::lookup::WideReg;
 use crate::lookup::WideRegWithoutSP;
-use crate::lookup::parse_instruction;
 use crate::mem::MemoryLikeExt;
-use crate::mem::MemoryMap;
 use crate::utils::Wrapping;
 
 #[cfg(test)]
@@ -208,7 +196,7 @@ fn addition_operation(val: &mut u8, op: u8, flags: &mut Flags) {
 }
 
 fn subtraction_operation(val: &mut u8, op: u8, flags: &mut Flags) {
-    let (a, carry) = val.overflowing_sub(op);
+    let (a, _carry) = val.overflowing_sub(op);
     flags.z = a == 0;
     flags.n = true;
     flags.h = (*val & 0x0F).overflowing_sub(op & 0x0F).1;
@@ -383,7 +371,7 @@ impl Cpu {
     fn execute_arithmetic_op(&mut self, op: ArithmeticOp, mem: &mut impl MemoryLikeExt) {
         match op {
             ArithmeticOp::AddSP(val) => {
-                let (sp, c) = self.sp.0.overflowing_add_signed(val as i16);
+                let (sp, _c) = self.sp.0.overflowing_add_signed(val as i16);
                 self.f.z = false;
                 self.f.n = false;
                 self.f.h = (self.sp.0 << 12) > (sp << 12);
@@ -563,7 +551,7 @@ impl Cpu {
             JumpOp::ConditionalRelative(cond, val) => {
                 if self.matches(cond) {
                     if val < 0 {
-                        self.pc -= val.abs() as u16;
+                        self.pc -= val.unsigned_abs() as u16;
                     } else {
                         self.pc += val as u16;
                     }
@@ -571,7 +559,7 @@ impl Cpu {
             }
             JumpOp::Relative(val) => {
                 if val < 0 {
-                    self.pc -= val.abs() as u16;
+                    self.pc -= val.unsigned_abs() as u16;
                 } else {
                     self.pc += val as u16;
                 }
@@ -620,7 +608,7 @@ impl Cpu {
         self.pc = Wrapping(N);
     }
 
-    fn execute_control_op(&mut self, op: ControlOp, mem: &mut impl MemoryLikeExt) {
+    fn execute_control_op(&mut self, op: ControlOp, _mem: &mut impl MemoryLikeExt) {
         match op {
             ControlOp::Noop => {}
             ControlOp::Halt => self.halt(),
@@ -672,15 +660,13 @@ impl Cpu {
                 self.f.set_for_byte_shift_op(byte == 0, carry)
             }
             BitShiftOp::Rrca => {
-                let mut carry = false;
                 let byte = self.a.0;
                 let [new, c] = u16::from_be_bytes([byte, 0]).rotate_right(1).to_be_bytes();
-                carry = c == 0x80;
+                let carry = c == 0x80;
                 self.a = Wrapping(c | new);
                 self.f.set_for_byte_shift_op(false, carry)
             }
             BitShiftOp::Rl(reg) => {
-                let byte = self.copy_byte(mem, reg);
                 let carry = self.f.c as u8;
                 let mask = carry | (carry << 7);
                 let mut new_carry = false;

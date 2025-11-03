@@ -5,7 +5,7 @@
 macro_rules! blarg_test {
     ($file:literal) => {
         let rom = include_bytes!(concat!("roms/blarg/cpu_instrs/", $file, ".gb"));
-        let mut gb = spirit::Gameboy::new(rom.into()).complete();
+        let mut gb = spirit::Gameboy::load_cartridge(rom.into()).complete();
         (0..10).for_each(|_| gb.next_frame());
         let expected_mem = postcard::from_bytes(include_bytes!(concat!(
             "data/blarg-cpu-instr-",

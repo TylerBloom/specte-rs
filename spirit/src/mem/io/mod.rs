@@ -228,17 +228,17 @@ impl AudioRegisters {
             // NOTE: self.ch1_period_low is write-only
             0xFF13 => 0xFF,
             // NOTE: Only the 6th bit is readable
-            0xFF14 => self.ch1_period_and_control & 0b0100_000,
+            0xFF14 => self.ch1_period_and_control & 0b0010_0000,
             /* Channel 2 */
             0xFF16 => self.ch2_length_and_duty,
             0xFF17 => self.ch2_vol_and_env,
             // NOTE: self.ch2_period_low is write-only
             0xFF18 => 0xFF,
             // NOTE: Only the 6th bit is readable
-            0xFF19 => self.ch2_period_and_control & 0b0100_000,
+            0xFF19 => self.ch2_period_and_control & 0b0010_0000,
             /* Channel 3 */
             // NOTE: Only the topmost bit is used
-            0xFF1A => self.ch3_dac_enable & 0b1000_000,
+            0xFF1A => self.ch3_dac_enable & 0b1000_0000,
             // NOTE: self.ch3_length_timer is write-only
             0xFF1B => 0xFF,
             // NOTE: Only bits 5 and 6 are used
@@ -700,7 +700,7 @@ impl Joypad {
     /// nibble, we have to ensure the main and duplicate bits are synced. Additionally, there is
     /// this bit from the pandocs:
     /// > If neither buttons nor d-pad is selected ($30 was written), then the low nibble reads $F (all buttons released).
-    /// Accounting for this is done here.
+    /// > Accounting for this is done here.
     fn tick(&mut self) {
         // The main byte is the byte that gets referenced when indexing. This means that any
         // changes to its lower half (the read-only nibble) must be ignored. These bits are stored
@@ -753,8 +753,6 @@ impl IndexMut<()> for Joypad {
 
 #[cfg(test)]
 mod tests {
-    use std::u8;
-
     use super::ColorPalettes;
     use super::Palette;
     use super::PaletteColor;

@@ -39,7 +39,7 @@ pub(crate) fn deserialize_slices_as_one<
 ) -> Result<[[u8; N]; M], De::Error> {
     Ok(InlineVec::<InlineVec<u8, N>, M>::deserialize(de)?
         .into_array()
-        .map_err(|e| De::Error::custom(format!("")))?
+        .map_err(|e| De::Error::custom(format!("{e:?}")))?
         .map(|data| data.into_array().unwrap()))
 }
 
@@ -72,20 +72,6 @@ impl From<u8> for Wrapping<u8> {
 impl From<u16> for Wrapping<u16> {
     fn from(value: u16) -> Self {
         Self(value)
-    }
-}
-
-impl Wrapping<u16> {
-    pub(crate) fn to_be_bytes(self) -> [Wrapping<u8>; 2] {
-        self.0.to_be_bytes().map(Wrapping)
-    }
-
-    pub(crate) fn to_ne_bytes(self) -> [Wrapping<u8>; 2] {
-        self.0.to_ne_bytes().map(Wrapping)
-    }
-
-    pub(crate) fn to_le_bytes(self) -> [Wrapping<u8>; 2] {
-        self.0.to_le_bytes().map(Wrapping)
     }
 }
 
