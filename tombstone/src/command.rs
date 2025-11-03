@@ -1,25 +1,13 @@
-use std::borrow::Cow;
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
-use std::fmt::Write;
-use std::hash::DefaultHasher;
-use std::hash::Hash;
-use std::hash::Hasher;
-use std::num::ParseIntError;
-use std::ops::Range;
-use std::path::PathBuf;
-use std::str::FromStr;
+//! Defines the commands that can be ran in the TUI's CLI.
 
-use clap::Args;
+use std::num::ParseIntError;
+use std::path::PathBuf;
+
 use clap::Parser;
 use clap::Subcommand;
-
 use indexmap::IndexSet;
-use spirit::lookup::Instruction;
-use spirit::lookup::JumpOp;
-use spirit::ppu::Pixel;
 
-use crate::AppState;
+use spirit::ppu::Pixel;
 
 #[derive(Parser)]
 #[command(multicall = true)]

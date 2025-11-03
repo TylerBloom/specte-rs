@@ -1,49 +1,22 @@
-use clap::Parser;
-use crossterm::event::Event as CrosstermEvent;
-use crossterm::event::KeyCode;
-use crossterm::event::KeyEvent;
-use crossterm::event::KeyEventKind;
-use crossterm::event::KeyModifiers;
 use crossterm::execute;
 use crossterm::terminal::LeaveAlternateScreen;
-use ghast::emu_core::Emulator;
 use indexmap::IndexSet;
 use ratatui::Frame;
 use ratatui::Terminal;
 use ratatui::backend::Backend;
-use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Constraint;
 use ratatui::layout::Direction;
 use ratatui::layout::Layout;
-use ratatui::layout::Position;
-use ratatui::layout::Rect;
-use ratatui::text::Text;
-use ratatui::widgets::Block;
-use ratatui::widgets::Paragraph;
 use spirit::Gameboy;
-use spirit::StartUpSequence;
-use spirit::cpu::Cpu;
-use spirit::cpu::CpuState;
+use spirit::lookup::HalfRegister;
 use spirit::lookup::Instruction;
-use spirit::lookup::InterruptOp;
 use spirit::lookup::JumpOp;
-use spirit::mem::MemoryBankController;
+use spirit::lookup::LoadOp;
+use spirit::lookup::RegOrPointer;
 use spirit::mem::MemoryLike;
-use spirit::mem::MemoryMap;
-use spirit::mem::io::timers::TimerRegisters;
-use spirit::ppu::Ppu;
-use std::cell::Cell;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::error::Error;
-use std::fmt::Write;
 use std::io;
-use std::io::Write as _;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::mpsc;
-use tokio::sync::broadcast::Sender;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::FmtSubscriber;
 use tracing_subscriber::fmt::MakeWriter;
@@ -51,15 +24,20 @@ use tracing_subscriber::fmt::format::Compact;
 use tracing_subscriber::fmt::format::DefaultFields;
 use tracing_subscriber::fmt::format::Format;
 
+use crate::pc_state::PcState;
 use crate::Command;
 use crate::IndexOptions;
 use crate::LoopKind;
-use crate::ReplCommand;
 use crate::RunFor;
 use crate::RunLength;
 use crate::RunUntil;
 use crate::ViewCommand;
-use crate::WindowMessage;
+use crate::cli::Cli;
+use crate::display_windows::render_cpu;
+use crate::display_windows::render_interrupts;
+use crate::display_windows::render_mem;
+use crate::display_windows::render_oam_dma;
+use crate::display_windows::render_ram;
 
 /// This is the app's state which holds all of the CLI data. This includes all previous commands
 /// that were ran and all data to be displayed in the TUI (prompts, inputs, command outputs).
@@ -74,135 +52,26 @@ use crate::WindowMessage;
 /// strickly single-threaded, we must wrap the buffer in an Arc<Mutex> (rather than an
 /// Rc<RefCell>).
 pub(crate) struct AppState {
-    // TODO: Add command history (don't store the actual command, store the string that then get
-    // parsed into commands.
-    // TODO: We should limit the command and output history. We don't want it to grow forever.
-    gb: Arc<Mutex<Gameboy>>,
-    processor: CommandProcessor,
-    outbound: Sender<WindowMessage>,
-    pub(crate) cli_history: CliHistory,
+    gb: Gameboy,
+    cli: Cli,
+    #[allow(dead_code)]
     pub(crate) subscriber:
         Option<FmtSubscriber<DefaultFields, Format<Compact, ()>, LevelFilter, GameboySubscriber>>,
     buffer: Arc<Mutex<Vec<u8>>>,
     pub(crate) mem_start: u16,
-    /// Tracks where the user input is at. This used to maintain the input data.
-    cursor_position: Cell<Position>,
     pc_state: PcState,
-}
-
-#[derive(Default)]
-pub struct CliHistory {
-    // The hsitory that is displayed (contains dups)
-    visual_history: Vec<String>,
-    // The "up arrow" history (removes dups and is ordered by last use)
-    minimized_history: Vec<String>,
-}
-
-impl CliHistory {
-    fn push(&mut self, value: String) {
-        self.visual_history.push(value.clone());
-        self.minimized_history.retain(|val| val != &value);
-        self.minimized_history.push(value);
-    }
-}
-
-pub struct PcState {
-    pub start: usize,
-    ops: HashMap<u16, Instruction>,
-}
-
-impl PcState {
-    fn new() -> Self {
-        Self {
-            start: 0,
-            ops: HashMap::new(),
-        }
-    }
-
-    fn render(&mut self, frame: &mut Frame, area: Rect, gb: &Gameboy) {
-        let block = Block::bordered()
-            .title(" PC Area ")
-            .title_alignment(ratatui::layout::Alignment::Center);
-        let len = block.inner(area).height as usize;
-        let para = Paragraph::new(self.text_body(len, gb)).block(block);
-        frame.render_widget(para, area);
-    }
-
-    fn text_body(&mut self, len: usize, gb: &Gameboy) -> String {
-        self.ops.extend(gb.op_iter().take(len));
-        let mut prior_ops = Vec::with_capacity(self.start);
-        let mut pc = gb.cpu().pc.0;
-        loop {
-            if prior_ops.len() == self.start {
-                break;
-            }
-            let Some((addr, _)) = self.find_prior_op(pc) else {
-                break;
-            };
-            prior_ops.push(addr);
-            pc = addr;
-        }
-        prior_ops
-            .into_iter()
-            .rev()
-            .chain(gb.op_iter().map(|(pc, _)| pc))
-            // NOTE: This should never return None
-            .filter_map(|pc| self.ops.get_key_value(&pc))
-            .map(|(pc, op)| {
-                if *pc == gb.cpu().pc.0 {
-                    format!("PC > 0x{pc:0>4X} -> {op}\n")
-                } else {
-                    format!("     0x{pc:0>4X} -> {op}\n")
-                }
-            })
-            .take(len)
-            .collect()
-    }
-
-    fn find_prior_op(&self, addr: u16) -> Option<(u16, Instruction)> {
-        let mut op: heapless::Vec<(u16, Instruction), 3> = (addr.saturating_sub(3)..addr)
-            .filter_map(|addr| self.ops.get_key_value(&addr))
-            .map(|(addr, op)| (*addr, *op))
-            .collect();
-        assert!(op.iter().map(|(_, op)| op.size()).sum::<u8>() <= 3);
-        op.last().copied()
-    }
-}
-
-pub struct CommandProcessor {
-    inbound: mpsc::Receiver<CrosstermEvent>,
-    index: usize,
-    buffer: String,
-    last_longest_input: usize,
-}
-
-/// This captures the different levels of verbosity, current, there is only two, but others will be
-/// added to adjust the max filter level of the inner subscriber.
-pub enum Verbosity {
-    Quite,
-    Verbose,
 }
 
 impl AppState {
     pub fn new(
-        gb: Arc<Mutex<Gameboy>>,
-        inbound: mpsc::Receiver<CrosstermEvent>,
-        outbound: Sender<WindowMessage>,
+        cart: Vec<u8>,
     ) -> Self {
         Self {
-            gb,
-            cli_history: CliHistory::default(),
+            gb: Gameboy::load_cartridge(cart).complete(),
             subscriber: None,
             buffer: Arc::new(Mutex::new(Vec::new())),
-            mem_start: 0,
-            outbound,
-            processor: CommandProcessor {
-                inbound,
-                index: 0,
-                buffer: String::new(),
-                last_longest_input: 0,
-            },
-            cursor_position: Cell::new(Position::default()),
+            mem_start: 0x8000,
+            cli: Cli::new(),
             pc_state: PcState::new(),
         }
     }
@@ -210,11 +79,11 @@ impl AppState {
     pub fn run<B: Backend>(mut self, mut term: Terminal<B>) {
         self.draw(&mut term);
         loop {
-            if let Some(cmd) = self.processor.next_event(&mut self.cli_history) {
+            if let Some(cmd) = self.cli.next_event() {
                 self.process(cmd);
                 self.draw(&mut term);
             }
-            self.draw_input_line(&mut term);
+            self.cli.draw_input_line(&mut term);
         }
     }
 
@@ -224,197 +93,96 @@ impl AppState {
         term.draw(|frame| self.render_frame(frame)).unwrap();
     }
 
-    /// (Re)Draws the line that users input. This allows the input to be rendered without needing
-    /// to rerender the entire TUI.
-    fn draw_input_line<B: Backend>(&self, term: &mut Terminal<B>) {
-        let mut pos = self.cursor_position.get();
-        term.set_cursor_position(pos);
-        let mut stdout = std::io::stdout();
-        let input = self
-            .processor
-            .buffer
-            .chars()
-            .chain(std::iter::repeat(' '))
-            .take(self.processor.last_longest_input)
-            .collect::<String>();
-        write!(stdout, "{input}").unwrap();
-        stdout.flush().unwrap();
-        pos.x += self.processor.buffer.len() as u16;
-        term.set_cursor_position(pos);
-    }
-
     fn process(&mut self, cmd: Command) {
         match cmd {
             Command::Read { index } => {
-                let val = self.gb.lock().unwrap().mem.read_byte(index);
-                self.cli_history
-                    .push(format!("0x{index:0>4X} -> 0b{val:0>8b}"));
+                let val = self.gb.mem.read_byte(index);
+                self.cli
+                    .push_to_history(format!("0x{index:0>4X} -> 0b{val:0>8b}"));
             }
             Command::Redraw => {}
             Command::Exit => {
-                execute!(std::io::stdout(), LeaveAlternateScreen);
+                _ = execute!(std::io::stdout(), LeaveAlternateScreen);
                 std::process::exit(0)
             }
             Command::Step { count } => {
-                let mut gb = self.gb.lock().unwrap();
-                (0..count).for_each(|_| gb.step());
+                (0..count).for_each(|_| self.gb.step());
             }
             Command::Info => todo!(),
             Command::Index(options) => match options {
                 IndexOptions::Single { addr } => self.mem_start = addr,
                 IndexOptions::Range { .. } => todo!(),
             },
-            Command::Run(length) => match length {
-                RunLength::For(foor) => match foor {
-                    RunFor::Frames { count } => {
-                        self.outbound.send(WindowMessage::Frames(count)).unwrap();
-                    }
-                },
-                RunLength::Until(until) => match until {
-                    RunUntil::Loop(kind) => match kind {
-                        LoopKind::CpuAndMem => todo!(),
-                        LoopKind::Screen => self.loop_screen(),
-                    },
-                    RunUntil::Return => {
-                        let mut gb = self.gb.lock().unwrap();
-                        while !matches!(
-                            gb.op_iter().next().unwrap().1,
-                            Instruction::Jump(JumpOp::Return | JumpOp::ReturnAndEnable)
-                        ) {
-                            gb.step()
-                        }
-                    }
-                    RunUntil::Frame => self.gb.lock().unwrap().next_frame(),
-                    RunUntil::Pause => {
-                        self.outbound.send(WindowMessage::Run).unwrap();
-                    }
-                    RunUntil::Interupt => {
-                        let mut gb = self.gb.lock().unwrap();
-                        let ints = gb.mem.io().interrupt_flags;
-                        while gb.mem.io().interrupt_flags == ints {
-                            gb.step();
-                        }
-                    }
-                    RunUntil::Custom => {
-                        let mut gb = self.gb.lock().unwrap();
-                        let mut cond = custom_until_condition(&gb);
-                        while cond(&gb) {
-                            gb.step();
-                        }
-                    }
-                },
-            },
+            Command::Run(length) => self.process_run_cmd(length),
             Command::Interrupt(_) => todo!(),
             Command::Stash(_) => todo!(),
             Command::Pause => {
-                self.outbound.send(WindowMessage::Pause).unwrap();
+                // self.outbound.send(WindowMessage::Pause).unwrap();
+                todo!()
             }
             Command::View(ViewCommand::PC { start }) => {
                 self.pc_state.start = start;
             }
         }
-        /*
-        match msg {
-            Command::Info => gb.gb().cpu().to_string(),
-            Command::Step(n) => {
-                (0..n).any(|_| {
-                    gb.step();
-                    gb.is_complete()
-                });
-                String::new()
-            }
-            Command::Index(opts) => match opts {
-                IndexOptions::Single(i) => {
-                    format!("ADDR=0x{i:0>4X} -> {:0>2X}", gb.gb().mem[i as u16])
-                }
-                IndexOptions::Range(mut rng) => {
-                    let mut digest = format!("ADDR=0x{:0>4X}..0x{:0>4X}", rng.start, rng.end);
-                    digest.push('[');
-                    if let Some(i) = rng.next() {
-                        write!(digest, "0x{:0>2}", gb.gb().mem[i as u16]).unwrap();
-                    }
-                    for i in rng {
-                        write!(digest, ", 0x{:0>2}", gb.gb().mem[i as u16]);
-                    }
-                    digest.push(']');
-                    digest
+    }
+
+    fn process_run_cmd(&mut self, length: RunLength) {
+        match length {
+            RunLength::For(foor) => match foor {
+                RunFor::Frames { count: _ } => {
+                    // self.outbound.send(WindowMessage::Frames(count)).unwrap();
+                    todo!()
                 }
             },
-            Command::Run(until) => match until {
-                RunUntil::Loop => {
-                    let mut ops = Vec::new();
-                    let mut cpu_map: HashMap<_, HashMap<u64, usize>> = HashMap::new();
-                    let mut index = 0;
-                    while !gb.is_complete() {
-                        let cpu = gb.gb().cpu().clone();
-                        let ptr = cpu.pc.0;
-                        ops.push((cpu, ptr, gb.next_op()));
-                        match cpu_map.entry(gb.gb().cpu().clone()) {
-                            Entry::Occupied(mut entry) => {
-                                let mut hasher = DefaultHasher::new();
-                                gb.gb().mem.hash(&mut hasher);
-                                match entry.get_mut().entry(hasher.finish()) {
-                                    Entry::Vacant(entry) => {
-                                        entry.insert(ops.len());
-                                    }
-                                    Entry::Occupied(entry) => {
-                                        index = *entry.get();
-                                        break;
-                                    }
-                                }
-                            }
-                            Entry::Vacant(entry) => {
-                                entry.insert(HashMap::new());
-                            }
-                        }
-                        gb.step()
-                    }
-                    if !gb.is_complete() {
-                        let mut digest = "Infinite loop detected! Here are the instructions and CPU states in the loop:".to_string();
-                        for (state, ptr, op) in &ops[index..] {
-                            writeln!(digest, "\n{state}");
-                            write!(digest, "0x{ptr:0>4X} -> {op}");
-                        }
-                        digest
-                    } else {
-                        "No loop detect during start up!".to_owned()
-                    }
-                }
+            RunLength::Until(until) => match until {
+                RunUntil::Loop(kind) => match kind {
+                    LoopKind::CpuAndMem => todo!(),
+                    LoopKind::Screen => self.loop_screen(),
+                },
                 RunUntil::Return => {
-                    while !matches!(gb.next_op(), Instruction::Jump(JumpOp::Return)) {
-                        gb.step()
+                    while !matches!(
+                        self.gb.op_iter().next().unwrap().1,
+                        Instruction::Jump(JumpOp::Return | JumpOp::ReturnAndEnable)
+                    ) {
+                        self.gb.step()
                     }
-                    "End of subroutine. Next operation is `ret`.".to_owned()
                 }
-                RunUntil::Frame => {
-                    gb.step_frame();
-                    "Starting new frame".to_owned()
+                RunUntil::Frame => self.gb.next_frame(),
+                RunUntil::Pause => {
+                    // self.outbound.send(WindowMessage::Run).unwrap();
+                    todo!()
+                }
+                RunUntil::Interupt => {
+                    let ints = self.gb.mem.io().interrupt_flags;
+                    while self.gb.mem.io().interrupt_flags == ints {
+                        self.gb.step();
+                    }
+                }
+                RunUntil::Custom => {
+                    let mut cond = custom_until_condition(&self.gb);
+                    while cond(&self.gb) {
+                        self.gb.step();
+                    }
                 }
             },
-            Command::Stash(_stash) => {
-                todo!()
-            }
-            Command::Interrupt(_interrupt) => todo!(),
         }
-        */
     }
 
     /// Runs the emulator screen by screen collecting them until a duplicate is seen. The
     /// collection is sent to the UI state to be rendered.
     fn loop_screen(&mut self) {
         let mut screens = IndexSet::new();
-        let mut gb = self.gb.lock().unwrap();
         loop {
-            if !screens.insert(gb.ppu.screen.clone()) {
+            if !screens.insert(self.gb.ppu.screen.clone()) {
                 break;
             }
-            gb.next_frame();
+            self.gb.next_frame();
         }
-        self.outbound.send(WindowMessage::DuplicateScreens(screens));
+        // _ = self.outbound.send(WindowMessage::DuplicateScreens(screens));
     }
 
     fn render_frame(&mut self, frame: &mut Frame) {
-        let gb = self.gb.lock().unwrap();
+        let gb = &self.gb;
         let sections = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Fill(1), Constraint::Length(40)])
@@ -438,69 +206,14 @@ impl AppState {
                 Constraint::Fill(1),
             ])
             .split(right);
-        self.cursor_position
-            .set(render_cli(frame, &self.cli_history.visual_history, left[0]));
-        self.render_mem(frame, mem[0], &gb.mem);
-        self.render_ram(frame, mem[1], &gb.mem.mbc);
+        self.cli.render(frame, left[0]);
+        render_mem(self.mem_start, frame, mem[0], &gb.mem);
+        render_ram(frame, mem[1], &gb.mem.mbc);
         render_cpu(frame, right[0], gb.cpu());
-        render_mbc(frame, right[1], &gb.mem.mbc);
+        render_oam_dma(frame, right[1], &gb.mem.oam_dma);
         render_interrupts(frame, right[2], &gb.mem);
         // render_stack(frame, right[3], &gb.mem);
-        self.pc_state.render(frame, right[3], &gb);
-    }
-
-    fn render_mem(&self, frame: &mut Frame, area: Rect, mem: &MemoryMap) {
-        let block = Block::bordered()
-            .title(" Memory ")
-            .title_alignment(ratatui::layout::Alignment::Center);
-        // let mem_start = state.mem_start & 0xFFF0;
-        let mem_start = self.mem_start;
-        let lines = area.height - 2;
-        let mut buffer = vec![0; 16 * lines as usize];
-        (mem_start..).zip(buffer.iter_mut()).for_each(|(i, byte)| {
-            *byte = std::panic::catch_unwind(|| mem.read_byte(i)).unwrap_or_default()
-        });
-
-        self.render_byte_slice(frame, area, block, mem_start, &buffer);
-    }
-
-    fn render_ram(&self, frame: &mut Frame, area: Rect, mbc: &MemoryBankController) {
-        let block = Block::bordered()
-            .title(" MBC RAM ")
-            .title_alignment(ratatui::layout::Alignment::Center);
-
-        let ram = match mbc {
-            MemoryBankController::Direct { ram, .. } => ram.as_slice(),
-            MemoryBankController::MBC1(mbc) => mbc.ram(),
-            MemoryBankController::MBC2(mbc) => todo!(),
-            MemoryBankController::MBC3(mbc) => todo!(),
-            MemoryBankController::MBC5(mbc) => todo!(),
-        };
-
-        self.render_byte_slice(frame, area, block, 0xA000, ram);
-    }
-
-    fn render_byte_slice(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        block: Block<'_>,
-        mem_start: u16,
-        bytes: &[u8],
-    ) {
-        let lines = area.height - 2;
-        let mut data = String::from("  ADDR | 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F\n");
-        data.push_str("-------|------------------------------------------------\n");
-        for i in 0..lines {
-            let start = i * 16;
-            let end = (i + 1) * 16;
-            write!(data, "0x{:0>4X} |", mem_start + start);
-            (start..end).try_for_each(|i| write!(data, " {:0>2X}", bytes[i as usize]));
-            data.push('\n');
-        }
-        let para = Paragraph::new(data).block(block);
-
-        frame.render_widget(para, area);
+        self.pc_state.render(frame, right[3], gb);
     }
 
     // TODO: Because the state now tracks the command history and any output from the emulator, we
@@ -510,14 +223,7 @@ impl AppState {
     // This will also reduce the API footprint, only need to have methods that return references to
     // the data within and a single method to process input, run the command/display errors, and
     // store the input and output.
-
-    pub fn set_verbosity(&mut self, level: Verbosity) {
-        match level {
-            Verbosity::Quite => self.subscriber = None,
-            Verbosity::Verbose => self.subscriber = Some(self.construct_sub()),
-        }
-    }
-
+    #[allow(dead_code)]
     fn construct_sub(
         &self,
     ) -> FmtSubscriber<DefaultFields, Format<Compact, ()>, LevelFilter, GameboySubscriber> {
@@ -528,19 +234,15 @@ impl AppState {
             .with_writer(GameboySubscriber(Arc::clone(&self.buffer)))
             .finish()
     }
+}
 
-    /*
-    pub fn get_log(&mut self) -> Option<&str> {
-        // There should never be non-utf8 characters writen out.
-        let mut lock = self.buffer.lock().unwrap();
-        if lock.is_empty() {
-            return None;
-        }
-        let log = String::from_utf8(std::mem::take(&mut lock)).unwrap();
-        self.cli_history.push(log);
-        Some(self.cli_history.last().unwrap().as_str())
+fn custom_until_condition(_gb: &Gameboy) -> impl 'static + FnMut(&Gameboy) -> bool {
+    |gb| {
+        !matches!(
+            gb.read_op(),
+            Instruction::Load(LoadOp::Direct(RegOrPointer::Reg(HalfRegister::A), _))
+        )
     }
-    */
 }
 
 #[derive(Debug, Clone)]
@@ -562,170 +264,4 @@ impl io::Write for &'_ GameboySubscriber {
     fn flush(&mut self) -> io::Result<()> {
         self.0.lock().unwrap().flush()
     }
-}
-
-fn render_cli(frame: &mut Frame, history: &[String], area: Rect) -> Position {
-    let block = Block::bordered()
-        .title("CLI")
-        .title_alignment(ratatui::layout::Alignment::Center);
-    let Rect { x, y, height, .. } = block.inner(area);
-    let cursor_y = y + std::cmp::min(history.len(), (height - 1) as usize) as u16;
-    let iter = history
-        .iter()
-        .rev()
-        .take((height - 1) as usize)
-        .rev()
-        .map(|s| s.as_str());
-    //  .chain(std::iter::once(user_input));
-    let para = Paragraph::new(Text::from_iter(iter)).block(block);
-    let pos = Position::new(x, cursor_y);
-    frame.set_cursor_position(pos);
-    frame.render_widget(para, area);
-    pos
-}
-
-/* This is the right column. In order, the CPU, PPU, Interrupts, and then the stack are rendered */
-
-fn render_cpu(frame: &mut Frame, area: Rect, cpu: &Cpu) {
-    let block = Block::bordered()
-        .title("CPU")
-        .title_alignment(ratatui::layout::Alignment::Center);
-    let para = Paragraph::new(Text::from_iter([
-        format!("A : 0x{:0>2X}", cpu.a),
-        format!(
-            "F : Z={} N={} H={} C={}",
-            cpu.f.z as u8, cpu.f.n as u8, cpu.f.h as u8, cpu.f.c as u8,
-        ),
-        format!("BC: 0x{:0>2X} 0x{:0>2X}", cpu.b, cpu.c),
-        format!("DE: 0x{:0>2X} 0x{:0>2X}", cpu.d, cpu.e),
-        format!("HL: 0x{:0>2X} 0x{:0>2X}", cpu.h, cpu.l),
-        format!("PC: 0x{:0>4X}", cpu.pc),
-        format!("SP: 0x{:0>4X}", cpu.sp),
-        format!("IME: {}", cpu.ime),
-    ]))
-    .block(block);
-    frame.render_widget(para, area);
-}
-
-fn render_mbc(frame: &mut Frame, area: Rect, mbc: &MemoryBankController) {
-    let block = Block::bordered()
-        .title(" Timers ")
-        .title_alignment(ratatui::layout::Alignment::Center);
-    let para = match mbc {
-        MemoryBankController::Direct { .. } => todo!(),
-        MemoryBankController::MBC1(mbc) => format!("{mbc}"),
-        MemoryBankController::MBC2(_mbc) => todo!(),
-        MemoryBankController::MBC3(_mbc) => todo!(),
-        MemoryBankController::MBC5(_mbc) => todo!(),
-    };
-
-    frame.render_widget(Paragraph::new(para).block(block), area);
-}
-
-fn render_interrupts(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
-    let block = Block::bordered()
-        .title("Interrupts")
-        .title_alignment(ratatui::layout::Alignment::Center);
-    let para = Paragraph::new(Text::from_iter([
-        format!("Enabled   : 0b{:0>8b}", mem.ie), // , mem.ie),
-        format!("Requested : 0b{:0>8b}", mem.io().interrupt_flags), // , mem.io.interrupt_flags),
-    ]))
-    .block(block);
-    frame.render_widget(para, area);
-}
-
-fn render_stack(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
-    let block = Block::bordered()
-        .title("Stack")
-        .title_alignment(ratatui::layout::Alignment::Center);
-    // let iter = [].into_iter();
-    let text = format!(
-        "0x{:0>2X}{:0>2X} 0x{:0>2X}{:0>2X}",
-        mem.read_byte(0xFFFE),
-        mem.read_byte(0xFFFD),
-        mem.read_byte(0xFFFC),
-        mem.read_byte(0xFFFB)
-    );
-    let para = Paragraph::new(Text::from(text)).block(block);
-    frame.render_widget(para, area);
-}
-
-// TODO: Move mem
-
-impl CommandProcessor {
-    fn update_last_longest(&mut self) {
-        self.last_longest_input = std::cmp::max(self.last_longest_input, self.buffer.len());
-    }
-
-    fn next_event(&mut self, cli_history: &mut CliHistory) -> Option<Command> {
-        match self.inbound.recv().unwrap() {
-            CrosstermEvent::Resize(_, _) => Some(Command::Redraw),
-            CrosstermEvent::Paste(data) => {
-                self.buffer.push_str(&data);
-                self.update_last_longest();
-                None
-            }
-            CrosstermEvent::Key(key) if matches!(key.kind, KeyEventKind::Press) => match key.code {
-                KeyCode::Backspace => {
-                    self.buffer.pop();
-                    None
-                }
-                KeyCode::Enter => {
-                    let cmd = ReplCommand::try_parse_from(self.buffer.split_whitespace());
-                    cli_history.push(std::mem::take(&mut self.buffer));
-                    self.index = 0;
-                    self.last_longest_input = 0;
-                    Some(
-                        cmd.map(|cmd| cmd.command)
-                            .unwrap_or_else(|_| Command::Redraw),
-                    )
-                }
-                KeyCode::Up if self.index < cli_history.minimized_history.len() => {
-                    self.index = std::cmp::min(self.index + 1, cli_history.minimized_history.len());
-                    self.buffer.clone_from(
-                        &cli_history.minimized_history
-                            [cli_history.minimized_history.len() - self.index],
-                    );
-                    self.update_last_longest();
-                    None
-                }
-                KeyCode::Down if self.index > 0 => {
-                    self.index -= 1;
-                    if self.index == 0 {
-                        self.buffer.clear();
-                    } else {
-                        self.buffer.clone_from(
-                            &cli_history.minimized_history
-                                [cli_history.minimized_history.len() - self.index],
-                        );
-                    }
-                    self.update_last_longest();
-                    None
-                }
-                KeyCode::Char(c) => {
-                    if key.modifiers.contains(KeyModifiers::CONTROL) {
-                        if c == 'c' {
-                            cli_history.push(std::mem::take(&mut self.buffer));
-                            return None;
-                        } else if c == 'd' {
-                            return Some(Command::Exit);
-                        }
-                    }
-                    self.buffer.push(c);
-                    self.update_last_longest();
-                    None
-                }
-                // Not used (yet)
-                _ => None,
-            },
-            CrosstermEvent::Key(_) => None,
-            CrosstermEvent::Mouse(_) => None,
-            CrosstermEvent::FocusGained => None,
-            CrosstermEvent::FocusLost => None,
-        }
-    }
-}
-
-fn custom_until_condition(_gb: &Gameboy) -> impl 'static + FnMut(&Gameboy) -> bool {
-    |gb| !matches!(gb.read_op(), Instruction::Ei)
 }
