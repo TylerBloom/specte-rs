@@ -37,7 +37,7 @@ pub struct IoRegisters {
     /// ADDR FF40
     pub lcd_control: u8,
     /// ADDR FF41
-    lcd_status: u8,
+    pub lcd_status: u8,
     /// ADDR FF42 & FF43
     pub(crate) bg_position: (u8, u8),
     /// ADDR FF44 (set by the PPU)
@@ -372,6 +372,7 @@ impl IoRegisters {
     }
 
     pub fn request_lcd_int(&mut self) {
+        println!("Requesting STAT interrupt: 0b{:0>8b}", self.lcd_status);
         // self.io.interrupt_flags |= self.ie & 0b10;
         self.interrupt_flags |= 0b10;
     }
