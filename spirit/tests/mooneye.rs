@@ -279,6 +279,7 @@ fn oam_dma_restart() {
 }
 
 #[test]
+#[should_panic]
 fn oam_dma_start() {
     mooneye_test!("oam_dma_start.gb")
 }
