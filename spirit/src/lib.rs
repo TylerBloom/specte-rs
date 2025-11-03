@@ -6,8 +6,6 @@
 
 // TODO: The `tick` methods on most of the processes is incorrect, but the step methods are fine.
 
-#![allow(private_interfaces, clippy::diverging_sub_expression, clippy::all)]
-
 use std::ops::Deref;
 use std::ops::DerefMut;
 
@@ -72,7 +70,7 @@ pub enum SsabInput {
 
 impl Gameboy {
     /// Takes data that represents the data stored on a game cartridge and uses it to construct the
-    pub fn new(cart: Vec<u8>) -> StartUpSequence {
+    pub fn load_cartridge(cart: Vec<u8>) -> StartUpSequence {
         StartUpSequence::new(Self {
             mem: MemoryMap::new(cart),
             cpu: Cpu::new(),
@@ -225,6 +223,6 @@ mod tests {
 
     #[test]
     fn start_up_completion() {
-        Gameboy::new(include_bytes!("../tests/roms/acid/which.gb").into()).complete();
+        Gameboy::load_cartridge(include_bytes!("../tests/roms/acid/which.gb").into()).complete();
     }
 }

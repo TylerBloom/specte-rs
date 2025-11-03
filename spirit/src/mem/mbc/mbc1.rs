@@ -162,15 +162,15 @@ impl MBC1 {
         let base = matches!(self.banking_mode, BankingMode::Advanced)
             .then(|| self.bank_index_two << 5)
             .unwrap_or_default();
-        let digest = (base & self.rom_index_mask) as usize;
-        digest
+
+        (base & self.rom_index_mask) as usize
     }
 
     #[inline]
     fn rom_bank(&self) -> usize {
         let bank = self.bank_index_two << 5 | self.bank_index_one;
-        let digest = (bank & self.rom_index_mask) as usize;
-        digest
+
+        (bank & self.rom_index_mask) as usize
     }
 
     /// NOTE: This does *not* take RAM enablement into consideration.
@@ -187,10 +187,13 @@ impl MBC1 {
         match index {
             0x0000..0x4000 => self.rom[self.first_rom_bank()][index as usize],
             0x4000..0x8000 => self.rom[self.rom_bank()][(index - 0x4000) as usize],
-            0xA000..0xC000 => self
-                .ram_enabled
-                .then(|| self.ram[self.ram_bank()][(index - 0xA000) as usize])
-                .unwrap_or(0xFF),
+            0xA000..0xC000 => {
+                if self.ram_enabled {
+                    self.ram[self.ram_bank()][(index - 0xA000) as usize]
+                } else {
+                    0xFF
+                }
+            }
             index => {
                 unreachable!(
                     "Memory controller is unable to read from memory address: 0x{index:0>4X}"

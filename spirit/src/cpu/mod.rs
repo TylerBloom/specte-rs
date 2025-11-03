@@ -551,7 +551,7 @@ impl Cpu {
             JumpOp::ConditionalRelative(cond, val) => {
                 if self.matches(cond) {
                     if val < 0 {
-                        self.pc -= val.abs() as u16;
+                        self.pc -= val.unsigned_abs() as u16;
                     } else {
                         self.pc += val as u16;
                     }
@@ -559,7 +559,7 @@ impl Cpu {
             }
             JumpOp::Relative(val) => {
                 if val < 0 {
-                    self.pc -= val.abs() as u16;
+                    self.pc -= val.unsigned_abs() as u16;
                 } else {
                     self.pc += val as u16;
                 }

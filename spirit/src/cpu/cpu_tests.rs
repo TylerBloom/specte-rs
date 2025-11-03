@@ -1,7 +1,6 @@
 use std::fmt::Display;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::u8;
 
 use super::Cpu;
 use super::Flags;
@@ -255,18 +254,20 @@ struct CpuState {
 
 impl CpuState {
     fn build(self) -> (Cpu, Vec<u8>) {
-        let mut cpu = Cpu::default();
-        cpu.a = self.a.into();
-        cpu.b = self.b.into();
-        cpu.c = self.c.into();
-        cpu.d = self.d.into();
-        cpu.e = self.e.into();
-        cpu.f = Flags::from(self.f);
-        cpu.h = self.h.into();
-        cpu.l = self.l.into();
-        cpu.pc = (self.pc - 1).into();
-        cpu.sp = self.sp.into();
-        cpu.ime = self.ime.unwrap_or_default();
+        let cpu = Cpu {
+            a: self.a.into(),
+            b: self.b.into(),
+            c: self.c.into(),
+            d: self.d.into(),
+            e: self.e.into(),
+            f: Flags::from(self.f),
+            h: self.h.into(),
+            l: self.l.into(),
+            pc: (self.pc - 1).into(),
+            sp: self.sp.into(),
+            ime: self.ime.unwrap_or_default(),
+            ..Default::default()
+        };
         let mut mem = vec![0; 64 * 1024];
         self.ram
             .into_iter()

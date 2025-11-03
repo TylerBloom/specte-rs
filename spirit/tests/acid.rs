@@ -10,7 +10,7 @@ macro_rules! postcard_bytes {
 #[should_panic]
 fn acid_which() {
     let rom = include_bytes!("roms/acid/which.gb");
-    let _gb = Gameboy::new(rom.into()).complete();
+    let _gb = Gameboy::load_cartridge(rom.into()).complete();
     todo!()
 }
 
@@ -18,7 +18,7 @@ fn acid_which() {
 #[should_panic]
 fn acid_dmg_acid2() {
     let rom = include_bytes!("roms/acid/dmg-acid2.gb");
-    let _gb = Gameboy::new(rom.into()).complete();
+    let _gb = Gameboy::load_cartridge(rom.into()).complete();
     todo!()
 }
 
@@ -28,7 +28,7 @@ fn acid_dmg_acid2() {
 #[should_panic]
 fn acid_cgb_acid2() {
     let rom = include_bytes!("roms/acid/cgb-acid2.gbc");
-    let mut gb = Gameboy::new(rom.into()).complete();
+    let mut gb = Gameboy::load_cartridge(rom.into()).complete();
     (0..10).for_each(|_| gb.next_frame());
     let expected_mem = postcard_bytes!("data/acid-cgb-acid2-memory-map.postcard");
     assert_eq!(gb.mem, expected_mem);
@@ -40,6 +40,6 @@ fn acid_cgb_acid2() {
 #[should_panic]
 fn acid_cgb_acid_hell() {
     let rom = include_bytes!("roms/acid/cgb-acid-hell.gbc");
-    let _gb = Gameboy::new(rom.into()).complete();
+    let _gb = Gameboy::load_cartridge(rom.into()).complete();
     todo!()
 }

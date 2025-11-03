@@ -20,7 +20,7 @@ fn main() {
     let args = Config::parse();
     let mut path = PathBuf::from_str(&args.rom).unwrap();
     let rom = std::fs::read(&path).unwrap();
-    let mut gb = Gameboy::new(rom).complete();
+    let mut gb = Gameboy::load_cartridge(rom).complete();
     (0..args.frames).for_each(|_| gb.next_frame());
 
     let filename_base = path

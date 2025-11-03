@@ -186,9 +186,7 @@ pub struct ObjectFiFo {
 
 impl ObjectFiFo {
     fn new() -> Self {
-        let pixels = std::iter::repeat(ObjectPixel::transparent())
-            .take(176)
-            .collect::<VecDeque<_>>();
+        let pixels = std::iter::repeat_n(ObjectPixel::transparent(), 176).collect::<VecDeque<_>>();
         Self { pixels }
     }
 
@@ -224,7 +222,7 @@ impl ObjectFiFo {
     fn oam_scan(&mut self, y: u8, mem: &MemoryMap) {
         self.pixels.clear();
         self.pixels
-            .extend(std::iter::repeat(ObjectPixel::transparent()).take(176));
+            .extend(std::iter::repeat_n(ObjectPixel::transparent(), 176));
         if check_bit_const::<1>(mem.io().lcd_control) {
             let buffer = self.pixels.make_contiguous();
             Self::scan_objs(y, mem).for_each(|obj| obj.populate_buffer(y + 16, buffer, mem));
@@ -293,7 +291,7 @@ impl BackgroundFiFo {
     }
 
     fn tick(&mut self, mem: &MemoryMap) {
-        let bg = self.background.is_empty().then(|| &mut self.background);
+        let bg = self.background.is_empty().then_some(&mut self.background);
         self.window.triggered =
             self.y >= mem.io().window_position[0] && check_bit_const::<5>(mem.io().lcd_control);
         let do_window =
@@ -335,16 +333,14 @@ impl BgPixel {
         }
         if !check_bit_const::<0>(mem.io().lcd_control) {
             mem[ObjPaletteIndex(obj.palette)].get_color(obj.color)
-        } else {
-            if self.priority || obj.priority {
-                if self.color > 0 && self.color < 4 {
-                    mem[BgPaletteIndex(self.palette)].get_color(self.color)
-                } else {
-                    mem[ObjPaletteIndex(obj.palette)].get_color(obj.color)
-                }
+        } else if self.priority || obj.priority {
+            if self.color > 0 && self.color < 4 {
+                mem[BgPaletteIndex(self.palette)].get_color(self.color)
             } else {
                 mem[ObjPaletteIndex(obj.palette)].get_color(obj.color)
             }
+        } else {
+            mem[ObjPaletteIndex(obj.palette)].get_color(obj.color)
         }
         .into()
     }

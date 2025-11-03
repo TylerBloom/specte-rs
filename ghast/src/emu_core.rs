@@ -214,7 +214,7 @@ impl Emulator {
             gb: EmulatorInner::StartUp(Some(gb)),
         }
         */
-        let gb = Gameboy::new(cart).complete();
+        let gb = Gameboy::load_cartridge(cart).complete();
         Self {
             gb: EmulatorInner::Ready(gb),
         }

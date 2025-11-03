@@ -67,7 +67,7 @@ fn main() {
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut term = Terminal::new(backend).unwrap();
     term.clear().unwrap();
-    let mut gb = Arc::new(Mutex::new(Gameboy::new(rom).complete()));
+    let mut gb = Arc::new(Mutex::new(Gameboy::load_cartridge(rom).complete()));
     let (send_cmd, recv_cmd) = broadcast::channel(100);
     let (send_event, recv_event) = mpsc::channel();
     create_input_thread(send_event);

@@ -38,7 +38,7 @@ pub const TEST_ROMS: &[(&str, &[u8])] = include_roms!(
 
 #[test]
 fn run_test_roms() {
-    let mut start_up = Gameboy::new(TEST_ROMS[0].1.into());
+    let mut start_up = Gameboy::load_cartridge(TEST_ROMS[0].1.into());
     let mut header = Vec::new();
     for i in 0x100..=0x14F {
         header.push(start_up.mem.read_byte(i));
@@ -51,7 +51,7 @@ fn run_test_roms() {
     println!("{:X?}", START_UP_HEADER);
     for (name, cart) in TEST_ROMS {
         println!("Running ROM from file '{name}'");
-        let _gb = Gameboy::new((*cart).into());
+        let _gb = Gameboy::load_cartridge((*cart).into());
         // println!("Init GB state: {gb:?}");
         // gb.start_up().complete();
     }
