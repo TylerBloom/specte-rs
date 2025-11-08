@@ -4,30 +4,30 @@ use ratatui::text::Text;
 use ratatui::widgets::Paragraph;
 use ratatui::{Frame, layout::Rect, widgets::Block};
 
-use spirit::cpu::Cpu;
-use spirit::mem::{MemoryBankController, MemoryLike, MemoryMap, OamDma};
+use spirit::mem::{MemoryBankController, MemoryLike};
 
-pub fn render_mem(mem_start: u16, frame: &mut Frame, area: Rect, mem: &MemoryMap) {
+use crate::state::InnerAppState;
+
+pub fn render_mem(state: &InnerAppState, frame: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .title(" Memory ")
         .title_alignment(ratatui::layout::Alignment::Center);
 
-    // let mem_start = state.mem_start & 0xFFF0;
     let lines = area.height - 2;
     let mut buffer = vec![0; 16 * lines as usize];
-    (mem_start..).zip(buffer.iter_mut()).for_each(|(i, byte)| {
-        *byte = std::panic::catch_unwind(|| mem.read_byte(i)).unwrap_or_default()
+    (state.mem_start..).zip(buffer.iter_mut()).for_each(|(i, byte)| {
+        *byte = std::panic::catch_unwind(|| state.gb.mem.read_byte(i)).unwrap_or_default()
     });
 
-    render_byte_slice(frame, area, block, mem_start, &buffer);
+    render_byte_slice(state.mem_start, &buffer, frame, area, block);
 }
 
-pub fn render_ram(frame: &mut Frame, area: Rect, mbc: &MemoryBankController) {
+pub fn render_ram(state: &InnerAppState, frame: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .title(" MBC RAM ")
         .title_alignment(ratatui::layout::Alignment::Center);
 
-    let ram = match mbc {
+    let ram = match &state.gb.mem.mbc {
         MemoryBankController::Direct { ram, .. } => ram.as_slice(),
         MemoryBankController::MBC1(mbc) => mbc.ram(),
         MemoryBankController::MBC2(_mbc) => todo!(),
@@ -35,15 +35,15 @@ pub fn render_ram(frame: &mut Frame, area: Rect, mbc: &MemoryBankController) {
         MemoryBankController::MBC5(_mbc) => todo!(),
     };
 
-    render_byte_slice(frame, area, block, 0xA000, ram);
+    render_byte_slice(0xA000, ram, frame, area, block);
 }
 
 pub fn render_byte_slice(
+    mem_start: u16,
+    bytes: &[u8],
     frame: &mut Frame,
     area: Rect,
     block: Block<'_>,
-    mem_start: u16,
-    bytes: &[u8],
 ) {
     let lines = area.height - 2;
     let mut data = String::from("  ADDR | 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F\n");
@@ -60,7 +60,8 @@ pub fn render_byte_slice(
     frame.render_widget(para, area);
 }
 
-pub fn render_cpu(frame: &mut Frame, area: Rect, cpu: &Cpu) {
+pub fn render_cpu(state: &InnerAppState, frame: &mut Frame, area: Rect) {
+    let cpu = state.gb.cpu();
     let block = Block::bordered()
         .title(" CPU ")
         .title_alignment(ratatui::layout::Alignment::Center);
@@ -81,20 +82,21 @@ pub fn render_cpu(frame: &mut Frame, area: Rect, cpu: &Cpu) {
     frame.render_widget(para, area);
 }
 
-pub fn render_oam_dma(frame: &mut Frame, area: Rect, dma: &OamDma) {
+pub fn render_oam_dma(state: &InnerAppState, frame: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .title(" OAM DMA ")
         .title_alignment(ratatui::layout::Alignment::Center);
 
+    let dma = &state.gb.mem.oam_dma;
     frame.render_widget(Paragraph::new(format!("{dma}")).block(block), area);
 }
 
 #[allow(dead_code)]
-pub fn render_mbc(frame: &mut Frame, area: Rect, mbc: &MemoryBankController) {
+pub fn render_mbc(state: &InnerAppState, frame: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .title(" Timers ")
         .title_alignment(ratatui::layout::Alignment::Center);
-    let para = match mbc {
+    let para = match &state.gb.mem.mbc {
         MemoryBankController::Direct { .. } => "Just data...".into(),
         MemoryBankController::MBC1(mbc) => format!("{mbc}"),
         MemoryBankController::MBC2(_mbc) => todo!(),
@@ -105,24 +107,24 @@ pub fn render_mbc(frame: &mut Frame, area: Rect, mbc: &MemoryBankController) {
     frame.render_widget(Paragraph::new(para).block(block), area);
 }
 
-pub fn render_interrupts(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
+pub fn render_interrupts(state: &InnerAppState, frame: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .title(" Interrupts ")
         .title_alignment(ratatui::layout::Alignment::Center);
     let para = Paragraph::new(Text::from_iter([
-        format!("Enabled   : 0b{:0>8b}", mem.ie), // , mem.ie),
-        format!("Requested : 0b{:0>8b}", mem.io().interrupt_flags), // , mem.io.interrupt_flags),
+        format!("Enabled   : 0b{:0>8b}", state.gb.mem.ie), // , mem.ie),
+        format!("Requested : 0b{:0>8b}", state.gb.mem.io().interrupt_flags), // , mem.io.interrupt_flags),
     ]))
     .block(block);
     frame.render_widget(para, area);
 }
 
 #[allow(dead_code)]
-pub fn render_stack(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
+pub fn render_stack(state: &InnerAppState, frame: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .title(" Stack ")
         .title_alignment(ratatui::layout::Alignment::Center);
-    // let iter = [].into_iter();
+    let mem = &state.gb.mem;
     let text = format!(
         "0x{:0>2X}{:0>2X} 0x{:0>2X}{:0>2X}",
         mem.read_byte(0xFFFE),

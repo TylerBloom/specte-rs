@@ -1,7 +1,13 @@
 use std::collections::HashMap;
 
-use ratatui::{layout::Rect, widgets::{Block, Paragraph}, Frame};
-use spirit::{lookup::Instruction, Gameboy};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    widgets::{Block, Paragraph},
+};
+use spirit::{Gameboy, lookup::Instruction};
+
+use crate::{config::GameConfig, state::InnerAppState};
 
 #[derive(Debug, Default)]
 pub struct PcState {
@@ -17,16 +23,16 @@ impl PcState {
         }
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect, gb: &Gameboy) {
+    pub fn render(&mut self, state: &InnerAppState, frame: &mut Frame, area: Rect) {
         let block = Block::bordered()
             .title(" PC Area ")
             .title_alignment(ratatui::layout::Alignment::Center);
         let len = block.inner(area).height as usize;
-        let para = Paragraph::new(self.text_body(len, gb)).block(block);
+        let para = Paragraph::new(self.text_body(len, &state.config, &state.gb)).block(block);
         frame.render_widget(para, area);
     }
 
-    fn text_body(&mut self, len: usize, gb: &Gameboy) -> String {
+    fn text_body(&mut self, len: usize, config: &GameConfig, gb: &Gameboy) -> String {
         self.ops.extend(gb.op_iter().take(len));
         let mut prior_ops = Vec::with_capacity(self.start);
         let mut pc = gb.cpu().pc.0;
@@ -47,11 +53,13 @@ impl PcState {
             // NOTE: This should never return None
             .filter_map(|pc| self.ops.get_key_value(&pc))
             .map(|(pc, op)| {
-                if *pc == gb.cpu().pc.0 {
-                    format!("PC > 0x{pc:0>4X} -> {op}\n")
+                let prefix = if config.is_breakpoint(*pc) {
+                    "BP"
                 } else {
-                    format!("     0x{pc:0>4X} -> {op}\n")
-                }
+                    "  "
+                };
+                let ptr = if *pc == gb.cpu().pc.0 { ">" } else { " " };
+                format!("{prefix} {ptr} 0x{pc:0>4X} -> {op}\n")
             })
             .take(len)
             .collect()

@@ -23,7 +23,7 @@ pub struct ReplCommand {
 //  - something to visualize the surrounding ops
 //  - to set verbosity level
 // Index should be formatted more nicely, like hexdump
-#[derive(Debug, Subcommand, Serialize, Deserialize)]
+#[derive(Debug, Clone, Subcommand, Serialize, Deserialize)]
 pub enum Command {
     /// This is a no-op command as it doesn't change the state but it re-renders the TUI. This is
     /// only triggered if crossterm detects that the terminal has changed sized.
@@ -54,7 +54,7 @@ pub enum Command {
     View(ViewCommand),
 }
 
-#[derive(Debug, Subcommand, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Subcommand, Serialize, Deserialize)]
 pub enum ViewCommand {
     /// This command controls what the PC area looks like. The `start` argument controls how many
     /// commands are shown before the PC's location.
