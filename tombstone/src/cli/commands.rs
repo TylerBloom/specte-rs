@@ -14,6 +14,7 @@ use ratatui::Terminal;
 use ratatui::layout::Position;
 use ratatui::prelude::Backend;
 
+use crate::cli::PROMPT;
 use crate::Command;
 use crate::command::ReplCommand;
 
@@ -73,15 +74,18 @@ impl CommandProcessor {
         let mut pos = self.cursor_position.get();
         _ = term.set_cursor_position(pos);
         let mut stdout = std::io::stdout();
-        let input = self
-            .buffer
+        let input = PROMPT
             .chars()
-            .chain(std::iter::repeat(' '))
-            .take(self.longest_last_input as usize)
+            .chain(
+                self.buffer
+                    .chars()
+                    .chain(std::iter::repeat(' '))
+                    .take(self.longest_last_input as usize),
+            )
             .collect::<String>();
         write!(stdout, "{input}").unwrap();
         stdout.flush().unwrap();
-        pos.x += self.buffer.len() as u16;
+        pos.x += (PROMPT.len() + self.buffer.len()) as u16;
         _ = term.set_cursor_position(pos);
     }
 
