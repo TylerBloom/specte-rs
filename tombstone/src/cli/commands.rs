@@ -14,8 +14,8 @@ use ratatui::Terminal;
 use ratatui::layout::Position;
 use ratatui::prelude::Backend;
 
-use crate::cli::PROMPT;
 use crate::Command;
+use crate::cli::PROMPT;
 use crate::command::ReplCommand;
 
 /// Create a thread to poll for user inputs and forward them to the main thread.
@@ -125,12 +125,7 @@ impl CommandProcessor {
                     let cmd = ReplCommand::try_parse_from(self.buffer.split_whitespace());
                     self.index = 0;
                     let output = self.update_buffer(std::mem::take);
-                    Some(CliEvent::Command(
-                        output,
-                        // TODO: This should a Result. The parsing error should be displayed
-                        cmd.map(|cmd| cmd.command)
-                            .unwrap_or_else(|_| Command::Redraw),
-                    ))
+                    Some(CliEvent::Command(output, cmd.map(|cmd| cmd.command).map_err(|err| err.to_string())))
                 }
                 KeyCode::Up => Some(CliEvent::Up),
                 KeyCode::Down => Some(CliEvent::Down),
@@ -139,7 +134,7 @@ impl CommandProcessor {
                         if c == 'c' {
                             return Some(CliEvent::Cancel(self.update_buffer(std::mem::take)));
                         } else if c == 'd' {
-                            return Some(CliEvent::Command(String::new(), Command::Exit));
+                            return Some(CliEvent::Command(String::new(), Ok(Command::Exit)));
                         }
                     }
                     self.buffer.push(c);
@@ -162,7 +157,7 @@ pub enum CliEvent {
     Down,
     Cancel(String),
     Resize,
-    Command(String, Command),
+    Command(String, Result<Command, String>),
 }
 
 impl Default for CommandProcessor {

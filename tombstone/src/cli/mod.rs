@@ -35,7 +35,7 @@ impl Cli {
     }
 
     pub fn push_to_history(&mut self, data: String) {
-        self.history.push(data);
+        self.history.push_command(data);
     }
 
     /// (Re)Draws the line that users input. This allows the input to be rendered without needing
@@ -85,10 +85,16 @@ impl Cli {
             commands::CliEvent::Resize => Some(Command::Redraw),
             commands::CliEvent::Command(s, command) => {
                 if !s.is_empty() {
-                    self.history.push(s);
+                    self.history.push_command(s);
                 }
                 self.history_index = 0;
-                Some(command)
+                match command {
+                    Ok(cmd) => Some(cmd),
+                    Err(err) => {
+                        self.history.push_command_output(err);
+                        Some(Command::Redraw)
+                    }
+                }
             }
         }
     }
