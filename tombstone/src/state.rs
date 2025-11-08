@@ -24,7 +24,6 @@ use tracing_subscriber::fmt::format::Compact;
 use tracing_subscriber::fmt::format::DefaultFields;
 use tracing_subscriber::fmt::format::Format;
 
-use crate::pc_state::PcState;
 use crate::Command;
 use crate::IndexOptions;
 use crate::LoopKind;
@@ -33,11 +32,14 @@ use crate::RunLength;
 use crate::RunUntil;
 use crate::ViewCommand;
 use crate::cli::Cli;
+use crate::config::Config;
+use crate::config::GameConfig;
 use crate::display_windows::render_cpu;
 use crate::display_windows::render_interrupts;
 use crate::display_windows::render_mem;
 use crate::display_windows::render_oam_dma;
 use crate::display_windows::render_ram;
+use crate::pc_state::PcState;
 
 /// This is the app's state which holds all of the CLI data. This includes all previous commands
 /// that were ran and all data to be displayed in the TUI (prompts, inputs, command outputs).
@@ -52,25 +54,33 @@ use crate::display_windows::render_ram;
 /// strickly single-threaded, we must wrap the buffer in an Arc<Mutex> (rather than an
 /// Rc<RefCell>).
 pub(crate) struct AppState {
-    gb: Gameboy,
+    inner: InnerAppState,
     cli: Cli,
     #[allow(dead_code)]
     pub(crate) subscriber:
         Option<FmtSubscriber<DefaultFields, Format<Compact, ()>, LevelFilter, GameboySubscriber>>,
     buffer: Arc<Mutex<Vec<u8>>>,
-    pub(crate) mem_start: u16,
     pc_state: PcState,
 }
 
+pub struct InnerAppState {
+    pub gb: Gameboy,
+    pub config: GameConfig,
+    pub mem_start: u16,
+}
+
 impl AppState {
-    pub fn new(
-        cart: Vec<u8>,
-    ) -> Self {
-        Self {
+    pub fn new(cart: Vec<u8>) -> Self {
+        let config = Config::load().load_game_config(&cart);
+        let inner = InnerAppState {
+            config,
             gb: Gameboy::load_cartridge(cart).complete(),
+            mem_start: 0x8000,
+        };
+        Self {
+            inner,
             subscriber: None,
             buffer: Arc::new(Mutex::new(Vec::new())),
-            mem_start: 0x8000,
             cli: Cli::new(),
             pc_state: PcState::new(),
         }
@@ -95,11 +105,68 @@ impl AppState {
     }
 
     fn process(&mut self, cmd: Command) {
+        self.inner.process(&mut self.cli, &mut self.pc_state, cmd);
+    }
+
+    fn render_frame(&mut self, frame: &mut Frame) {
+        let sections = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Fill(1), Constraint::Length(40)])
+            .split(frame.area());
+        let left = sections[0];
+        let right = sections[1];
+        let left = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Fill(1), Constraint::Fill(1)])
+            .split(left);
+        let mem = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Fill(1), Constraint::Fill(1)])
+            .split(left[1]);
+        let right = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(10),
+                Constraint::Length(20),
+                Constraint::Length(4),
+                Constraint::Fill(1),
+            ])
+            .split(right);
+        self.cli.render(frame, left[0]);
+        render_mem(&self.inner, frame, mem[0]);
+        render_ram(&self.inner, frame, mem[1]);
+        render_cpu(&self.inner, frame, right[0]);
+        render_oam_dma(&self.inner, frame, right[1]);
+        render_interrupts(&self.inner, frame, right[2]);
+        self.pc_state.render(&self.inner, frame, right[3]);
+    }
+
+    // TODO: Because the state now tracks the command history and any output from the emulator, we
+    // ought to move the logic that parses out commands and runs them here. This will ensure that
+    // all of the bookkeeping is done in one place.
+    //
+    // This will also reduce the API footprint, only need to have methods that return references to
+    // the data within and a single method to process input, run the command/display errors, and
+    // store the input and output.
+    #[allow(dead_code)]
+    fn construct_sub(
+        &self,
+    ) -> FmtSubscriber<DefaultFields, Format<Compact, ()>, LevelFilter, GameboySubscriber> {
+        FmtSubscriber::builder()
+            .compact()
+            .without_time()
+            .with_max_level(LevelFilter::TRACE)
+            .with_writer(GameboySubscriber(Arc::clone(&self.buffer)))
+            .finish()
+    }
+}
+
+impl InnerAppState {
+    fn process(&mut self, cli: &mut Cli, pc: &mut PcState, cmd: Command) {
         match cmd {
             Command::Read { index } => {
                 let val = self.gb.mem.read_byte(index);
-                self.cli
-                    .push_to_history(format!("0x{index:0>4X} -> 0b{val:0>8b}"));
+                cli.push_to_history(format!("0x{index:0>4X} -> 0b{val:0>8b}"));
             }
             Command::Redraw => {}
             Command::Exit => {
@@ -122,7 +189,7 @@ impl AppState {
                 todo!()
             }
             Command::View(ViewCommand::PC { start }) => {
-                self.pc_state.start = start;
+                pc.start = start;
             }
         }
     }
@@ -180,60 +247,6 @@ impl AppState {
             self.gb.next_frame();
         }
         // _ = self.outbound.send(WindowMessage::DuplicateScreens(screens));
-    }
-
-    fn render_frame(&mut self, frame: &mut Frame) {
-        let gb = &self.gb;
-        let sections = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Fill(1), Constraint::Length(40)])
-            .split(frame.area());
-        let left = sections[0];
-        let right = sections[1];
-        let left = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Fill(1), Constraint::Fill(1)])
-            .split(left);
-        let mem = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Fill(1), Constraint::Fill(1)])
-            .split(left[1]);
-        let right = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(10),
-                Constraint::Length(20),
-                Constraint::Length(4),
-                Constraint::Fill(1),
-            ])
-            .split(right);
-        self.cli.render(frame, left[0]);
-        render_mem(self.mem_start, frame, mem[0], &gb.mem);
-        render_ram(frame, mem[1], &gb.mem.mbc);
-        render_cpu(frame, right[0], gb.cpu());
-        render_oam_dma(frame, right[1], &gb.mem.oam_dma);
-        render_interrupts(frame, right[2], &gb.mem);
-        // render_stack(frame, right[3], &gb.mem);
-        self.pc_state.render(frame, right[3], gb);
-    }
-
-    // TODO: Because the state now tracks the command history and any output from the emulator, we
-    // ought to move the logic that parses out commands and runs them here. This will ensure that
-    // all of the bookkeeping is done in one place.
-    //
-    // This will also reduce the API footprint, only need to have methods that return references to
-    // the data within and a single method to process input, run the command/display errors, and
-    // store the input and output.
-    #[allow(dead_code)]
-    fn construct_sub(
-        &self,
-    ) -> FmtSubscriber<DefaultFields, Format<Compact, ()>, LevelFilter, GameboySubscriber> {
-        FmtSubscriber::builder()
-            .compact()
-            .without_time()
-            .with_max_level(LevelFilter::TRACE)
-            .with_writer(GameboySubscriber(Arc::clone(&self.buffer)))
-            .finish()
     }
 }
 
