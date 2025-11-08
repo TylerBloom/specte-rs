@@ -16,3 +16,6 @@ iced = "0.13.1"
 tokio-stream = { version = "0.1.16", features = ["sync"] }
 indexmap = "2.6.0"
 heapless = "0.9.1"
+sha2 = "0.10.9"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "0.9.8"
