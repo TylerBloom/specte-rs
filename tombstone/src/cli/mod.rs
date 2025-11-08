@@ -3,14 +3,17 @@ use ratatui::Terminal;
 use ratatui::backend::Backend;
 use ratatui::layout::Position;
 use ratatui::layout::Rect;
-use ratatui::text::Text;
 use ratatui::widgets::Block;
-use ratatui::widgets::Paragraph;
 
 mod commands;
+mod history;
 
 use crate::Command;
 use crate::cli::commands::CommandProcessor;
+use crate::cli::history::CliHistory;
+
+/// The text displayed at the start of the shell command input.
+static PROMPT: &str = "> ";
 
 #[derive(Debug, Default)]
 pub struct Cli {
@@ -91,43 +94,15 @@ impl Cli {
     }
 
     pub fn render(&self, frame: &mut Frame, rect: Rect) {
-        let history = &self.history.visual_history;
         let block = Block::bordered()
             .title(" CLI ")
             .title_alignment(ratatui::layout::Alignment::Center);
-        let Rect { x, y, height, .. } = block.inner(rect);
-        let cursor_y = y + std::cmp::min(history.len(), (height - 1) as usize) as u16;
-        let iter = history
-            .iter()
-            .rev()
-            .take((height - 1) as usize)
-            .rev()
-            .map(|s| s.as_str());
-        //  .chain(std::iter::once(user_input));
-        let para = Paragraph::new(Text::from_iter(iter)).block(block);
-        let pos = Position::new(x, cursor_y);
+        let inner_rect = block.inner(rect);
+        let y = inner_rect.y;
+        let (display_length, para) = self.history.render(inner_rect);
+        frame.render_widget(para.block(block), rect);
+        let pos = Position::new(inner_rect.x, y + display_length);
         frame.set_cursor_position(pos);
-        frame.render_widget(para, rect);
         self.processor.set_cursor_position(pos);
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct CliHistory {
-    // The hsitory that is displayed (contains dups)
-    visual_history: Vec<String>,
-    // The "up arrow" history (removes dups and is ordered by last use)
-    minimized_history: Vec<String>,
-}
-
-impl CliHistory {
-    fn push(&mut self, value: String) {
-        self.visual_history.push(value.clone());
-        self.minimized_history.retain(|val| val != &value);
-        self.minimized_history.push(value);
-    }
-
-    fn push_visual_history(&mut self, value: String) {
-        self.visual_history.push(value);
     }
 }

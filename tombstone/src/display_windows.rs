@@ -62,7 +62,7 @@ pub fn render_byte_slice(
 
 pub fn render_cpu(frame: &mut Frame, area: Rect, cpu: &Cpu) {
     let block = Block::bordered()
-        .title("CPU")
+        .title(" CPU ")
         .title_alignment(ratatui::layout::Alignment::Center);
     let para = Paragraph::new(Text::from_iter([
         format!("A : 0x{:0>2X}", cpu.a),
@@ -107,7 +107,7 @@ pub fn render_mbc(frame: &mut Frame, area: Rect, mbc: &MemoryBankController) {
 
 pub fn render_interrupts(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
     let block = Block::bordered()
-        .title("Interrupts")
+        .title(" Interrupts ")
         .title_alignment(ratatui::layout::Alignment::Center);
     let para = Paragraph::new(Text::from_iter([
         format!("Enabled   : 0b{:0>8b}", mem.ie), // , mem.ie),
@@ -120,7 +120,7 @@ pub fn render_interrupts(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
 #[allow(dead_code)]
 pub fn render_stack(frame: &mut Frame, area: Rect, mem: &MemoryMap) {
     let block = Block::bordered()
-        .title("Stack")
+        .title(" Stack ")
         .title_alignment(ratatui::layout::Alignment::Center);
     // let iter = [].into_iter();
     let text = format!(

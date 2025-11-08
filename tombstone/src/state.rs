@@ -78,6 +78,7 @@ impl AppState {
 
     pub fn run<B: Backend>(mut self, mut term: Terminal<B>) {
         self.draw(&mut term);
+        self.cli.draw_input_line(&mut term);
         loop {
             if let Some(cmd) = self.cli.next_event() {
                 self.process(cmd);
