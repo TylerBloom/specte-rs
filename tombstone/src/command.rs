@@ -7,6 +7,8 @@ use clap::Parser;
 use clap::Subcommand;
 use indexmap::IndexSet;
 
+use serde::Deserialize;
+use serde::Serialize;
 use spirit::ppu::Pixel;
 
 #[derive(Parser)]
@@ -21,7 +23,7 @@ pub struct ReplCommand {
 //  - something to visualize the surrounding ops
 //  - to set verbosity level
 // Index should be formatted more nicely, like hexdump
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand, Serialize, Deserialize)]
 pub enum Command {
     /// This is a no-op command as it doesn't change the state but it re-renders the TUI. This is
     /// only triggered if crossterm detects that the terminal has changed sized.
@@ -52,14 +54,14 @@ pub enum Command {
     View(ViewCommand),
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand, Serialize, Deserialize)]
 pub enum ViewCommand {
     /// This command controls what the PC area looks like. The `start` argument controls how many
     /// commands are shown before the PC's location.
     PC { start: usize },
 }
 
-#[derive(Subcommand, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Subcommand, Serialize, Deserialize)]
 pub enum IndexOptions {
     Single {
         #[arg(value_parser = parse_int)]
@@ -71,7 +73,7 @@ pub enum IndexOptions {
     },
 }
 
-#[derive(Subcommand, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Subcommand, Serialize, Deserialize)]
 pub enum RunLength {
     #[command(subcommand)]
     For(RunFor),
@@ -79,12 +81,12 @@ pub enum RunLength {
     Until(RunUntil),
 }
 
-#[derive(Subcommand, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Subcommand, Serialize, Deserialize)]
 pub enum RunFor {
     Frames { count: usize },
 }
 
-#[derive(Subcommand, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Subcommand, Serialize, Deserialize)]
 pub enum RunUntil {
     /// Runs the emulator until an infinite loop is detected.
     #[command(subcommand)]
@@ -101,7 +103,7 @@ pub enum RunUntil {
     Custom,
 }
 
-#[derive(Subcommand, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Subcommand, Serialize, Deserialize)]
 pub enum LoopKind {
     /// Run instructions until repeat CPU + memory states are seen.
     CpuAndMem,
@@ -109,7 +111,7 @@ pub enum LoopKind {
     Screen,
 }
 
-#[derive(Subcommand, Clone)]
+#[derive(Debug, Clone, Subcommand, Serialize, Deserialize)]
 pub enum StashOptions {
     /// Save a snapshot of the current state. If no string is provided, it is given a number equal
     /// to the number of saved snapshots.
@@ -128,7 +130,7 @@ pub enum StashOptions {
     LoadFrom { file: PathBuf },
 }
 
-#[derive(Subcommand, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Subcommand, Serialize, Deserialize)]
 pub enum Interrupt {
     VBlank,
 }

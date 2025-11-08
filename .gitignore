@@ -3,3 +3,4 @@
 roms/*
 /ghast/trove/*
 !/ghast/trove/README.md
+/tombstone/config.cbor
