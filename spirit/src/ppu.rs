@@ -33,7 +33,7 @@ use crate::mem::vram::PpuMode;
 //    require a hand-roll deser impl or something from a third-party crate.
 
 /// The Pixel Processing Unit
-#[derive(Debug, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct Ppu {
     /// Represents the LCD screen. The length of this will always be 144.
     pub screen: Vec<Vec<Pixel>>,
@@ -76,7 +76,7 @@ impl Ppu {
         }
     }
 
-    pub(crate) fn state(&self) -> PpuMode {
+    pub fn state(&self) -> PpuMode {
         self.inner.state()
     }
 
@@ -88,7 +88,7 @@ impl Ppu {
     }
 }
 
-#[derive(Debug, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub enum PpuInner {
     OamScan { dots: u8 },
     Drawing { dots: u16 },
@@ -179,7 +179,7 @@ impl PpuInner {
     }
 }
 
-#[derive(Debug, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct ObjectFiFo {
     pixels: VecDeque<ObjectPixel>,
 }
@@ -241,7 +241,7 @@ impl ObjectFiFo {
     }
 }
 
-#[derive(Debug, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 struct BackgroundFiFo {
     x: u8,
     y: u8,
