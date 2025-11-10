@@ -14,6 +14,7 @@ use spirit::lookup::JumpOp;
 use spirit::lookup::LoadOp;
 use spirit::lookup::RegOrPointer;
 use spirit::mem::MemoryLike;
+use spirit::mem::vram::PpuMode;
 use std::io;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -32,6 +33,7 @@ use crate::RunLength;
 use crate::RunUntil;
 use crate::ViewCommand;
 use crate::cli::Cli;
+use crate::command::BreakpointCommand;
 use crate::config::Config;
 use crate::config::GameConfig;
 use crate::display_windows::render_cpu;
@@ -191,6 +193,19 @@ impl InnerAppState {
             Command::View(ViewCommand::PC { start }) => {
                 pc.start = start;
             }
+            Command::Breakpoint(cmd) => match cmd {
+                BreakpointCommand::List => {
+                    todo!()
+                }
+                BreakpointCommand::Add { pc } => {
+                    let bp = pc.unwrap_or(self.gb.cpu().pc.0);
+                    self.config.add_breakpoint(bp);
+                }
+                BreakpointCommand::Remove { pc } => {
+                    let bp = pc.unwrap_or(self.gb.cpu().pc.0);
+                    self.config.remove_breakpoint(bp);
+                }
+            },
         }
     }
 
@@ -207,24 +222,28 @@ impl InnerAppState {
                     LoopKind::CpuAndMem => todo!(),
                     LoopKind::Screen => self.loop_screen(),
                 },
-                RunUntil::Return => {
-                    while !matches!(
-                        self.gb.op_iter().next().unwrap().1,
+                RunUntil::Return => self.run_until(|gb| {
+                    !matches!(
+                        gb.read_op(),
                         Instruction::Jump(JumpOp::Return | JumpOp::ReturnAndEnable)
-                    ) {
-                        self.gb.step()
-                    }
+                    )
+                }),
+                RunUntil::Frame => {
+                    let mut mode = self.gb.ppu.state();
+                    self.run_until(move |gb| {
+                        let digest =
+                            !matches!((mode, gb.ppu.state()), (PpuMode::VBlank, PpuMode::OamScan));
+                        mode = gb.ppu.state();
+                        digest
+                    })
                 }
-                RunUntil::Frame => self.gb.next_frame(),
                 RunUntil::Pause => {
                     // self.outbound.send(WindowMessage::Run).unwrap();
                     todo!()
                 }
                 RunUntil::Interupt => {
                     let ints = self.gb.mem.io().interrupt_flags;
-                    while self.gb.mem.io().interrupt_flags == ints {
-                        self.gb.step();
-                    }
+                    self.run_until(|gb| gb.mem.io().interrupt_flags != ints)
                 }
                 RunUntil::Custom => {
                     let mut cond = custom_until_condition(&self.gb);
@@ -232,7 +251,33 @@ impl InnerAppState {
                         self.gb.step();
                     }
                 }
+                RunUntil::PastLoop { count } => {
+                    let mut count = count.unwrap_or(1);
+                    let mut pc = self.gb.cpu().pc;
+                    self.run_until(|gb| {
+                        if count > 0
+                            && let Instruction::Jump(
+                                JumpOp::Relative(index) | JumpOp::ConditionalRelative(_, index),
+                            ) = gb.read_op()
+                            && index < 0
+                            && pc < gb.cpu().pc
+                        {
+                            pc = gb.cpu().pc;
+                            count -= 1;
+                        }
+                        count == 0 && gb.cpu().pc > pc
+                    });
+                }
             },
+        }
+    }
+
+    fn run_until(&mut self, mut predicate: impl FnMut(&Gameboy) -> bool) {
+        loop {
+            self.gb.step();
+            if predicate(&self.gb) {
+                break;
+            }
         }
     }
 

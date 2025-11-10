@@ -51,6 +51,8 @@ pub(crate) fn deserialize_slices_as_one<
     Copy,
     PartialEq,
     Eq,
+    PartialOrd,
+    Ord,
     Serialize,
     Deserialize,
     Not,

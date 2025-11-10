@@ -17,7 +17,7 @@ use crate::lookup::parse_instruction;
 
 pub mod io;
 mod mbc;
-pub(crate) mod vram;
+pub mod vram;
 
 pub use mbc::MemoryBankController;
 use mbc::*;

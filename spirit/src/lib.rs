@@ -33,7 +33,7 @@ pub mod rom;
 pub mod utils;
 
 /// Represents a Gameboy color with a cartridge inserted.
-#[derive(Debug, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct Gameboy {
     pub mem: MemoryMap,
     pub ppu: Ppu,

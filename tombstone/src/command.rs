@@ -52,6 +52,8 @@ pub enum Command {
     },
     #[command(subcommand)]
     View(ViewCommand),
+    #[command(subcommand)]
+    Breakpoint(BreakpointCommand),
 }
 
 #[derive(Debug, Clone, Copy, Subcommand, Serialize, Deserialize)]
@@ -74,6 +76,19 @@ pub enum IndexOptions {
 }
 
 #[derive(Debug, Clone, Copy, Subcommand, Serialize, Deserialize)]
+pub enum BreakpointCommand {
+    List,
+    Add {
+        #[arg(value_parser = parse_int)]
+        pc: Option<u16>,
+    },
+    Remove {
+        #[arg(value_parser = parse_int)]
+        pc: Option<u16>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Subcommand, Serialize, Deserialize)]
 pub enum RunLength {
     #[command(subcommand)]
     For(RunFor),
@@ -91,7 +106,7 @@ pub enum RunUntil {
     /// Runs the emulator until an infinite loop is detected.
     #[command(subcommand)]
     Loop(LoopKind),
-    /// Runs the emulator until just before `ret` is ran
+    /// Runs the emulator until just after a call is returned from
     Return,
     /// Runs the emulator until the next frame is ready
     Frame,
@@ -101,6 +116,13 @@ pub enum RunUntil {
     Interupt,
     /// Run the emulator until the whatever handwritten  condition is met.
     Custom,
+    /// A "loop" here refers to any (conditional) relative jump instruction where the relative jump
+    /// is negative. The "count" argument refers to the number of detected loops that will be
+    /// passed. For example, if there are two nested loops, the emulator will be run until
+    /// immediately after the outer loop is finished. Similarly for two subsequent loops.
+    // FIXME: There are lots of edge cases here. The major ones are any kind of jumps that move us
+    // outside of the "loop". This includes literal jumps, returns, and even interrupts.
+    PastLoop { count: Option<usize> },
 }
 
 #[derive(Debug, Clone, Copy, Subcommand, Serialize, Deserialize)]
@@ -115,19 +137,26 @@ pub enum LoopKind {
 pub enum StashOptions {
     /// Save a snapshot of the current state. If no string is provided, it is given a number equal
     /// to the number of saved snapshots.
-    Save { file: Option<String> },
+    Save {
+        file: String,
+    },
     /// Take a snapshot of a saved state and make it the current state.
-    Load { file: String },
+    Load {
+        file: String,
+    },
+    Remove {
+        file: String,
+    },
     /// Save a snapshot to file. If the name of a state is not provided, the current state is
     /// exported with an assumed name.
     Export {
         state: Option<String>,
         file: PathBuf,
     },
-    /// Removes a snapshot held in memory.
-    Remove { state: Option<String> },
     /// Load a state from a file and make it the current state.
-    LoadFrom { file: PathBuf },
+    LoadFrom {
+        file: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Subcommand, Serialize, Deserialize)]
