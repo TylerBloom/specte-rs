@@ -7,6 +7,16 @@ use std::hash::Hash;
 use std::ops::Index;
 use std::ops::IndexMut;
 
+use serde::Deserialize;
+use serde::Serialize;
+use serde_with::serde_as;
+use tracing::trace;
+use tracing::info;
+
+use self::vram::CpuOamIndex;
+use self::vram::CpuVramIndex;
+use self::vram::VRam;
+
 use crate::ButtonInput;
 use crate::JoypadInput;
 use crate::SsabInput;
@@ -19,19 +29,10 @@ pub mod io;
 mod mbc;
 pub mod vram;
 
+use io::IoRegisters;
 pub use mbc::MemoryBankController;
 use mbc::*;
-
-use io::IoRegisters;
-use serde::Deserialize;
-use serde::Serialize;
-use serde_with::serde_as;
-use tracing::trace;
 use vram::PpuMode;
-
-use self::vram::CpuOamIndex;
-use self::vram::CpuVramIndex;
-use self::vram::VRam;
 
 pub static START_UP_HEADER: &[u8; 0x900] = include_bytes!("../cgb.bin");
 
@@ -96,7 +97,7 @@ impl MemoryLike for MemoryMap {
     /// trait.
     fn read_byte(&self, addr: u16) -> u8 {
         if self.oam_dma.in_conflict(addr) {
-            println!("DMA Bus read conflict @ 0x{addr:0>4X}");
+            info!("DMA Bus read conflict @ 0x{addr:0>4X}");
             return 0xFF;
         }
         self.dma_read_byte(addr)
@@ -109,7 +110,7 @@ impl MemoryLike for MemoryMap {
     #[track_caller]
     fn write_byte(&mut self, addr: u16, val: u8) {
         if self.oam_dma.in_conflict(addr) {
-            println!("DMA Bus write conflict @ 0x{addr:0>4X}");
+            info!("DMA Bus write conflict @ 0x{addr:0>4X}");
             return;
         }
         trace!("Mut index into MemMap: 0x{addr:0>4X}");
@@ -117,7 +118,7 @@ impl MemoryLike for MemoryMap {
             n @ 0x0000..=0x7FFF => self.mbc.write_byte(n, val),
             n @ 0x8000..=0x9FFF => {
                 if n >= 0x9800 && check_bit_const::<3>(val) {
-                    // println!("Writting 0b{val:0>8b} to 0x{n:0>4X}, which will read from VRAM bank 1");
+                    // info!("Writting 0b{val:0>8b} to 0x{n:0>4X}, which will read from VRAM bank 1");
                 }
                 self.vram[CpuVramIndex(self.io.vram_select == 1, n)] = val
             }
@@ -295,7 +296,7 @@ impl OamDma {
             _ => ConflictBus::Cartridge,
         };
         self.write_addr = 0;
-        println!("Beginning OAM DMA starting at 0x{:0>4X}", self.read_addr);
+        info!("Beginning OAM DMA starting at 0x{:0>4X}", self.read_addr);
         self.ticks = 0;
     }
 
@@ -306,7 +307,7 @@ impl OamDma {
         self.ticks += 1;
         if self.ticks.is_multiple_of(4) {
             /*
-            println!(
+            info!(
                 "At {} ticks, transferring 0x{:0>4X} -> 0x{:0>4X}",
                 self.ticks, self.read_addr, self.write_addr
             );
@@ -347,12 +348,12 @@ impl VramDma {
     }
 
     fn trigger(&mut self, value: u8) {
-        println!("Writing to VRAM DMA transfer");
+        info!("Writing to VRAM DMA transfer");
         if !check_bit_const::<7>(value) && self.len_left > 0 {
-            println!("Cancelling VRAM DMA transfer");
+            info!("Cancelling VRAM DMA transfer");
             self.len_left |= 1 << 7;
         } else {
-            println!("Cancelling VRAM DMA transfer");
+            info!("Cancelling VRAM DMA transfer");
             self.trigger = value;
             self.len_left = value & 0x7F;
             self.curr_src = 0xFFF0 & u16::from_be_bytes([self.src_hi, self.src_hi]);
@@ -421,7 +422,7 @@ impl MemoryMap {
     }
 
     pub(crate) fn start_up_unmap(&mut self, mut headers: StartUpHeaders) {
-        println!("Starting start up unmapping...");
+        info!("Starting start up unmapping...");
         for i in 0..=0xFF {
             self.mbc.direct_overwrite(i as u16, &mut headers.0[i]);
         }
@@ -429,7 +430,7 @@ impl MemoryMap {
             self.mbc
                 .direct_overwrite((i + 0x200) as u16, &mut headers.1[i]);
         }
-        println!("Finished start up unmapping!!");
+        info!("Finished start up unmapping!!");
     }
 
     /// This method only exists to sidestep the "DMA contains" check and should only be called by
@@ -488,7 +489,7 @@ impl MemoryMap {
     pub fn tick(&mut self) {
         if let Some((r, w)) = self.oam_dma.tick() {
             let byte = self.dma_read_byte(r);
-            // println!("Transferring byte to OAM @ 0x{r:0>4X}: 0x{byte:0>2X}");
+            // info!("Transferring byte to OAM @ 0x{r:0>4X}: 0x{byte:0>2X}");
             self.vram.oam[w as usize] = byte;
         }
         self.io.tick();
@@ -753,12 +754,12 @@ impl Index<WindowTileDataIndex> for MemoryMap {
 #[cfg(test)]
 impl MemoryLike for Vec<u8> {
     fn read_byte(&self, addr: u16) -> u8 {
-        // println!("Read at 0x{addr:0>4X} (aka {addr})");
+        // info!("Read at 0x{addr:0>4X} (aka {addr})");
         self[addr as usize]
     }
 
     fn write_byte(&mut self, addr: u16, val: u8) {
-        // println!("Writing {val} to 0x{addr:0>4X} (aka {addr})");
+        // info!("Writing {val} to 0x{addr:0>4X} (aka {addr})");
         self[addr as usize] = val;
     }
 
