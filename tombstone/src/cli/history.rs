@@ -12,7 +12,7 @@ pub struct CliHistory {
 
 impl CliHistory {
     pub fn push_command_output(&mut self, value: String) {
-        self.visual_history.push(value);
+        self.push_visual_history(value);
     }
 
     pub fn push_command(&mut self, value: String) {
@@ -22,7 +22,8 @@ impl CliHistory {
     }
 
     pub fn push_visual_history(&mut self, value: String) {
-        self.visual_history.push(value);
+        self.visual_history
+            .extend(value.lines().map(ToOwned::to_owned));
     }
 
     pub fn render(&self, rect: Rect) -> (u16, Paragraph<'_>) {
@@ -33,7 +34,7 @@ impl CliHistory {
             .rev()
             .take((rect.height - 1) as usize)
             .rev()
-            .map(|s| s.as_str());
+            .map(String::as_str);
         (digest, Paragraph::new(Text::from_iter(iter)))
     }
 }
