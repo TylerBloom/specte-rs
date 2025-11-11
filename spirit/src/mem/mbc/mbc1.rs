@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use serde::Deserialize;
 use serde::Serialize;
+use tracing::info;
 
 use crate::mem::mbc::RAM_BANK_SIZE;
 use crate::mem::mbc::ROM_BANK_SIZE;
@@ -85,13 +86,13 @@ impl BankingMode {
 
 impl MBC1 {
     pub fn new(rom_size: usize, ram_size: usize, cart: &[u8]) -> Self {
-        println!(
+        info!(
             "MBC1 is expecting {} many ROM banks, requiring {} many bytes from {} many bytes",
             rom_size / ROM_BANK_SIZE,
             rom_size,
             cart.len()
         );
-        println!(
+        info!(
             "MBC1 is expecting {} many RAM banks, requiring {} many bytes",
             ram_size / RAM_BANK_SIZE,
             ram_size,

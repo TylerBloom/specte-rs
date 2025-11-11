@@ -3,6 +3,11 @@ use std::fmt::Debug;
 use std::ops::Index;
 use std::ops::IndexMut;
 
+use serde::Deserialize;
+use serde::Serialize;
+use tracing::error;
+use tracing::info;
+
 mod direct;
 mod mbc1;
 mod mbc2;
@@ -14,9 +19,6 @@ pub use mbc1::*;
 pub use mbc2::*;
 pub use mbc3::*;
 pub use mbc5::*;
-use serde::Deserialize;
-use serde::Serialize;
-use tracing::error;
 
 /// The size of a ROM banks, 16 KiB.
 pub const ROM_BANK_SIZE: usize = 16 * 1024;
@@ -104,7 +106,7 @@ impl MemoryBankController {
             0x05 => 8,
             n => panic!("Unknown RAM size: {n}"),
         };
-        println!("The RAM count: {ram_count}");
+        info!("The RAM count: {ram_count}");
         let ram_size = ram_count * RAM_BANK_SIZE;
 
         let head_check = cart[0x014D];
@@ -116,7 +118,7 @@ impl MemoryBankController {
                 .fold(0u8, |acc, b| acc.wrapping_sub(b).wrapping_sub(1))
         );
         // Check cartridge type
-        println!("Cartridge type: {}", cart[0x0147]);
+        info!("Cartridge type: {}", cart[0x0147]);
         match cart[0x0147] {
             0x00 => {
                 let rom = Vec::from(&cart[0x0000..=0x7FFF]);

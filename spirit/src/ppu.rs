@@ -647,6 +647,7 @@ mod tests {
     use crate::ppu::Pixel;
     use crate::ppu::Ppu;
     use heapless::Vec as InlineVec;
+    use tracing::info;
 
     use super::PixelFetcher;
     use super::zip_bits;
@@ -660,32 +661,32 @@ mod tests {
         let mut buffer = InlineVec::new();
         // The buffer should be empty until at least the 7th tick
         for _ in 0..=7 {
-            println!("{fetcher:X?}");
+            info!("{fetcher:X?}");
             fetcher.tick(0, &mem, Some(&mut buffer), None);
             assert!(buffer.is_empty())
         }
-        println!("{fetcher:X?}");
+        info!("{fetcher:X?}");
         fetcher.tick(0, &mem, Some(&mut buffer), None);
         assert!(!buffer.is_empty(), "{fetcher:?}");
     }
 
     #[test]
     fn delayed_fetcher_push() {
-        println!("{}", std::mem::size_of::<PixelFetcher>());
-        println!("{}", std::mem::size_of::<ObjectPixel>());
+        info!("{}", std::mem::size_of::<PixelFetcher>());
+        info!("{}", std::mem::size_of::<ObjectPixel>());
         let mem = MemoryMap::construct();
         let mut fetcher = PixelFetcher::new();
         let mut buffer = InlineVec::new();
         // The buffer should be empty until at least the 7th tick
         for _ in 0..=7 {
-            println!("{fetcher:X?}");
+            info!("{fetcher:X?}");
             fetcher.tick(0, &mem, Some(&mut buffer), None);
             assert!(buffer.is_empty())
         }
-        println!("{fetcher:X?}");
+        info!("{fetcher:X?}");
         fetcher.tick(0, &mem, None, None);
         assert!(buffer.is_empty(), "{fetcher:?}");
-        println!("{fetcher:X?}");
+        info!("{fetcher:X?}");
         fetcher.tick(0, &mem, Some(&mut buffer), None);
         assert!(!buffer.is_empty(), "{fetcher:?}");
     }

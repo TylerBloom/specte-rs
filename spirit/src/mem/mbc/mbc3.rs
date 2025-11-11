@@ -6,6 +6,7 @@ use chrono::DateTime;
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
+use tracing::info;
 
 use crate::mem::mbc::RAM_BANK_SIZE;
 use crate::mem::mbc::ROM_BANK_SIZE;
@@ -51,13 +52,13 @@ pub struct MBC3 {
 
 impl MBC3 {
     pub fn new(rom_size: usize, ram_size: usize, cart: &[u8]) -> Self {
-        println!(
+        info!(
             "MBC3 is expecting {} many ROM banks, requiring {} many bytes from {} many bytes",
             rom_size / ROM_BANK_SIZE,
             rom_size,
             cart.len()
         );
-        println!(
+        info!(
             "MBC3 is expecting {} many RAM banks, requiring {} many bytes",
             ram_size / RAM_BANK_SIZE,
             ram_size,
@@ -89,7 +90,7 @@ impl MBC3 {
         match index {
             0x0000..0x4000 => self.rom[0][index as usize],
             index @ 0x4000..0x8000 => {
-                // println!("Reading from ROM BANK {} @ 0x{index:0>4X}", self.rom_bank + 1);
+                // info!("Reading from ROM BANK {} @ 0x{index:0>4X}", self.rom_bank + 1);
                 self.rom[self.rom_bank as usize][(index - 0x4000) as usize]
             }
             0x8000..0xA000 => unreachable!("How did you get here??"),
@@ -99,11 +100,11 @@ impl MBC3 {
                 }
                 match self.ram_clock_index {
                     RamAndClockIndex::Ram(bank) => {
-                        // println!("Reading from MBC3 RAM bank {bank} at 0x{index:0>4X}");
+                        // info!("Reading from MBC3 RAM bank {bank} at 0x{index:0>4X}");
                         self.ram[bank as usize][(index - 0xA000) as usize]
                     }
                     RamAndClockIndex::Clock(index) => {
-                        println!("Reading from MBC3 clock at {index:?}");
+                        info!("Reading from MBC3 clock at {index:?}");
                         self.clock_data[index as usize]
                     }
                 }
@@ -118,7 +119,7 @@ impl MBC3 {
     }
 
     pub(super) fn write_byte(&mut self, index: u16, value: u8) {
-        println!("Writing to MBC3 @ 0x{index:0>4X}");
+        info!("Writing to MBC3 @ 0x{index:0>4X}");
         match index {
             0x0000..0x2000 => self.ram_and_reg_enabled = value,
             // We ignore the top bit. If 0 if written in, we treat it as 1.
@@ -133,13 +134,13 @@ impl MBC3 {
                     0xC => self.ram_clock_index = RamAndClockIndex::Clock(ClockIndex::DayUpper),
                     // NOTE: It is unclear to me what happen if anything else is written into this
                     // register. For now, we are just going to ignore it.
-                    _ => println!("Received unclear RAM/Clock index"),
+                    _ => info!("Received unclear RAM/Clock index"),
                 }
-                println!("Set RAM/clock index to {:?}", self.ram_clock_index);
+                info!("Set RAM/clock index to {:?}", self.ram_clock_index);
             }
             0x6000..0x8000 => {
                 if value == 0 {
-                    println!("Priming clock latch...");
+                    info!("Priming clock latch...");
                     self.latch_state = ClockLatchState::Primed;
                 } else {
                     if value == 1 && matches!(self.latch_state, ClockLatchState::Primed) {
@@ -151,7 +152,7 @@ impl MBC3 {
             0x8000..0xA000 => unreachable!("How did you get here??"),
             0xA000..0xC000 => {
                 if !self.is_ram_accessable() {
-                    println!("Not enabled...");
+                    info!("Not enabled...");
                     return;
                 }
                 match self.ram_clock_index {
@@ -159,7 +160,7 @@ impl MBC3 {
                         self.ram[bank as usize][(index - 0xA000) as usize] = value
                     }
                     RamAndClockIndex::Clock(index) => {
-                        println!("Writing to clock: {value}");
+                        info!("Writing to clock: {value}");
                         self.clock_data[index as usize] = value
                     }
                 }
@@ -169,7 +170,7 @@ impl MBC3 {
     }
 
     fn latch_clock(&mut self) {
-        println!("Latching time: Init clock data {:?}", self.clock_data);
+        info!("Latching time: Init clock data {:?}", self.clock_data);
         let now = Utc::now();
         let elapsed = (now - self.last_latch).to_std().unwrap();
         if elapsed.as_secs() == 0 {
@@ -193,13 +194,13 @@ impl MBC3 {
             + (((elapsed.as_secs() / 86_400) % 0x2FF) as u16);
         let [hi, lo] = days.to_be_bytes();
         self.clock_data[3] = lo;
-        println!("Updated clock data {:?}", self.clock_data);
+        info!("Updated clock data {:?}", self.clock_data);
         // TODO: Handle the high bits...
     }
 
     #[track_caller]
     pub(super) fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
-        println!("Updating byte in MBC3 @ 0x{index:0>4X}");
+        info!("Updating byte in MBC3 @ 0x{index:0>4X}");
         match index {
             0x0000..0x2000 => {
                 update(&mut self.ram_and_reg_enabled);

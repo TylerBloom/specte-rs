@@ -1,8 +1,8 @@
 use std::collections::HashSet;
+use std::fmt::Write as _;
 use std::io;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::fmt::Write as _;
 
 use crossterm::execute;
 use crossterm::terminal::LeaveAlternateScreen;
@@ -13,6 +13,14 @@ use ratatui::backend::Backend;
 use ratatui::layout::Constraint;
 use ratatui::layout::Direction;
 use ratatui::layout::Layout;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::FmtSubscriber;
+use tracing_subscriber::fmt::MakeWriter;
+use tracing_subscriber::fmt::format::Compact;
+use tracing_subscriber::fmt::format::DefaultFields;
+use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::fmt::format::Format;
+
 use spirit::Gameboy;
 use spirit::lookup::HalfRegister;
 use spirit::lookup::Instruction;
@@ -21,12 +29,6 @@ use spirit::lookup::LoadOp;
 use spirit::lookup::RegOrPointer;
 use spirit::mem::MemoryLike;
 use spirit::mem::vram::PpuMode;
-use tracing::level_filters::LevelFilter;
-use tracing_subscriber::FmtSubscriber;
-use tracing_subscriber::fmt::MakeWriter;
-use tracing_subscriber::fmt::format::Compact;
-use tracing_subscriber::fmt::format::DefaultFields;
-use tracing_subscriber::fmt::format::Format;
 
 use crate::Command;
 use crate::IndexOptions;
@@ -61,10 +63,7 @@ use crate::pc_state::PcState;
 pub(crate) struct AppState {
     inner: InnerAppState,
     cli: Cli,
-    #[allow(dead_code)]
-    pub(crate) subscriber:
-        Option<FmtSubscriber<DefaultFields, Format<Compact, ()>, LevelFilter, GameboySubscriber>>,
-    buffer: Arc<Mutex<Vec<u8>>>,
+    log_buffer: Arc<Mutex<Vec<u8>>>,
     pc_state: PcState,
 }
 
@@ -78,6 +77,16 @@ pub struct InnerAppState {
 impl AppState {
     pub fn new(cart: Vec<u8>) -> Self {
         let config = Config::load().load_game_config(&cart);
+
+        let log_buffer = Arc::new(Mutex::new(Vec::new()));
+        let writer = GameboySubscriber(log_buffer.clone());
+        tracing_subscriber::fmt()
+            .with_span_events(FmtSpan::ACTIVE)
+            .without_time()
+            .with_max_level(LevelFilter::INFO)
+            .with_writer(writer.clone())
+            .init();
+
         let inner = InnerAppState {
             config,
             gb: Gameboy::load_cartridge(cart).complete(),
@@ -86,8 +95,7 @@ impl AppState {
         };
         Self {
             inner,
-            subscriber: None,
-            buffer: Arc::new(Mutex::new(Vec::new())),
+            log_buffer,
             cli: Cli::new(),
             pc_state: PcState::new(),
         }
@@ -99,6 +107,12 @@ impl AppState {
         loop {
             if let Some(cmd) = self.cli.next_event() {
                 self.process(cmd);
+                let mut lock = self.log_buffer.lock().unwrap();
+                String::from_utf8_lossy(&lock)
+                    .lines()
+                    .for_each(|line| self.cli.display(line.into()));
+                lock.drain(0..);
+                drop(lock);
                 self.draw(&mut term);
             }
             self.cli.draw_input_line(&mut term);
@@ -146,25 +160,6 @@ impl AppState {
         render_oam_dma(&self.inner, frame, right[1]);
         render_interrupts(&self.inner, frame, right[2]);
         self.pc_state.render(&self.inner, frame, right[3]);
-    }
-
-    // TODO: Because the state now tracks the command history and any output from the emulator, we
-    // ought to move the logic that parses out commands and runs them here. This will ensure that
-    // all of the bookkeeping is done in one place.
-    //
-    // This will also reduce the API footprint, only need to have methods that return references to
-    // the data within and a single method to process input, run the command/display errors, and
-    // store the input and output.
-    #[allow(dead_code)]
-    fn construct_sub(
-        &self,
-    ) -> FmtSubscriber<DefaultFields, Format<Compact, ()>, LevelFilter, GameboySubscriber> {
-        FmtSubscriber::builder()
-            .compact()
-            .without_time()
-            .with_max_level(LevelFilter::TRACE)
-            .with_writer(GameboySubscriber(Arc::clone(&self.buffer)))
-            .finish()
     }
 }
 
