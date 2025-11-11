@@ -82,6 +82,11 @@ pub enum BreakpointCommand {
         #[arg(value_parser = parse_int)]
         pc: Option<u16>,
     },
+    /// Ignores a breakpoint for the rest of the run. This is not save between runs.
+    Skip {
+        #[arg(value_parser = parse_int)]
+        pc: u16,
+    },
     Remove {
         #[arg(value_parser = parse_int)]
         pc: Option<u16>,

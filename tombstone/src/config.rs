@@ -4,6 +4,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use spirit::Gameboy;
 
 use crate::command::Command;
 
@@ -15,19 +16,19 @@ pub struct Config {
 impl Config {
     pub fn load() -> Self {
         let path = Self::config_path();
-        let data = std::fs::read_to_string(path).unwrap_or_default();
-        toml::from_str(&data).unwrap_or_default()
+        let data = std::fs::read(path).unwrap_or_default();
+        serde_cbor::from_slice(&data).unwrap_or_default()
     }
 
     pub fn save(&self) {
-        let data = toml::to_string(self).unwrap();
+        let data = serde_cbor::to_vec(self).unwrap();
         let path = Self::config_path();
         std::fs::write(path, data).unwrap();
     }
 
     fn config_path() -> PathBuf {
         let mut path = env!("CARGO_MANIFEST_DIR").parse::<PathBuf>().unwrap();
-        path.push("config.toml");
+        path.push("config.cbor");
         path
     }
 
@@ -57,6 +58,10 @@ impl GameConfig {
         self.game_config.breakpoints.contains(&pc)
     }
 
+    pub fn breakpoints(&self) -> impl Iterator<Item = u16> {
+        self.game_config.breakpoints.iter().copied()
+    }
+
     pub fn add_breakpoint(&mut self, bp: u16) {
         self.game_config.breakpoints.insert(bp);
         self.get_game_config().breakpoints.insert(bp);
@@ -67,6 +72,38 @@ impl GameConfig {
         self.game_config.breakpoints.remove(&bp);
         self.get_game_config().breakpoints.remove(&bp);
         self.whole_config.save()
+    }
+
+    pub fn add_macro(&mut self, name: String, mac: Vec<Command>) {
+        self.game_config.macros.insert(name.clone(), mac.clone());
+        self.get_game_config().macros.insert(name, mac);
+        self.whole_config.save()
+    }
+
+    pub fn remove_macro(&mut self, name: &str) {
+        self.game_config.macros.remove(name);
+        self.get_game_config().macros.remove(name);
+        self.whole_config.save()
+    }
+
+    pub fn get_macro(&self, name: &str) -> Option<&[Command]> {
+        self.game_config.macros.get(name).map(Vec::as_slice)
+    }
+
+    pub fn add_save(&mut self, name: String, gb: Gameboy) {
+        self.game_config.saves.insert(name.clone(), gb.clone());
+        self.get_game_config().saves.insert(name, gb);
+        self.whole_config.save()
+    }
+
+    pub fn remove_save(&mut self, name: &str) {
+        self.game_config.saves.remove(name);
+        self.get_game_config().saves.remove(name);
+        self.whole_config.save()
+    }
+
+    pub fn get_save(&self, name: &str) -> Option<&Gameboy> {
+        self.game_config.saves.get(name)
     }
 
     pub fn get_game_config(&mut self) -> &mut PerRom {
@@ -80,5 +117,6 @@ impl GameConfig {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct PerRom {
     breakpoints: HashSet<u16>,
-    macros: Vec<Vec<Command>>,
+    macros: HashMap<String, Vec<Command>>,
+    saves: HashMap<String, Gameboy>,
 }
