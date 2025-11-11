@@ -1,3 +1,9 @@
+use std::collections::HashSet;
+use std::io;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::fmt::Write as _;
+
 use crossterm::execute;
 use crossterm::terminal::LeaveAlternateScreen;
 use indexmap::IndexSet;
@@ -15,9 +21,6 @@ use spirit::lookup::LoadOp;
 use spirit::lookup::RegOrPointer;
 use spirit::mem::MemoryLike;
 use spirit::mem::vram::PpuMode;
-use std::io;
-use std::sync::Arc;
-use std::sync::Mutex;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::FmtSubscriber;
 use tracing_subscriber::fmt::MakeWriter;
@@ -68,6 +71,7 @@ pub(crate) struct AppState {
 pub struct InnerAppState {
     pub gb: Gameboy,
     pub config: GameConfig,
+    pub skipped_breakpoints: HashSet<u16>,
     pub mem_start: u16,
 }
 
@@ -78,6 +82,7 @@ impl AppState {
             config,
             gb: Gameboy::load_cartridge(cart).complete(),
             mem_start: 0x8000,
+            skipped_breakpoints: HashSet::new(),
         };
         Self {
             inner,
@@ -195,7 +200,16 @@ impl InnerAppState {
             }
             Command::Breakpoint(cmd) => match cmd {
                 BreakpointCommand::List => {
-                    todo!()
+                    let mut digest = String::new();
+                    for pc in self.config.breakpoints() {
+                        let suffix = if self.skipped_breakpoints.contains(&pc) {
+                            " (SKIPPED)"
+                        } else {
+                            ""
+                        };
+                        writeln!(digest, " - 0x{pc:0>4X}{suffix}").unwrap();
+                    }
+                    cli.display(digest);
                 }
                 BreakpointCommand::Add { pc } => {
                     let bp = pc.unwrap_or(self.gb.cpu().pc.0);
@@ -204,6 +218,9 @@ impl InnerAppState {
                 BreakpointCommand::Remove { pc } => {
                     let bp = pc.unwrap_or(self.gb.cpu().pc.0);
                     self.config.remove_breakpoint(bp);
+                }
+                BreakpointCommand::Skip { pc } => {
+                    self.skipped_breakpoints.insert(pc);
                 }
             },
         }
@@ -254,12 +271,17 @@ impl InnerAppState {
                 RunUntil::PastLoop { count } => {
                     let mut count = count.unwrap_or(1);
                     let mut pc = self.gb.cpu().pc;
+                    // FIXME: Even for the very loose definition of "loop" and "end", this is a
+                    // rough implementation. This does not account for interrupt. Even worse, this
+                    // does not account for loops with calls that also have loops. In such a case
+                    // where the call site is at a lower position than the called "function", this
+                    // would case the emulator to run for an indeterminant amount of time.
                     self.run_until(|gb| {
                         if count > 0
                             && let Instruction::Jump(
-                                JumpOp::Relative(index) | JumpOp::ConditionalRelative(_, index),
+                                JumpOp::Relative(i8::MIN..0)
+                                | JumpOp::ConditionalRelative(_, i8::MIN..0),
                             ) = gb.read_op()
-                            && index < 0
                             && pc < gb.cpu().pc
                         {
                             pc = gb.cpu().pc;
@@ -275,10 +297,15 @@ impl InnerAppState {
     fn run_until(&mut self, mut predicate: impl FnMut(&Gameboy) -> bool) {
         loop {
             self.gb.step();
-            if predicate(&self.gb) {
+            if self.gb.is_stopped() || self.at_breakpoint(self.gb.cpu().pc.0) || predicate(&self.gb)
+            {
                 break;
             }
         }
+    }
+
+    fn at_breakpoint(&self, pc: u16) -> bool {
+        !self.skipped_breakpoints.contains(&pc) && self.config.is_breakpoint(pc)
     }
 
     /// Runs the emulator screen by screen collecting them until a duplicate is seen. The

@@ -34,6 +34,10 @@ impl Cli {
         }
     }
 
+    pub fn display(&mut self, data: String) {
+        self.history.push_visual_history(data);
+    }
+
     pub fn push_to_history(&mut self, data: String) {
         self.history.push_command(data);
     }
@@ -78,7 +82,7 @@ impl Cli {
                 None
             }
             commands::CliEvent::Cancel(s) => {
-                self.history.push_visual_history(s);
+                self.history.push_command(s);
                 self.history_index = 0;
                 Some(Command::Redraw)
             }
