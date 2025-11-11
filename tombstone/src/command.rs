@@ -127,7 +127,7 @@ pub enum RunUntil {
     /// immediately after the outer loop is finished. Similarly for two subsequent loops.
     // FIXME: There are lots of edge cases here. The major ones are any kind of jumps that move us
     // outside of the "loop". This includes literal jumps, returns, and even interrupts.
-    PastLoop { count: Option<usize> },
+    PassedLoop { count: Option<usize> },
 }
 
 #[derive(Debug, Clone, Copy, Subcommand, Serialize, Deserialize)]
