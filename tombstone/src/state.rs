@@ -268,7 +268,7 @@ impl InnerAppState {
                         self.gb.step();
                     }
                 }
-                RunUntil::PastLoop { count } => {
+                RunUntil::PassedLoop { count } => {
                     let mut count = count.unwrap_or(1);
                     let mut pc = self.gb.cpu().pc;
                     // FIXME: Even for the very loose definition of "loop" and "end", this is a
