@@ -19,10 +19,7 @@ pub struct ReplCommand {
 }
 
 // TODO: Add a commands:
-//  - help
-//  - something to visualize the surrounding ops
 //  - to set verbosity level
-// Index should be formatted more nicely, like hexdump
 #[derive(Debug, Clone, Subcommand, Serialize, Deserialize)]
 pub enum Command {
     /// This is a no-op command as it doesn't change the state but it re-renders the TUI. This is

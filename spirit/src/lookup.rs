@@ -541,7 +541,7 @@ pub enum Condition {
 }
 
 impl Condition {
-    fn passed(&self, cpu: &Cpu) -> bool {
+    pub fn passed(&self, cpu: &Cpu) -> bool {
         match self {
             Condition::Zero => cpu.zero_flag(),
             Condition::NotZero => !cpu.zero_flag(),
