@@ -234,12 +234,39 @@ impl InnerAppState {
                     LoopKind::CpuAndMem => todo!(),
                     LoopKind::Screen => self.loop_screen(),
                 },
-                RunUntil::Return => self.run_until(|gb| {
-                    !matches!(
-                        gb.read_op(),
-                        Instruction::Jump(JumpOp::Return | JumpOp::ReturnAndEnable)
-                    )
-                }),
+                RunUntil::Return => {
+                    let mut seen_returns = 0;
+                    let mut seen_calls = 0;
+                    let mut delay = false;
+                    // FIXME: Like "run until passed loop", there are a massive number of edge
+                    // cases here. This can't account for things like arbitary jumps, iterrupts,
+                    // and friends. This is a good enough rough first pass.
+                    self.run_until(move |gb| {
+                        match gb.read_op() {
+                            Instruction::Jump(JumpOp::Return | JumpOp::ReturnAndEnable) => {
+                                seen_returns += 1
+                            }
+                            Instruction::Jump(JumpOp::ConditionalReturn(cond)) => {
+                                seen_returns += cond.passed(gb.cpu()) as usize
+                            }
+                            Instruction::Jump(JumpOp::Call(_)) => {
+                                seen_calls += 1;
+                            }
+                            Instruction::Jump(JumpOp::ConditionalCall(cond, _)) => {
+                                seen_calls += cond.passed(gb.cpu()) as usize;
+                            }
+                            _ => {}
+                        }
+                        // There is an important case supported here. If you're in a function where
+                        // there is no nested function call and then call "run until return", this
+                        // could easily run forever. This is a backstop for this behavior.
+                        let digest = seen_calls <= seen_returns;
+
+                        // We want to actually call the return instruction *and then* stop running.
+                        // This adds that delay of one instruction.
+                        std::mem::replace(&mut delay, digest)
+                    })
+                }
                 RunUntil::Frame => {
                     let mut mode = self.gb.ppu.state();
                     self.run_until(move |gb| {

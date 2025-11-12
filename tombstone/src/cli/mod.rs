@@ -90,6 +90,8 @@ impl Cli {
             commands::CliEvent::Command(s, command) => {
                 if !s.is_empty() {
                     self.history.push_command(s);
+                } else {
+                    self.history.push_visual_history(PROMPT.into());
                 }
                 self.history_index = 0;
                 match command {
