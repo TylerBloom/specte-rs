@@ -125,7 +125,10 @@ impl CommandProcessor {
                     let cmd = ReplCommand::try_parse_from(self.buffer.split_whitespace());
                     self.index = 0;
                     let output = self.update_buffer(std::mem::take);
-                    Some(CliEvent::Command(output, cmd.map(|cmd| cmd.command).map_err(|err| err.to_string())))
+                    Some(CliEvent::Command(
+                        output,
+                        cmd.map(|cmd| cmd.command).map_err(|err| err.to_string()),
+                    ))
                 }
                 KeyCode::Up => Some(CliEvent::Up),
                 KeyCode::Down => Some(CliEvent::Down),

@@ -10,8 +10,8 @@ use std::ops::IndexMut;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_with::serde_as;
-use tracing::trace;
 use tracing::info;
+use tracing::trace;
 
 use self::vram::CpuOamIndex;
 use self::vram::CpuVramIndex;

@@ -14,8 +14,8 @@ pub mod cli;
 pub mod command;
 pub mod config;
 pub mod display_windows;
-pub mod state;
 pub mod pc_state;
+pub mod state;
 
 use command::*;
 use state::*;

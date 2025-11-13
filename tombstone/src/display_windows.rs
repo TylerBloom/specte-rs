@@ -1,10 +1,13 @@
 use std::fmt::Write;
 
+use ratatui::Frame;
+use ratatui::layout::Rect;
 use ratatui::text::Text;
+use ratatui::widgets::Block;
 use ratatui::widgets::Paragraph;
-use ratatui::{Frame, layout::Rect, widgets::Block};
 
-use spirit::mem::{MemoryBankController, MemoryLike};
+use spirit::mem::MemoryBankController;
+use spirit::mem::MemoryLike;
 
 use crate::state::InnerAppState;
 
@@ -15,9 +18,11 @@ pub fn render_mem(state: &InnerAppState, frame: &mut Frame, area: Rect) {
 
     let lines = area.height - 2;
     let mut buffer = vec![0; 16 * lines as usize];
-    (state.mem_start..).zip(buffer.iter_mut()).for_each(|(i, byte)| {
-        *byte = std::panic::catch_unwind(|| state.gb.mem.read_byte(i)).unwrap_or_default()
-    });
+    (state.mem_start..)
+        .zip(buffer.iter_mut())
+        .for_each(|(i, byte)| {
+            *byte = std::panic::catch_unwind(|| state.gb.mem.read_byte(i)).unwrap_or_default()
+        });
 
     render_byte_slice(state.mem_start, &buffer, frame, area, block);
 }
