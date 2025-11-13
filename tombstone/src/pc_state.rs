@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
-use ratatui::{
-    Frame,
-    layout::Rect,
-    widgets::{Block, Paragraph},
-};
-use spirit::{Gameboy, lookup::Instruction};
+use ratatui::Frame;
+use ratatui::layout::Rect;
+use ratatui::widgets::Block;
+use ratatui::widgets::Paragraph;
+use spirit::Gameboy;
+use spirit::lookup::Instruction;
 
-use crate::{config::GameConfig, state::InnerAppState};
+use crate::config::GameConfig;
+use crate::state::InnerAppState;
 
 #[derive(Debug, Default)]
 pub struct PcState {

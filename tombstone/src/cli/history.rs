@@ -1,4 +1,6 @@
-use ratatui::{layout::Rect, text::Text, widgets::Paragraph};
+use ratatui::layout::Rect;
+use ratatui::text::Text;
+use ratatui::widgets::Paragraph;
 
 use super::PROMPT;
 
