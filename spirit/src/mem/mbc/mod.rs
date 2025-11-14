@@ -262,10 +262,15 @@ impl<const N: usize> Default for MemoryBank<N> {
 
 impl<const N: usize> FromIterator<u8> for MemoryBank<N> {
     fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
-        iter.into_iter()
-            .chain(std::iter::repeat(0))
-            .take(N)
-            .collect::<Vec<_>>()
+        let mut buffer: Vec<u8> = iter.into_iter().take(N).collect();
+        if buffer.len() < N {
+            info!(
+                "In forming a MemoryBank of size 0x{N:0>4X}, iterator yielded {} bytes. Filling rest bank with zeros",
+                buffer.len()
+            );
+            buffer.extend(std::iter::repeat_n(0, N - buffer.len()));
+        }
+        buffer
             .try_into()
             .map(Self)
             .expect("The above iterator is always exactly N-long")
