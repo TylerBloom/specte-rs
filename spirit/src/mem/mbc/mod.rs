@@ -20,6 +20,7 @@ pub use mbc2::*;
 pub use mbc3::*;
 pub use mbc5::*;
 
+use crate::mem::MemoryBank;
 use crate::mem::RamBank;
 use crate::mem::RomBank;
 
@@ -38,7 +39,7 @@ pub enum MemoryBankController {
     /// See the spec [here](https://gbdev.io/pandocs/nombc.html).
     Direct {
         /// A vec that holds 32 KiB (4,096 bytes).
-        rom: RomBank,
+        rom: MemoryBank<0x8000>,
         /// A vec that holds 8 KiB (1,024 bytes).
         ram: RamBank,
     },
@@ -123,7 +124,7 @@ impl MemoryBankController {
         info!("Cartridge type: {}", cart[0x0147]);
         match cart[0x0147] {
             0x00 => {
-                let rom = RomBank::from_iter(cart[0x0000..=0x7FFF].iter().copied());
+                let rom = cart[0x0000..=0x7FFF].iter().copied().collect();
                 let ram = RamBank::new();
                 Self::Direct { rom, ram }
             }
@@ -162,14 +163,11 @@ impl MemoryBankController {
 
     pub(super) fn direct_overwrite(&mut self, index: u16, val: &mut u8) {
         match self {
-            MemoryBankController::Direct { rom, ram, .. } => {
-                let index = index as usize;
-                if index >= ROM_BANK_SIZE {
-                    std::mem::swap(&mut ram[index - ROM_BANK_SIZE], val)
-                } else {
-                    std::mem::swap(&mut rom[index], val)
-                }
-            }
+            MemoryBankController::Direct { rom, ram, .. } => match index {
+                0x0000..0x8000 => std::mem::swap(&mut rom[index as usize], val),
+                0xA000..0xC000 => std::mem::swap(&mut ram[(index - 0xA000) as usize], val),
+                _ => {}
+            },
             MemoryBankController::MBC1(controller) => controller.overwrite_rom_zero(index, val),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
             MemoryBankController::MBC3(controller) => controller.overwrite_rom_zero(index, val),
@@ -179,14 +177,11 @@ impl MemoryBankController {
 
     pub(super) fn read_byte(&self, index: u16) -> u8 {
         match self {
-            MemoryBankController::Direct { rom, ram, .. } => {
-                let index = index as usize;
-                if index < ROM_BANK_SIZE {
-                    rom[index]
-                } else {
-                    ram[index + 1]
-                }
-            }
+            MemoryBankController::Direct { rom, ram, .. } => match index {
+                0x0000..0x8000 => rom[index as usize],
+                0xA000..0xC000 => ram[(index - 0xA000) as usize],
+                _ => 0xFF,
+            },
             MemoryBankController::MBC1(controller) => controller.read_byte(index),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
             MemoryBankController::MBC3(controller) => controller.read_byte(index),
@@ -213,7 +208,7 @@ impl MemoryBankController {
         match self {
             MemoryBankController::Direct { rom, ram } => match index {
                 0xA000..0xC000 => {
-                    let ptr = &mut ram[index as usize - ROM_BANK_SIZE];
+                    let ptr = &mut ram[index as usize - 0xA000];
                     update(ptr);
                     *ptr
                 }

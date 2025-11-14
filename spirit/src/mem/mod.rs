@@ -549,7 +549,7 @@ impl MemoryMap {
     /// have a ROM header, so it is not bootable.
     pub fn construct() -> Self {
         let mbc = MemoryBankController::Direct {
-            rom: RomBank::new(),
+            rom: MemoryBank::new(),
             ram: RamBank::new(),
         };
         Self {
