@@ -250,9 +250,7 @@ mod tests {
     // This test comes from the complete technical reference
     #[test]
     fn rom_bank_example_one() {
-        let rom = (0..128)
-            .map(|i| std::iter::repeat(i).collect())
-            .collect();
+        let rom = (0..128).map(|i| std::iter::repeat(i).collect()).collect();
         let mut mbc = MBC1 {
             kind: MBC1Kind::Standard,
             rom,

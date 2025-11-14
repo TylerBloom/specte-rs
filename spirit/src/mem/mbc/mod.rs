@@ -4,7 +4,9 @@ use std::ops::Index;
 use std::ops::IndexMut;
 
 use serde::Deserialize;
+use serde::Deserializer;
 use serde::Serialize;
+use serde::Serializer;
 use tracing::error;
 use tracing::info;
 
@@ -19,10 +21,6 @@ pub use mbc1::*;
 pub use mbc2::*;
 pub use mbc3::*;
 pub use mbc5::*;
-
-use crate::mem::MemoryBank;
-use crate::mem::RamBank;
-use crate::mem::RomBank;
 
 /// The size of a ROM banks, 16 KiB.
 pub const ROM_BANK_SIZE: usize = 16 * 1024;
@@ -236,4 +234,70 @@ impl Debug for MemoryBankController {
             MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
         }
     }
+}
+
+/* --------- Memory bank types --------- */
+
+pub type RomBank = MemoryBank<ROM_BANK_SIZE>;
+pub type RamBank = MemoryBank<RAM_BANK_SIZE>;
+
+#[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryBank<const N: usize>(
+    #[serde(serialize_with = "serialize_bank")]
+    #[serde(deserialize_with = "deserialize_bank")]
+    pub Box<[u8; N]>,
+);
+
+impl<const N: usize> MemoryBank<N> {
+    pub fn new() -> Self {
+        Self::from_iter(std::iter::empty())
+    }
+}
+
+impl<const N: usize> Default for MemoryBank<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const N: usize> FromIterator<u8> for MemoryBank<N> {
+    fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
+        iter.into_iter()
+            .chain(std::iter::repeat(0))
+            .take(N)
+            .collect::<Vec<_>>()
+            .try_into()
+            .map(Self)
+            .expect("The above iterator is always exactly N-long")
+    }
+}
+
+impl<const N: usize> Index<usize> for MemoryBank<N> {
+    type Output = u8;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl<const N: usize> IndexMut<usize> for MemoryBank<N> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
+#[allow(clippy::borrowed_box)]
+fn serialize_bank<const N: usize, Se: Serializer>(
+    bank: &Box<[u8; N]>,
+    ser: Se,
+) -> Result<Se::Ok, Se::Error> {
+    bank.as_slice().serialize(ser)
+}
+
+fn deserialize_bank<'de, const N: usize, De: Deserializer<'de>>(
+    de: De,
+) -> Result<Box<[u8; N]>, De::Error> {
+    Vec::<u8>::deserialize(de)
+        .map(MemoryBank::from_iter)
+        .map(|bank| bank.0)
 }

@@ -8,10 +8,10 @@ use serde::Deserialize;
 use serde::Serialize;
 use tracing::info;
 
-use crate::mem::mbc::RAM_BANK_SIZE;
-use crate::mem::mbc::ROM_BANK_SIZE;
 use crate::mem::RamBank;
 use crate::mem::RomBank;
+use crate::mem::mbc::RAM_BANK_SIZE;
+use crate::mem::mbc::ROM_BANK_SIZE;
 
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum ClockLatchState {
