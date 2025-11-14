@@ -8,7 +8,9 @@ use std::ops::Index;
 use std::ops::IndexMut;
 
 use serde::Deserialize;
+use serde::Deserializer;
 use serde::Serialize;
+use serde::Serializer;
 use serde_with::serde_as;
 use tracing::info;
 use tracing::trace;
@@ -572,6 +574,65 @@ impl MemoryMap {
     pub fn io_mut(&mut self) -> &mut IoRegisters {
         &mut self.io
     }
+}
+
+/* --------- Memory bank types --------- */
+
+pub type RomBank = MemoryBank<ROM_BANK_SIZE>;
+pub type RamBank = MemoryBank<RAM_BANK_SIZE>;
+
+#[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryBank<const N: usize>(
+    #[serde(serialize_with = "serialize_bank")]
+    #[serde(deserialize_with = "deserialize_bank")]
+    pub Box<[u8; N]>,
+);
+
+impl<const N: usize> MemoryBank<N> {
+    pub fn new() -> Self {
+        Self::from_iter(std::iter::empty())
+    }
+}
+
+impl<const N: usize> FromIterator<u8> for MemoryBank<N> {
+    fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
+        iter.into_iter()
+            .chain(std::iter::repeat(0))
+            .take(N)
+            .collect::<Vec<_>>()
+            .try_into()
+            .map(Self)
+            .expect("The above iterator is always exactly N-long")
+    }
+}
+
+impl<const N: usize> Index<usize> for MemoryBank<N> {
+    type Output = u8;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl<const N: usize> IndexMut<usize> for MemoryBank<N> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
+fn serialize_bank<const N: usize, Se: Serializer>(
+    bank: &Box<[u8; N]>,
+    ser: Se,
+) -> Result<Se::Ok, Se::Error> {
+    bank.as_slice().serialize(ser)
+}
+
+fn deserialize_bank<'de, const N: usize, De: Deserializer<'de>>(
+    de: De,
+) -> Result<Box<[u8; N]>, De::Error> {
+    Vec::<u8>::deserialize(de)
+        .map(MemoryBank::from_iter)
+        .map(|bank| bank.0)
 }
 
 /* --------- Indexing types use by the PPU --------- */
