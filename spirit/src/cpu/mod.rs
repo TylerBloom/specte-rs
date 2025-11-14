@@ -316,6 +316,7 @@ impl Cpu {
 
     fn disable_interupts(&mut self) {
         self.ime = false;
+        self.to_set_ime = false;
     }
 
     pub fn ptr(&self) -> u16 {
@@ -540,9 +541,9 @@ impl Cpu {
     }
 
     fn execute_interrupt(&mut self, op: InterruptOp, mem: &mut impl MemoryLikeExt) {
+        self.push_pc(mem);
         mem.clear_interrupt_req(op);
         self.disable_interupts();
-        self.push_pc(mem);
         self.pc = Wrapping(op as u16);
     }
 

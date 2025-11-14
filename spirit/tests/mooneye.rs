@@ -104,7 +104,6 @@ fn timer_tima_write_reloading() {
     mooneye_test!("timer/tima_write_reloading.gb")
 }
 
-// Similar to the prior two tests, (I think) this test requires to sub-instruction precision.
 #[test]
 #[should_panic]
 fn timer_rapid_toggle() {
@@ -157,7 +156,6 @@ fn oam_dma_timing() {
 }
 
 #[test]
-#[should_panic]
 fn interrups_ie_push() {
     mooneye_test!("interrupts/ie_push.gb")
 }
@@ -306,7 +304,6 @@ fn push_timing() {
 }
 
 #[test]
-#[should_panic]
 fn rapid_di_ei() {
     mooneye_test!("rapid_di_ei.gb")
 }
