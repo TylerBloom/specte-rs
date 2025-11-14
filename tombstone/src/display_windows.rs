@@ -33,7 +33,7 @@ pub fn render_ram(state: &InnerAppState, frame: &mut Frame, area: Rect) {
         .title_alignment(ratatui::layout::Alignment::Center);
 
     let ram = match &state.gb.mem.mbc {
-        MemoryBankController::Direct { ram, .. } => ram.as_slice(),
+        MemoryBankController::Direct { ram, .. } => ram.0.as_slice(),
         MemoryBankController::MBC1(mbc) => mbc.ram(),
         MemoryBankController::MBC2(_mbc) => todo!(),
         MemoryBankController::MBC3(_mbc) => todo!(),

@@ -4,14 +4,16 @@ use serde::Deserialize;
 use serde::Serialize;
 use tracing::info;
 
+use crate::mem::RamBank;
+use crate::mem::RomBank;
 use crate::mem::mbc::RAM_BANK_SIZE;
 use crate::mem::mbc::ROM_BANK_SIZE;
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MBC1 {
     kind: MBC1Kind,
-    rom: Vec<Vec<u8>>,
-    ram: Vec<Vec<u8>>,
+    rom: Box<[RomBank]>,
+    ram: Box<[RamBank]>,
     bank_index_one: u8,
     bank_index_two: u8,
     /// Determines if RAM can be read from and written to. The actual hardware uses an 8-bit
@@ -126,9 +128,9 @@ impl MBC1 {
 
         let rom = (0..rom_bank_count)
             .map(|i| i * ROM_BANK_SIZE)
-            .map(|i| cart[i..i + ROM_BANK_SIZE].to_owned())
+            .map(|i| cart[i..i + ROM_BANK_SIZE].iter().copied().collect())
             .collect();
-        let ram = vec![vec![0; RAM_BANK_SIZE]; std::cmp::max(ram_size / RAM_BANK_SIZE, 1)];
+        let ram = vec![RamBank::new(); std::cmp::max(ram_size / RAM_BANK_SIZE, 1)].into();
         Self {
             kind,
             rom,
@@ -142,16 +144,16 @@ impl MBC1 {
         }
     }
 
-    pub fn first_rom(&self) -> &[u8] {
-        self.rom[self.first_rom_bank()].as_slice()
+    pub fn first_rom(&self) -> &[u8; ROM_BANK_SIZE] {
+        &self.rom[self.first_rom_bank()].0
     }
 
-    pub fn rom(&self) -> &[u8] {
-        self.rom[self.rom_bank()].as_slice()
+    pub fn rom(&self) -> &[u8; ROM_BANK_SIZE] {
+        &self.rom[self.rom_bank()].0
     }
 
-    pub fn ram(&self) -> &[u8] {
-        self.ram[self.ram_bank()].as_slice()
+    pub fn ram(&self) -> &[u8; RAM_BANK_SIZE] {
+        &self.ram[self.ram_bank()].0
     }
 
     pub(super) fn overwrite_rom_zero(&mut self, index: u16, val: &mut u8) {
@@ -238,6 +240,7 @@ impl MBC1 {
 
 #[cfg(test)]
 mod tests {
+    use crate::mem::RomBank;
     use crate::mem::mbc::BankingMode;
     use crate::mem::mbc::ROM_BANK_SIZE;
 
@@ -247,11 +250,11 @@ mod tests {
     // This test comes from the complete technical reference
     #[test]
     fn rom_bank_example_one() {
-        let rom = (0..128).map(|i| vec![i; ROM_BANK_SIZE]).collect();
+        let rom = (0..128).map(|i| std::iter::repeat(i).collect()).collect();
         let mut mbc = MBC1 {
             kind: MBC1Kind::Standard,
             rom,
-            ram: Vec::new(),
+            ram: Vec::new().into(),
             bank_index_one: 0x12,
             bank_index_two: 0x01,
             ram_enabled: false,
@@ -287,11 +290,13 @@ mod tests {
     // This test comes from the complete technical reference
     #[test]
     fn rom_bank_example_two() {
-        let rom = (0..128).map(|i| vec![i; ROM_BANK_SIZE]).collect();
+        let rom = (0..128)
+            .map(|i| RomBank::from_iter(std::iter::repeat(i)))
+            .collect();
         let mut mbc = MBC1 {
             kind: MBC1Kind::Standard,
             rom,
-            ram: Vec::new(),
+            ram: Vec::new().into(),
             bank_index_one: 0x12,
             bank_index_two: 0x01,
             ram_enabled: false,

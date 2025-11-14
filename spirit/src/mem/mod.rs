@@ -1,11 +1,9 @@
 #![allow(dead_code, unused)]
 
-use std::borrow::Cow;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::ops::Index;
-use std::ops::IndexMut;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -540,18 +538,15 @@ impl MemoryMap {
         let MemoryBankController::Direct { rom, .. } = &mut self.mbc else {
             panic!("Do not call MemoryMap::rom unless you called MemoryMap::construct");
         };
-        rom.as_mut_slice()
+        rom.0.as_mut_slice()
     }
 
     /// Creates a dummy memory map that should only be used for testing. Notably, this will not
     /// have a ROM header, so it is not bootable.
     pub fn construct() -> Self {
-        let rom = vec![0; 32000];
-        let ram = vec![0; 4000];
         let mbc = MemoryBankController::Direct {
-            rom,
-            ram,
-            dead_byte: 0,
+            rom: MemoryBank::new(),
+            ram: RamBank::new(),
         };
         Self {
             mbc,
