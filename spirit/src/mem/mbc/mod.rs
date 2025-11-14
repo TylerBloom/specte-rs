@@ -264,10 +264,12 @@ impl<const N: usize> FromIterator<u8> for MemoryBank<N> {
     fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
         let mut buffer: Vec<u8> = iter.into_iter().take(N).collect();
         if buffer.len() < N {
-            info!(
-                "In forming a MemoryBank of size 0x{N:0>4X}, iterator yielded {} bytes. Filling rest bank with zeros",
-                buffer.len()
-            );
+            if !buffer.is_empty() {
+                info!(
+                    "In forming a MemoryBank of size 0x{N:0>4X}, iterator yielded {} bytes. Filling rest bank with zeros",
+                    buffer.len()
+                );
+            }
             buffer.extend(std::iter::repeat_n(0, N - buffer.len()));
         }
         buffer
