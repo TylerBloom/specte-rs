@@ -20,6 +20,9 @@ pub use mbc2::*;
 pub use mbc3::*;
 pub use mbc5::*;
 
+use crate::mem::RamBank;
+use crate::mem::RomBank;
+
 /// The size of a ROM banks, 16 KiB.
 pub const ROM_BANK_SIZE: usize = 16 * 1024;
 
@@ -35,10 +38,9 @@ pub enum MemoryBankController {
     /// See the spec [here](https://gbdev.io/pandocs/nombc.html).
     Direct {
         /// A vec that holds 32 KiB (4,096 bytes).
-        rom: Vec<u8>,
+        rom: RomBank,
         /// A vec that holds 8 KiB (1,024 bytes).
-        ram: Vec<u8>,
-        dead_byte: u8,
+        ram: RamBank,
     },
     /// This memory controller is the first MBC chip and might be wired in two different ways.
     /// By default, this controller supports 512 KiB of ROM and 32 KiB of RAM.
@@ -121,14 +123,9 @@ impl MemoryBankController {
         info!("Cartridge type: {}", cart[0x0147]);
         match cart[0x0147] {
             0x00 => {
-                let rom = Vec::from(&cart[0x0000..=0x7FFF]);
-                assert_eq!(rom_size, rom.len());
-                let ram = vec![0; RAM_BANK_SIZE];
-                Self::Direct {
-                    rom,
-                    ram,
-                    dead_byte: 0,
-                }
+                let rom = RomBank::from_iter(cart[0x0000..=0x7FFF].iter().copied());
+                let ram = RamBank::new();
+                Self::Direct { rom, ram }
             }
             0x01 => Self::MBC1(MBC1::new(rom_size, ram_size as usize, &cart)),
             // TODO: Does the info of this bit need to be passed to the MBC1 constructor?
@@ -166,10 +163,11 @@ impl MemoryBankController {
     pub(super) fn direct_overwrite(&mut self, index: u16, val: &mut u8) {
         match self {
             MemoryBankController::Direct { rom, ram, .. } => {
-                if index as usize >= rom.len() {
-                    std::mem::swap(&mut ram[(index as usize) - rom.len()], val)
+                let index = index as usize;
+                if index >= ROM_BANK_SIZE {
+                    std::mem::swap(&mut ram[index - ROM_BANK_SIZE], val)
                 } else {
-                    std::mem::swap(&mut rom[index as usize], val)
+                    std::mem::swap(&mut rom[index], val)
                 }
             }
             MemoryBankController::MBC1(controller) => controller.overwrite_rom_zero(index, val),
@@ -183,7 +181,7 @@ impl MemoryBankController {
         match self {
             MemoryBankController::Direct { rom, ram, .. } => {
                 let index = index as usize;
-                if index < rom.len() {
+                if index < ROM_BANK_SIZE {
                     rom[index]
                 } else {
                     ram[index + 1]
@@ -198,11 +196,7 @@ impl MemoryBankController {
 
     pub(super) fn write_byte(&mut self, index: u16, value: u8) {
         match self {
-            MemoryBankController::Direct {
-                rom,
-                ram,
-                dead_byte,
-            } => {
+            MemoryBankController::Direct { rom, ram } => {
                 if (0xA000..0xC000).contains(&index) {
                     ram[index as usize - 0xA000] = value
                 } // We drop any writes not to RAM
@@ -217,13 +211,9 @@ impl MemoryBankController {
     #[track_caller]
     pub(super) fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
         match self {
-            MemoryBankController::Direct {
-                rom,
-                ram,
-                dead_byte,
-            } => match index {
+            MemoryBankController::Direct { rom, ram } => match index {
                 0xA000..0xC000 => {
-                    let ptr = &mut ram[index as usize - rom.len()];
+                    let ptr = &mut ram[index as usize - ROM_BANK_SIZE];
                     update(ptr);
                     *ptr
                 }
@@ -243,9 +233,7 @@ impl Debug for MemoryBankController {
         match self {
             MemoryBankController::Direct { rom, ram, .. } => write!(
                 f,
-                "Direct {{ rom_size: {}, ram_size: {} }}",
-                rom.len(),
-                ram.len()
+                "Direct {{ rom_size: {ROM_BANK_SIZE}, ram_size: {RAM_BANK_SIZE} }}",
             ),
             MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
             MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),

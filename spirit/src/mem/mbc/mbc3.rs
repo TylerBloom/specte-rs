@@ -10,6 +10,8 @@ use tracing::info;
 
 use crate::mem::mbc::RAM_BANK_SIZE;
 use crate::mem::mbc::ROM_BANK_SIZE;
+use crate::mem::RamBank;
+use crate::mem::RomBank;
 
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum ClockLatchState {
@@ -41,10 +43,10 @@ enum ClockIndex {
 #[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MBC3 {
     ram_and_reg_enabled: u8,
-    rom: Vec<Vec<u8>>,
+    rom: Box<[RomBank]>,
     rom_bank: u8,
     ram_clock_index: RamAndClockIndex,
-    ram: [Vec<u8>; 4],
+    ram: [RamBank; 4],
     clock_data: [u8; 5],
     latch_state: ClockLatchState,
     last_latch: DateTime<Utc>,
@@ -67,7 +69,7 @@ impl MBC3 {
         let rom_count = rom_size / ROM_BANK_SIZE;
         let rom = (0..rom_count)
             .map(|i| i * ROM_BANK_SIZE)
-            .map(|i| cart[i..i + ROM_BANK_SIZE].to_owned())
+            .map(|i| cart[i..i + ROM_BANK_SIZE].iter().copied().collect())
             .collect();
 
         Self {
@@ -75,7 +77,7 @@ impl MBC3 {
             rom,
             rom_bank: 1,
             ram_clock_index: RamAndClockIndex::Ram(0),
-            ram: array::from_fn(|_| vec![0; RAM_BANK_SIZE]),
+            ram: array::from_fn(|_| RamBank::new()),
             clock_data: [0; 5],
             latch_state: ClockLatchState::Unprimed,
             last_latch: Utc::now(),

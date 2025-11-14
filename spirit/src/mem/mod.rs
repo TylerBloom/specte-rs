@@ -542,18 +542,15 @@ impl MemoryMap {
         let MemoryBankController::Direct { rom, .. } = &mut self.mbc else {
             panic!("Do not call MemoryMap::rom unless you called MemoryMap::construct");
         };
-        rom.as_mut_slice()
+        rom.0.as_mut_slice()
     }
 
     /// Creates a dummy memory map that should only be used for testing. Notably, this will not
     /// have a ROM header, so it is not bootable.
     pub fn construct() -> Self {
-        let rom = vec![0; 32000];
-        let ram = vec![0; 4000];
         let mbc = MemoryBankController::Direct {
-            rom,
-            ram,
-            dead_byte: 0,
+            rom: RomBank::new(),
+            ram: RamBank::new(),
         };
         Self {
             mbc,
@@ -594,6 +591,13 @@ impl<const N: usize> MemoryBank<N> {
     }
 }
 
+impl<const N: usize> Default for MemoryBank<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+
 impl<const N: usize> FromIterator<u8> for MemoryBank<N> {
     fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
         iter.into_iter()
@@ -620,6 +624,7 @@ impl<const N: usize> IndexMut<usize> for MemoryBank<N> {
     }
 }
 
+#[allow(clippy::borrowed_box)]
 fn serialize_bank<const N: usize, Se: Serializer>(
     bank: &Box<[u8; N]>,
     ser: Se,
