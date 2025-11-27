@@ -8,7 +8,7 @@ use tracing::trace;
 
 use crate::ButtonInput;
 use crate::cpu::check_bit_const;
-use crate::lookup::InterruptOp;
+use crate::instruction::InterruptOp;
 use crate::ppu::Pixel;
 use crate::utils::Wrapping;
 
