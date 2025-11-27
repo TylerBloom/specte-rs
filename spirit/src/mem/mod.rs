@@ -19,8 +19,8 @@ use crate::ButtonInput;
 use crate::JoypadInput;
 use crate::SsabInput;
 use crate::cpu::check_bit_const;
-use crate::lookup::Instruction;
-use crate::lookup::InterruptOp;
+use crate::instruction::Instruction;
+use crate::instruction::InterruptOp;
 use crate::lookup::parse_instruction;
 
 pub mod io;

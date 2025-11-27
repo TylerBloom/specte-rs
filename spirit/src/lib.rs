@@ -14,17 +14,16 @@ use serde::Serialize;
 
 use cpu::Cpu;
 use cpu::CpuState;
-use lookup::Instruction;
 use mem::MemoryLike;
 use mem::MemoryMap;
 use mem::StartUpHeaders;
 use mem::vram::PpuMode;
 use ppu::Ppu;
-
-use crate::lookup::JumpOp;
+use instruction::*;
 
 pub mod apu;
 pub mod cpu;
+pub mod instruction;
 pub mod lookup;
 pub mod mem;
 pub mod ppu;
@@ -38,34 +37,6 @@ pub struct Gameboy {
     pub mem: MemoryMap,
     pub ppu: Ppu,
     cpu: Cpu,
-}
-
-#[must_use = "Start up sequence is lazy and should be ticked. Dropping this object to complete the startup sequence instantly."]
-pub struct StartUpSequence {
-    gb: Gameboy,
-    /// The memory that the ROM contains that get mapped over during the startup process.
-    remap_mem: Option<Box<StartUpHeaders>>,
-}
-
-pub enum ButtonInput {
-    Joypad(JoypadInput),
-    Ssab(SsabInput),
-}
-
-#[repr(u8)]
-pub enum JoypadInput {
-    Right = 0x1,
-    Left = 0x2,
-    Up = 0x4,
-    Down = 0x8,
-}
-
-#[repr(u8)]
-pub enum SsabInput {
-    A = 0x1,
-    B = 0x2,
-    Select = 0x4,
-    Start = 0x8,
 }
 
 impl Gameboy {
@@ -163,6 +134,13 @@ impl Gameboy {
     }
 }
 
+#[must_use = "Start up sequence is lazy and should be ticked. Dropping this object to complete the startup sequence instantly."]
+pub struct StartUpSequence {
+    gb: Gameboy,
+    /// The memory that the ROM contains that get mapped over during the startup process.
+    remap_mem: Option<Box<StartUpHeaders>>,
+}
+
 impl StartUpSequence {
     fn new(mut gb: Gameboy) -> Self {
         let remap_mem = Some(Box::new(gb.mem.start_up_remap()));
@@ -215,6 +193,39 @@ impl DerefMut for StartUpSequence {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.gb
     }
+}
+
+pub(crate) struct GameboyState<'a> {
+    pub(crate) mem: &'a mut MemoryMap,
+    pub(crate) ppu: &'a mut Ppu,
+    pub(crate) cpu: &'a mut Cpu,
+}
+
+impl GameboyState<'_> {
+    pub(crate) fn tick(&mut self) {
+        todo!()
+    }
+}
+
+pub enum ButtonInput {
+    Joypad(JoypadInput),
+    Ssab(SsabInput),
+}
+
+#[repr(u8)]
+pub enum JoypadInput {
+    Right = 0x1,
+    Left = 0x2,
+    Up = 0x4,
+    Down = 0x8,
+}
+
+#[repr(u8)]
+pub enum SsabInput {
+    A = 0x1,
+    B = 0x2,
+    Select = 0x4,
+    Start = 0x8,
 }
 
 #[cfg(test)]

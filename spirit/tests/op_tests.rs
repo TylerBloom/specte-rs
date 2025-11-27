@@ -1,9 +1,9 @@
 use spirit::cpu::Cpu;
-use spirit::lookup::BitShiftOp;
-use spirit::lookup::HalfRegister;
-use spirit::lookup::Instruction;
-use spirit::lookup::LoadOp;
-use spirit::lookup::RegOrPointer;
+use spirit::instruction::BitShiftOp;
+use spirit::instruction::HalfRegister;
+use spirit::instruction::Instruction;
+use spirit::instruction::LoadOp;
+use spirit::instruction::RegOrPointer;
 use spirit::mem::MemoryMap;
 use spirit::utils::Wrapping;
 
