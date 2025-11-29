@@ -12,6 +12,14 @@ pub enum ControlOp {
 }
 
 impl ControlOp {
+    pub(crate) fn execute(self, state: &mut GameboyState<'_>) {
+        match self {
+            ControlOp::Halt => todo!(),
+            ControlOp::Noop => todo!(),
+            ControlOp::Stop(_) => todo!(),
+        }
+    }
+
     /// Returns the number of ticks to will take to complete this instruction.
     pub fn length(&self) -> u8 {
         match self {

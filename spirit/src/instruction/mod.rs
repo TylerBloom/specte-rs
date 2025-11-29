@@ -1,4 +1,6 @@
+use crate::GameboyState;
 use crate::cpu::Cpu;
+use crate::cpu::Flags;
 
 use derive_more::From;
 use derive_more::IsVariant;
@@ -58,7 +60,69 @@ pub enum Instruction {
     Transfer,
 }
 
+fn read_then_work(state: &mut GameboyState, work: impl FnOnce(&mut Cpu)) {
+    // Read the OP code
+    state.tick();
+    state.tick();
+
+    // Inc PC
+    state.cpu.inc_pc();
+    state.tick();
+
+    // Do actual work
+    work(&mut state.cpu);
+    state.tick();
+}
+
 impl Instruction {
+    pub(crate) fn execute(self, state: &mut GameboyState<'_>) {
+        match self {
+            Instruction::Load(load_op) => load_op.execute(state),
+            Instruction::BitShift(bit_shift_op) => bit_shift_op.execute(state),
+            Instruction::ControlOp(control_op) => control_op.execute(state),
+            Instruction::Bit(bit_op) => bit_op.execute(state),
+            Instruction::Jump(jump_op) => jump_op.execute(state),
+            Instruction::Arithmetic(arithmetic_op) => arithmetic_op.execute(state),
+            Instruction::Interrupt(interrupt_op) => interrupt_op.execute(state),
+            Instruction::Daa => {
+                read_then_work(state, |cpu| cpu.a = to_bcd(cpu.a.0, &mut cpu.f).into())
+            }
+            Instruction::Scf => read_then_work(state, |cpu| {
+                cpu.f.n = false;
+                cpu.f.h = false;
+                cpu.f.c = true;
+            }),
+            Instruction::Cpl => read_then_work(state, |cpu| {
+                cpu.a = !cpu.a;
+                cpu.f.n = true;
+                cpu.f.h = true;
+            }),
+            Instruction::Ccf => read_then_work(state, |cpu| {
+                cpu.f.n = false;
+                cpu.f.h = false;
+                cpu.f.c = !cpu.f.c;
+            }),
+            Instruction::Di => {
+                read_then_work(state, |cpu| {
+                    cpu.f.n = false;
+                    cpu.f.h = false;
+                    cpu.f.c = !cpu.f.c;
+                });
+            }
+            Instruction::Ei => {
+                return read_then_work(state, |cpu| {
+                    cpu.f.n = false;
+                    cpu.f.h = false;
+                    cpu.f.c = !cpu.f.c;
+                });
+            }
+            Instruction::Transfer => todo!(),
+        }
+        let cpu = &mut state.cpu;
+        cpu.ime |= cpu.to_set_ime;
+        cpu.to_set_ime = false;
+    }
+
     /// Returns the number of ticks to will take to complete this instruction.
     /// Takes a reference to the CPU in order to determine if this instruction will pass any
     /// conditions.
@@ -234,4 +298,28 @@ impl InnerRegOrPointer {
             InnerRegOrPointer::Pointer => RegOrPointer::Pointer,
         }
     }
+}
+
+/// Takes a byte that is in standard binary representation and converts it to binary coded decimal.
+fn to_bcd(mut val: u8, flags: &mut Flags) -> u8 {
+    if !flags.n {
+        // after an addition, adjust if (half-)carry occurred or if result is out of bounds
+        if flags.c || val > 0x99 {
+            val = val.wrapping_add(0x60);
+            flags.c = true;
+        }
+        if flags.h || (val & 0x0f) > 0x09 {
+            val = val.wrapping_add(0x6);
+        }
+    } else {
+        if flags.c {
+            val = val.wrapping_sub(0x60);
+        }
+        if flags.h {
+            val = val.wrapping_sub(0x6);
+        }
+    }
+    flags.z = val == 0;
+    flags.h = false;
+    val
 }

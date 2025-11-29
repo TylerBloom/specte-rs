@@ -62,6 +62,29 @@ pub enum JumpOp {
 }
 
 impl JumpOp {
+    pub(crate) fn execute(self, state: &mut GameboyState<'_>) {
+        match self {
+            JumpOp::ConditionalRelative(condition, _) => todo!(),
+            JumpOp::Relative(_) => todo!(),
+            JumpOp::ConditionalAbsolute(condition, _) => todo!(),
+            JumpOp::Absolute(_) => todo!(),
+            JumpOp::JumpToHL => todo!(),
+            JumpOp::Call(_) => todo!(),
+            JumpOp::ConditionalCall(condition, _) => todo!(),
+            JumpOp::Return => todo!(),
+            JumpOp::ConditionalReturn(condition) => todo!(),
+            JumpOp::ReturnAndEnable => todo!(),
+            JumpOp::RST00 => todo!(),
+            JumpOp::RST08 => todo!(),
+            JumpOp::RST10 => todo!(),
+            JumpOp::RST18 => todo!(),
+            JumpOp::RST20 => todo!(),
+            JumpOp::RST28 => todo!(),
+            JumpOp::RST30 => todo!(),
+            JumpOp::RST38 => todo!(),
+        }
+    }
+
     /// Returns the number of ticks to will take to complete this instruction.
     pub fn length(&self, cpu: &Cpu) -> u8 {
         match self {

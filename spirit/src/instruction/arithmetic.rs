@@ -35,6 +35,25 @@ pub enum ArithmeticOp {
 }
 
 impl ArithmeticOp {
+    pub(crate) fn execute(self, state: &mut GameboyState<'_>) {
+        match self {
+            ArithmeticOp::Add(some_byte) => todo!(),
+            ArithmeticOp::Add16(wide_reg) => todo!(),
+            ArithmeticOp::AddSP(_) => todo!(),
+            ArithmeticOp::Adc(some_byte) => todo!(),
+            ArithmeticOp::Sub(some_byte) => todo!(),
+            ArithmeticOp::Sbc(some_byte) => todo!(),
+            ArithmeticOp::And(some_byte) => todo!(),
+            ArithmeticOp::Xor(some_byte) => todo!(),
+            ArithmeticOp::Or(some_byte) => todo!(),
+            ArithmeticOp::Cp(some_byte) => todo!(),
+            ArithmeticOp::Inc(reg_or_pointer) => todo!(),
+            ArithmeticOp::Inc16(wide_reg) => todo!(),
+            ArithmeticOp::Dec(reg_or_pointer) => todo!(),
+            ArithmeticOp::Dec16(wide_reg) => todo!(),
+        }
+    }
+
     /// Returns the number of ticks to will take to complete this instruction.
     pub fn length(&self) -> u8 {
         match self {
