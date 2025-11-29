@@ -205,6 +205,13 @@ impl GameboyState<'_> {
     pub(crate) fn tick(&mut self) {
         todo!()
     }
+
+    pub(crate) fn m_tick(&mut self) {
+        self.tick();
+        self.tick();
+        self.tick();
+        self.tick();
+    }
 }
 
 pub enum ButtonInput {

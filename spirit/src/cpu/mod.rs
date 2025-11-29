@@ -60,7 +60,7 @@ pub struct Cpu {
     /// The PC register
     pub pc: Wrapping<u16>,
     pub ime: bool,
-    to_set_ime: bool,
+    pub to_set_ime: bool,
     /// Once the gameboy has halted, this flag is set. Note that the gameboy can continue to be
     /// ticked, but the stack pointer is not moved, so it will continue to cycle without change.
     pub state: CpuState,
@@ -270,6 +270,10 @@ impl Cpu {
         mem.read_op(self.pc.0, self.ime)
     }
 
+    pub fn inc_pc(&mut self) {
+        self.pc += 1u16;
+    }
+
     pub fn execute(&mut self, instr: Instruction, mem: &mut impl MemoryLikeExt) {
         // info!("{instr}");
         let len = instr.size();
@@ -310,11 +314,11 @@ impl Cpu {
         self.to_set_ime = false;
     }
 
-    fn enable_interupts(&mut self) {
+    pub(crate) fn enable_interupts(&mut self) {
         self.to_set_ime = true;
     }
 
-    fn disable_interupts(&mut self) {
+    pub(crate) fn disable_interupts(&mut self) {
         self.ime = false;
     }
 

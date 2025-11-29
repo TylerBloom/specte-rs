@@ -62,6 +62,27 @@ pub enum LoadOp {
 }
 
 impl LoadOp {
+    pub(crate) fn execute(self, state: &mut GameboyState<'_>) {
+        match self {
+            LoadOp::Basic { dest, src } => todo!(),
+            LoadOp::Direct16(wide_reg, _) => todo!(),
+            LoadOp::Direct(reg_or_pointer, _) => todo!(),
+            LoadOp::LoadIntoA(load_apointer) => todo!(),
+            LoadOp::StoreFromA(load_apointer) => todo!(),
+            LoadOp::StoreSP(_) => todo!(),
+            LoadOp::HLIntoSP => todo!(),
+            LoadOp::SPIntoHL(_) => todo!(),
+            LoadOp::Pop(wide_reg_without_sp) => todo!(),
+            LoadOp::Push(wide_reg_without_sp) => todo!(),
+            LoadOp::LoadHigh(_) => todo!(),
+            LoadOp::StoreHigh(_) => todo!(),
+            LoadOp::Ldhca => todo!(),
+            LoadOp::Ldhac => todo!(),
+            LoadOp::LoadA { ptr } => todo!(),
+            LoadOp::StoreA { ptr } => todo!(),
+        }
+    }
+
     /// Returns the number of ticks to will take to complete this instruction.
     pub fn length(&self) -> u8 {
         match self {

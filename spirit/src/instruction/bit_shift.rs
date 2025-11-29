@@ -30,6 +30,24 @@ pub enum BitShiftOp {
 }
 
 impl BitShiftOp {
+    pub(crate) fn execute(self, state: &mut GameboyState<'_>) {
+        match self {
+            BitShiftOp::Rlc(reg_or_pointer) => todo!(),
+            BitShiftOp::Rlca => todo!(),
+            BitShiftOp::Rrc(reg_or_pointer) => todo!(),
+            BitShiftOp::Rrca => todo!(),
+            BitShiftOp::Rl(reg_or_pointer) => todo!(),
+            BitShiftOp::Rla => todo!(),
+            BitShiftOp::Rr(reg_or_pointer) => todo!(),
+            BitShiftOp::Rra => todo!(),
+            BitShiftOp::Sla(reg_or_pointer) => todo!(),
+            BitShiftOp::Sra(reg_or_pointer) => todo!(),
+            BitShiftOp::Swap(reg_or_pointer) => todo!(),
+            BitShiftOp::Srl(reg_or_pointer) => todo!(),
+        }
+    }
+
+
     /// Returns the number of ticks to will take to complete this instruction.
     pub fn length(&self) -> u8 {
         match self {
