@@ -1,4 +1,4 @@
-
+use crate::GameboyState;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
 #[display("{_variant}")]
@@ -14,4 +14,16 @@ pub enum InterruptOp {
     Serial = 0x0058,
     #[display("Joypad")]
     Joypad = 0x0060,
+}
+
+impl InterruptOp {
+    pub(crate) fn execute(self, state: &mut GameboyState<'_>) {
+        match self {
+            InterruptOp::VBlank => todo!(),
+            InterruptOp::LCD => todo!(),
+            InterruptOp::Timer => todo!(),
+            InterruptOp::Serial => todo!(),
+            InterruptOp::Joypad => todo!(),
+        }
+    }
 }
