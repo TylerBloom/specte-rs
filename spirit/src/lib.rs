@@ -15,7 +15,6 @@ use serde::Serialize;
 use cpu::Cpu;
 use cpu::CpuState;
 use lookup::Instruction;
-use mem::MemoryLike;
 use mem::MemoryMap;
 use mem::StartUpHeaders;
 use mem::vram::PpuMode;

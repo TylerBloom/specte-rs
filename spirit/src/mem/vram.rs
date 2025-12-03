@@ -75,6 +75,17 @@ pub struct VRam {
     dead_byte: u8,
 }
 
+impl Default for VRam {
+    fn default() -> Self {
+        Self {
+            vram: [[0; 0x2000]; 2],
+            oam: [0; 0xA0],
+            status: Default::default(),
+            dead_byte: Default::default(),
+        }
+    }
+}
+
 impl VRam {
     pub(super) fn new() -> Self {
         Self {

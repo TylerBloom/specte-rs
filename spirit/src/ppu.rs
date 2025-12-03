@@ -640,7 +640,6 @@ pub fn zip_bits(hi: u8, lo: u8) -> impl Iterator<Item = u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::mem::MemoryLike;
     use crate::mem::MemoryMap;
     use crate::mem::vram::PpuMode;
     use crate::ppu::ObjectPixel;

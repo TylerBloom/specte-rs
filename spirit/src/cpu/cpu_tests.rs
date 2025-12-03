@@ -2,6 +2,11 @@ use std::fmt::Display;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use crate::mem::MemoryBank;
+use crate::mem::MemoryBankController;
+use crate::mem::MemoryMap;
+use crate::mem::RamBank;
+
 use super::Cpu;
 use super::Flags;
 use serde::Deserialize;
@@ -253,7 +258,7 @@ struct CpuState {
 }
 
 impl CpuState {
-    fn build(self) -> (Cpu, Vec<u8>) {
+    fn build(self) -> (Cpu, MemoryMap) {
         let cpu = Cpu {
             a: self.a.into(),
             b: self.b.into(),
@@ -268,25 +273,38 @@ impl CpuState {
             ime: self.ime.unwrap_or_default(),
             ..Default::default()
         };
-        let mut mem = vec![0; 64 * 1024];
-        self.ram
-            .into_iter()
-            .for_each(|RegisterState(addr, val)| mem[addr] = val);
+        let max_addr = self.ram.iter().max_by(|a,b| a.0.cmp(&b.0)).unwrap();
+        if max_addr.0 > 0xE000 {
+            println!("Max addr = {:0>4X} ({})", max_addr.0, max_addr.0);
+        }
+        let mut rom = MemoryBank::default();
+        let mut ram = RamBank::default();
+        for RegisterState(addr, val) in self.ram {
+            if addr < 0x8000 {
+                rom[addr] = val;
+            } else {
+                ram[addr - 0x8000] = val;
+            }
+        }
+        let mem = MemoryMap {
+            mbc: MemoryBankController::Direct { rom, ram },
+            ..Default::default()
+        };
         (cpu, mem)
     }
 
-    fn validate(self, known: (Cpu, Vec<u8>)) -> (Status, String) {
+    fn validate(self, (known_cpu, known_mem): (Cpu, MemoryMap)) -> (Status, String) {
+        let (known_rom, known_ram) = get_mbc_direct_memory(known_mem.mbc);
         let (cpu, mem) = self.build();
-        if cpu != known.0 {
+        let (rom, ram) = get_mbc_direct_memory(mem.mbc);
+        if cpu != known_cpu {
             return (
                 Status::Failed,
-                format!("CPU Mismatch:\n\tExpected {cpu}\n\tKnown    {}", known.0),
+                format!("CPU Mismatch:\n\tExpected {cpu}\n\tKnown    {}", known_cpu),
             );
         }
-        known
-            .1
-            .iter()
-            .zip(mem.iter())
+        known_rom.into_iter().zip(rom)
+            .chain(known_ram.into_iter().zip(ram))
             .enumerate()
             .find_map(|(addr, (known, expected))| {
                 (known != expected).then(|| {
@@ -298,6 +316,13 @@ impl CpuState {
             })
             .unwrap_or_default()
     }
+}
+
+fn get_mbc_direct_memory(mbc: MemoryBankController) -> (MemoryBank<0x8000>, RamBank) {
+    let MemoryBankController::Direct { rom, ram } = mbc else {
+        panic!("Non-direct MBC used");
+    };
+    (rom, ram)
 }
 
 /// The addr and expected value at that addr in RAM.

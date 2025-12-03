@@ -22,7 +22,7 @@ use crate::lookup::RegOrPointer;
 use crate::lookup::SomeByte;
 use crate::lookup::WideReg;
 use crate::lookup::WideRegWithoutSP;
-use crate::mem::MemoryLikeExt;
+use crate::mem::MemoryMap;
 use crate::utils::Wrapping;
 
 #[cfg(test)]
@@ -266,11 +266,11 @@ impl Cpu {
     }
 
     /// Determines what the CPU should do next. Included in this, is a check for interrupts.
-    pub fn read_op(&self, mem: &impl MemoryLikeExt) -> Instruction {
+    pub fn read_op(&self, mem: &MemoryMap) -> Instruction {
         mem.read_op(self.pc.0, self.ime)
     }
 
-    pub fn execute(&mut self, instr: Instruction, mem: &mut impl MemoryLikeExt) {
+    pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
         // info!("{instr}");
         let len = instr.size();
         self.pc += (0x1 & self.state as u16) * (len as u16);
@@ -368,7 +368,7 @@ impl Cpu {
         }
     }
 
-    fn execute_arithmetic_op(&mut self, op: ArithmeticOp, mem: &mut impl MemoryLikeExt) {
+    fn execute_arithmetic_op(&mut self, op: ArithmeticOp, mem: &mut MemoryMap) {
         match op {
             ArithmeticOp::AddSP(val) => {
                 let (sp, _c) = self.sp.0.overflowing_add_signed(val as i16);
@@ -475,14 +475,14 @@ impl Cpu {
         }
     }
 
-    fn unwrap_some_byte(&self, mem: &impl MemoryLikeExt, byte: SomeByte) -> u8 {
+    fn unwrap_some_byte(&self, mem: &MemoryMap, byte: SomeByte) -> u8 {
         match byte {
             SomeByte::Direct(byte) => byte,
             SomeByte::Referenced(reg) => self.copy_byte(mem, reg),
         }
     }
 
-    pub fn copy_byte(&self, mem: &impl MemoryLikeExt, reg: RegOrPointer) -> u8 {
+    pub fn copy_byte(&self, mem: &MemoryMap, reg: RegOrPointer) -> u8 {
         match reg {
             RegOrPointer::Reg(reg) => self[reg].0,
             RegOrPointer::Pointer => mem.read_byte(self.ptr()),
@@ -493,7 +493,7 @@ impl Cpu {
     fn update_byte(
         &mut self,
         reg: RegOrPointer,
-        mem: &mut impl MemoryLikeExt,
+        mem: &mut MemoryMap,
         update: impl FnOnce(&mut u8),
     ) -> u8 {
         match reg {
@@ -507,7 +507,7 @@ impl Cpu {
 
     /// Stores the given byte into either an (half) register or into the MemoryMap using the HL
     /// register as an index.
-    fn write_byte(&mut self, reg: RegOrPointer, mem: &mut impl MemoryLikeExt, val: u8) {
+    fn write_byte(&mut self, reg: RegOrPointer, mem: &mut MemoryMap, val: u8) {
         match reg {
             RegOrPointer::Reg(reg) => self[reg].0 = val,
             RegOrPointer::Pointer => mem.write_byte(self.ptr(), val),
@@ -523,7 +523,7 @@ impl Cpu {
         }
     }
 
-    fn push_pc(&mut self, mem: &mut impl MemoryLikeExt) {
+    fn push_pc(&mut self, mem: &mut MemoryMap) {
         let [hi, lo] = self.pc_bytes();
         self.sp -= 1u16;
         mem.write_byte(self.sp.0, hi);
@@ -531,7 +531,7 @@ impl Cpu {
         mem.write_byte(self.sp.0, lo);
     }
 
-    fn pop_pc(&mut self, mem: &mut impl MemoryLikeExt) -> u16 {
+    fn pop_pc(&mut self, mem: &mut MemoryMap) -> u16 {
         let lo = mem.read_byte(self.sp.0);
         self.sp += 1u16;
         let hi = mem.read_byte(self.sp.0);
@@ -539,14 +539,14 @@ impl Cpu {
         u16::from_be_bytes([hi, lo])
     }
 
-    fn execute_interrupt(&mut self, op: InterruptOp, mem: &mut impl MemoryLikeExt) {
+    fn execute_interrupt(&mut self, op: InterruptOp, mem: &mut MemoryMap) {
         mem.clear_interrupt_req(op);
         self.disable_interupts();
         self.push_pc(mem);
         self.pc = Wrapping(op as u16);
     }
 
-    fn execute_jump_op(&mut self, op: JumpOp, mem: &mut impl MemoryLikeExt) {
+    fn execute_jump_op(&mut self, op: JumpOp, mem: &mut MemoryMap) {
         match op {
             JumpOp::ConditionalRelative(cond, val) => {
                 if self.matches(cond) {
@@ -603,12 +603,12 @@ impl Cpu {
         }
     }
 
-    fn rst<const N: u16>(&mut self, mem: &mut impl MemoryLikeExt) {
+    fn rst<const N: u16>(&mut self, mem: &mut MemoryMap) {
         self.push_pc(mem);
         self.pc = Wrapping(N);
     }
 
-    fn execute_control_op(&mut self, op: ControlOp, _mem: &mut impl MemoryLikeExt) {
+    fn execute_control_op(&mut self, op: ControlOp, _mem: &mut MemoryMap) {
         match op {
             ControlOp::Noop => {}
             ControlOp::Halt => self.halt(),
@@ -616,7 +616,7 @@ impl Cpu {
         }
     }
 
-    fn execute_bit_op(&mut self, op: BitOp, mem: &mut impl MemoryLikeExt) {
+    fn execute_bit_op(&mut self, op: BitOp, mem: &mut MemoryMap) {
         let BitOp { bit, reg, op } = op;
         debug_assert!(bit < 8);
         let byte = self.copy_byte(mem, reg);
@@ -635,7 +635,7 @@ impl Cpu {
         }
     }
 
-    fn execute_bit_shift_op(&mut self, op: BitShiftOp, mem: &mut impl MemoryLikeExt) {
+    fn execute_bit_shift_op(&mut self, op: BitShiftOp, mem: &mut MemoryMap) {
         match op {
             BitShiftOp::Rlc(reg) => {
                 let mut carry = false;
@@ -750,7 +750,7 @@ impl Cpu {
         self.pc -= Wrapping(ControlOp::Halt.size() as u16);
     }
 
-    fn execute_load_op(&mut self, op: LoadOp, mem: &mut impl MemoryLikeExt) {
+    fn execute_load_op(&mut self, op: LoadOp, mem: &mut MemoryMap) {
         match op {
             LoadOp::Basic {
                 dest: RegOrPointer::Pointer,
@@ -882,7 +882,7 @@ impl Cpu {
     pub fn start_up_execute(
         &mut self,
         instr: Instruction,
-        mem: &mut impl MemoryLikeExt,
+        mem: &mut MemoryMap,
     ) -> Option<Instruction> {
         self.execute(instr, mem);
         (mem.read_byte(0xFF50) == 0).then(|| self.read_op(mem))

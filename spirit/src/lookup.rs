@@ -1,41 +1,21 @@
 use array_concat::concat_arrays;
 
 use crate::cpu::Cpu;
-use crate::mem::MemoryLike;
-#[cfg(not(test))]
 use crate::mem::MemoryMap;
 
 use derive_more::From;
 use derive_more::IsVariant;
 
-#[cfg(test)]
-#[track_caller]
-pub fn parse_instruction(mem: &dyn MemoryLike, pc: u16) -> Instruction {
-    OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
-}
-
-#[cfg(test)]
-#[track_caller]
-fn parse_prefixed_instruction(mem: &dyn MemoryLike, pc: u16) -> Instruction {
-    PREFIXED_OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
-}
-
-#[cfg(test)]
-type OpArray<const N: usize> = [fn(&dyn MemoryLike, u16) -> Instruction; N];
-
-#[cfg(not(test))]
 #[track_caller]
 pub fn parse_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
     OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
 }
 
-#[cfg(not(test))]
 #[track_caller]
 fn parse_prefixed_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
     PREFIXED_OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
 }
 
-#[cfg(not(test))]
 type OpArray<const N: usize> = [fn(&MemoryMap, u16) -> Instruction; N];
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
@@ -730,16 +710,6 @@ impl BitOp {
     }
 }
 
-#[cfg(test)]
-#[track_caller]
-fn invalid_op_code(mem: &dyn MemoryLike, pc: u16) -> Instruction {
-    unreachable!(
-        "Op code '0x{:0>2X}' @ 0x{pc:0>4X} does not correspond to any valid operation",
-        mem.read_byte(pc)
-    )
-}
-
-#[cfg(not(test))]
 #[track_caller]
 fn invalid_op_code(mem: &MemoryMap, pc: u16) -> Instruction {
     unreachable!(

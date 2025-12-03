@@ -248,6 +248,15 @@ pub struct MemoryBank<const N: usize>(
     pub Box<[u8; N]>,
 );
 
+impl<const N: usize> IntoIterator for MemoryBank<N> {
+    type Item = u8;
+    type IntoIter = <[u8; N] as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 impl<const N: usize> MemoryBank<N> {
     pub fn new() -> Self {
         Self::from_iter(std::iter::empty())
