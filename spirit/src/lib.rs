@@ -118,7 +118,12 @@ impl Gameboy {
     }
 
     fn apply_op(&mut self, op: Instruction) {
-        self.cpu.execute(op, &mut self.mem)
+        let mut state = GameboyState {
+            mem: &mut self.mem,
+            ppu: &mut self.ppu,
+            cpu: &mut self.cpu,
+        };
+        op.execute(&mut state);
     }
 
     pub fn is_running(&self) -> bool {
