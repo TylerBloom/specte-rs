@@ -271,6 +271,7 @@ impl Cpu {
     }
 
     pub fn execute(&mut self, instr: Instruction, mem: &mut MemoryMap) {
+        // println!("Executing op: {instr}");
         // info!("{instr}");
         let len = instr.size();
         self.pc += (0x1 & self.state as u16) * (len as u16);

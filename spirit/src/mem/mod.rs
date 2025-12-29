@@ -95,13 +95,19 @@ impl Default for MemoryMap {
     }
 }
 
-#[derive(Debug, Default, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OamDma {
     register: u8,
     read_addr: u16,
     write_addr: u16,
     ticks: u16,
     bus: ConflictBus,
+}
+
+impl Default for OamDma {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Display for OamDma {
@@ -455,6 +461,8 @@ impl MemoryMap {
     pub fn read_byte(&self, addr: u16) -> u8 {
         if self.oam_dma.in_conflict(addr) {
             info!("DMA Bus read conflict @ 0x{addr:0>4X}");
+            println!("DMA Bus read conflict @ 0x{addr:0>4X}");
+            println!("DMA Bus state {:?}", self.oam_dma);
             return 0xFF;
         }
         self.dma_read_byte(addr)

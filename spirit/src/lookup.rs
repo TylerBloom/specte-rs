@@ -8,6 +8,7 @@ use derive_more::IsVariant;
 
 #[track_caller]
 pub fn parse_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
+    // println!("Parsing op @ 0x{pc:0>4X} ({pc})");
     OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
 }
 

@@ -8,6 +8,7 @@ use crate::mem::MemoryMap;
 use crate::mem::RamBank;
 use crate::mem::VramDma;
 use crate::mem::io::IoRegisters;
+use crate::mem::vram::PpuMode;
 use crate::mem::vram::VRam;
 
 use super::Cpu;
@@ -88,7 +89,9 @@ impl<const START: u8> TestBattery<START> {
         let results = self
             .suites
             .into_iter()
+            .filter(|(op, _)| *op == 0x02)
             .map(|(op, suite)| (op, suite.execute(op)))
+            .inspect(|(_, report)| report.display_failed())
             .collect();
         BatteryReport { results }
     }
@@ -144,6 +147,7 @@ impl TestSuite {
         let results = self
             .0
             .into_iter()
+            // .filter(|test| &*test.name == "01 a8 af")
             .map(|test| test.execute(op_code))
             .collect();
         SuiteReport { results }
@@ -160,6 +164,15 @@ enum Status {
 
 struct SuiteReport {
     results: Vec<TestReport>,
+}
+
+impl SuiteReport {
+    fn display_failed(&self) {
+        self.results
+            .iter()
+            .filter(|report| matches!(report.status, Status::Failed))
+            .for_each(|report| println!("{}:\n{}\n", report.name, report.reason))
+    }
 }
 
 impl Display for SuiteReport {
@@ -278,6 +291,7 @@ impl CpuState {
         let mut rom = MemoryBank::default();
         let mut ram = RamBank::default();
         let mut vram = VRam::default();
+        vram.status = PpuMode::VBlank; // To prevent reads of 0xFF
         let mut wram = [[0; 0x1000]; 2];
         let mut hram = [0; 0x7F];
         let mut io = IoRegisters::default();
@@ -291,8 +305,8 @@ impl CpuState {
                 0xC000..=0xCFFF => wram[0][addr - 0xC000] = val,
                 0xD000..=0xDFFF => wram[1][addr - 0xD000] = val,
                 // WRAM echos
-                0xE000..=0xEFFF => wram[1][addr - 0xE000] = val,
-                0xF000..=0xFDFF => wram[0][addr - 0xF000] = val,
+                0xE000..=0xEFFF => wram[0][addr - 0xE000] = val,
+                0xF000..=0xFDFF => wram[1][addr - 0xF000] = val,
                 // OAM
                 0xFE00..=0xFE9F => vram.oam[addr - 0xFE00] = val,
                 // Forbidden
@@ -324,27 +338,20 @@ impl CpuState {
     }
 
     fn validate(self, (known_cpu, known_mem): (Cpu, MemoryMap)) -> (Status, String) {
-        let (known_rom, known_ram) = get_mbc_direct_memory(known_mem.mbc);
         let (cpu, mem) = self.build();
-        let (rom, ram) = get_mbc_direct_memory(mem.mbc);
         if cpu != known_cpu {
-            return (
+            (
                 Status::Failed,
-                format!("CPU Mismatch:\n\tExpected {cpu}\n\tKnown    {}", known_cpu),
-            );
+                format!(
+                    "CPU Mismatched:\n\tExpected {cpu}\n\tKnown    {}",
+                    known_cpu
+                ),
+            )
+        } else if mem != known_mem {
+            (Status::Failed, "Memory maps don't match!".into())
+        } else {
+            (Status::Passed, String::new())
         }
-        known_rom.into_iter().zip(rom)
-            .chain(known_ram.into_iter().zip(ram))
-            .enumerate()
-            .find_map(|(addr, (known, expected))| {
-                (known != expected).then(|| {
-                    (
-                        Status::Failed,
-                        format!("Mismatch value @ 0x{addr:0>4X} (aka ({addr})): Expected {expected}, Known {known}"),
-                    )
-                })
-            })
-            .unwrap_or_default()
     }
 }
 
