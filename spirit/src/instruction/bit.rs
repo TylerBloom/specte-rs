@@ -56,28 +56,7 @@ impl BitOp {
                         state.tick();
                     }
                     RegOrPointer::Pointer => {
-                        // Read the OP code
-                        state.tick();
-
-                        // Inc PC
-                        let ptr state.cpu.ptr();
-                        let z = state.mem[ptr];
-                        state.tick();
-                        state.tick();
-                        state.tick();
-
-                        // Do actual work
-                        state.cpu[reg] &= !(0x1 << bit);
-                        state.tick();
-
-                        // Read the OP code
-                        state.tick();
-                        state.tick();
-
-                        // Inc PC
-                        state.cpu.inc_pc();
-                        state.tick();
-                        state.tick();
+                        todo!()
                     }
                 }
 

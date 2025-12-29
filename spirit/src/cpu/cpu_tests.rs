@@ -2,6 +2,9 @@ use std::fmt::Display;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use crate::ppu::Ppu;
+use crate::GameboyState;
+
 use super::Cpu;
 use super::Flags;
 use serde::Deserialize;
@@ -209,12 +212,18 @@ impl CpuTest {
             let (mut cpu, mut mem) = init.build();
             let len = cycles.len() as u8;
             let mut cycles = len;
-            // println!("{cpu}");
+            // The PPU isn't actually used but needed for the internal ticking in the operation's
+            // execution.
+            let mut ppu = Ppu::new();
             while cycles != 0 {
                 let op = cpu.read_op(&mem);
-                // println!("{op}");
                 cycles = cycles.saturating_sub(op.length(&cpu) / 4);
-                cpu.execute(op, &mut mem);
+                let mut state = GameboyState {
+                    mem: &mut mem,
+                    ppu: &mut ppu,
+                    cpu: &mut cpu,
+                };
+                op.execute(&mut state);
                 // println!("{cpu}");
             }
             end.validate((cpu, mem))
