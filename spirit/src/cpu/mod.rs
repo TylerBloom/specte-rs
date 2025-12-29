@@ -274,6 +274,7 @@ impl Cpu {
         self.pc += 1u16;
     }
 
+    /*
     pub fn execute(&mut self, instr: Instruction, mem: &mut impl MemoryLikeExt) {
         // info!("{instr}");
         let len = instr.size();
@@ -313,6 +314,7 @@ impl Cpu {
         self.ime |= self.to_set_ime;
         self.to_set_ime = false;
     }
+    */
 
     pub(crate) fn enable_interupts(&mut self) {
         self.to_set_ime = true;
@@ -879,6 +881,7 @@ impl Cpu {
         self.l = l;
     }
 
+    /*
     /// A method similar to `Self::execute`, but is ran during start up, when the ROM that is
     /// burned-into the CPU is mapped over normal memory.
     ///
@@ -891,6 +894,7 @@ impl Cpu {
         self.execute(instr, mem);
         (mem.read_byte(0xFF50) == 0).then(|| self.read_op(mem))
     }
+    */
 }
 
 impl Index<HalfRegister> for Cpu {

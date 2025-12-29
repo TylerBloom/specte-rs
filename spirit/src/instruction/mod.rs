@@ -75,6 +75,8 @@ fn read_then_work(state: &mut GameboyState, work: impl FnOnce(&mut Cpu)) {
 }
 
 impl Instruction {
+    // FIXME: This function (and all subsequent functions) don't need a mutable reference to the
+    // state. That, or should to a mutable reference to the Gameboy itself.
     pub(crate) fn execute(self, state: &mut GameboyState<'_>) {
         match self {
             Instruction::Load(load_op) => load_op.execute(state),
