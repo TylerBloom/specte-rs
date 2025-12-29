@@ -28,8 +28,8 @@ mod mbc;
 pub mod vram;
 
 use io::IoRegisters;
-pub use mbc::MemoryBankController;
 pub use mbc::MemoryBank;
+pub use mbc::MemoryBankController;
 pub use mbc::RamBank;
 pub use mbc::RomBank;
 use mbc::*;
@@ -58,6 +58,13 @@ pub struct MemoryMap {
     pub oam_dma: OamDma,
     /// ADDR FF51-FF55
     pub vram_dma: VramDma,
+    /// FORBIDDEN:
+    /// According to the docs, this memory should not be accessed, but the JSON CPU tests use it
+    /// for some reason....
+    ///
+    /// ADDR: FEA00-FEFF
+    #[serde_as(as = "serde_with::Bytes")]
+    pub forbidden: [u8; 0x60],
     /// The interrupt enable register. Bits 0-4 flag where or not certain interrupt handlers can be
     /// called.
     ///  - Bit 0 corresponds to the VBlank interrupt
@@ -83,6 +90,7 @@ impl Default for MemoryMap {
             oam_dma: Default::default(),
             vram_dma: Default::default(),
             ie: Default::default(),
+            forbidden: [0; 0x60],
         }
     }
 }
@@ -200,13 +208,13 @@ impl OamDma {
 
 #[derive(Default, Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VramDma {
-    src_hi: u8,
-    src_lo: u8,
-    curr_src: u16,
-    dest_hi: u8,
-    dest_lo: u8,
-    curr_dest: u16,
-    trigger: u8,
+    pub(crate) src_hi: u8,
+    pub(crate) src_lo: u8,
+    pub(crate) curr_src: u16,
+    pub(crate) dest_hi: u8,
+    pub(crate) dest_lo: u8,
+    pub(crate) curr_dest: u16,
+    pub(crate) trigger: u8,
     /// The amount of data left to transfer.
     len_left: u8,
     ly: u8,
@@ -223,7 +231,7 @@ impl VramDma {
         self.len_left.wrapping_sub(1)
     }
 
-    fn trigger(&mut self, value: u8) {
+    pub(crate) fn trigger(&mut self, value: u8) {
         info!("Writing to VRAM DMA transfer");
         if !check_bit_const::<7>(value) && self.len_left > 0 {
             info!("Cancelling VRAM DMA transfer");
@@ -280,6 +288,7 @@ impl MemoryMap {
             ie: 0,
             oam_dma: OamDma::new(),
             vram_dma: VramDma::new(),
+            forbidden: [0; 0x60],
         }
     }
 
@@ -325,7 +334,8 @@ impl MemoryMap {
             n @ 0xFE00..=0xFE9F => self.vram[CpuOamIndex(n)],
             // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
             // dead byte will be returned instead.
-            0xFEA0..=0xFEFF | 0xFF51..0xFF54 => DEAD_BYTE,
+            0xFEA0..=0xFEFF => self.forbidden[index as usize - 0xFEA0],
+            0xFF51..=0xFF54 => DEAD_BYTE,
             0xFF55 => self.vram_dma.read_trigger(),
             0xFF46 => self.oam_dma.register,
             n @ 0xFF00..=0xFF7F => self.io.read_byte(n),
@@ -428,6 +438,7 @@ impl MemoryMap {
             ie: 0,
             oam_dma: OamDma::new(),
             vram_dma: VramDma::new(),
+            forbidden: [0; 0x60],
         }
     }
 
@@ -475,8 +486,7 @@ impl MemoryMap {
             n @ 0xE000..=0xEFFF => self.wram[0][n as usize - 0xE000] = val,
             n @ 0xF000..=0xFDFF => self.wram[1][n as usize - 0xF000] = val,
             n @ 0xFE00..=0xFE9F => self.vram[CpuOamIndex(n)] = val,
-            // NOTE: This region *should not* actually be accessed
-            0xFEA0..=0xFEFF => {}
+            0xFEA0..=0xFEFF => self.forbidden[addr as usize - 0xFEA0] = val,
             0xFF51 => self.vram_dma.src_hi = val,
             0xFF52 => self.vram_dma.src_lo = val,
             0xFF53 => self.vram_dma.dest_hi = val,
@@ -530,9 +540,7 @@ impl MemoryMap {
             n @ 0xF000..=0xFDFF => &mut self.wram[1][n as usize - 0xF000],
             n @ 0xFE00..=0xFE9F => &mut self.vram[CpuOamIndex(n)],
             // NOTE: This region *should not* actually be accessed
-            0xFEA0..=0xFEFF => {
-                return 0;
-            }
+            0xFEA0..=0xFEFF => &mut self.forbidden[index as usize - 0xFEA0],
             0xFF51 => &mut self.vram_dma.src_hi,
             0xFF52 => &mut self.vram_dma.src_lo,
             0xFF53 => &mut self.vram_dma.dest_hi,

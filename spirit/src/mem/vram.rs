@@ -63,6 +63,7 @@ pub struct VRam {
     /// The main video RAM. Accessible through the address range 0x8000 through 0x9FFF.
     #[serde(serialize_with = "crate::utils::serialize_slices_as_one")]
     #[serde(deserialize_with = "crate::utils::deserialize_slices_as_one")]
+    // FIXME: Make this a MemoryBank rather than a stack array.
     pub vram: [[u8; 0x2000]; 2],
     /// The Object Attribute Map. Accessible through the address range 0xFE00 through 0xFE9F
     #[serde_as(as = "serde_with::Bytes")]

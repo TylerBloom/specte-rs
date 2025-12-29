@@ -6,6 +6,9 @@ use crate::mem::MemoryBank;
 use crate::mem::MemoryBankController;
 use crate::mem::MemoryMap;
 use crate::mem::RamBank;
+use crate::mem::VramDma;
+use crate::mem::io::IoRegisters;
+use crate::mem::vram::VRam;
 
 use super::Cpu;
 use super::Flags;
@@ -63,15 +66,16 @@ struct TestBattery<const START: u8> {
 }
 
 impl<const START: u8> TestBattery<START> {
-    fn construct(mut path: PathBuf) -> Self {
+    fn construct(path: PathBuf) -> Self {
         let mut suites = Vec::new();
         let end: u8 = START + 0x3F;
         for i in START..=end {
+            let mut path = path.clone();
             path.push(format!("json_test_{i:0>2x}.json"));
             let Ok(file) = std::fs::read_to_string(&path) else {
+                println!("Failed to file: {path:?}");
                 continue;
             };
-            path.pop();
             let suite: TestSuite = serde_json::from_str(&file).unwrap();
             suites.push((i, suite));
         }
@@ -80,6 +84,7 @@ impl<const START: u8> TestBattery<START> {
     }
 
     fn execute(self) -> BatteryReport {
+        println!("Suite count: {}", self.suites.len());
         let results = self
             .suites
             .into_iter()
@@ -214,13 +219,10 @@ impl CpuTest {
             let (mut cpu, mut mem) = init.build();
             let len = cycles.len() as u8;
             let mut cycles = len;
-            // println!("{cpu}");
             while cycles != 0 {
                 let op = cpu.read_op(&mem);
-                // println!("{op}");
                 cycles = cycles.saturating_sub(op.length(&cpu) / 4);
                 cpu.execute(op, &mut mem);
-                // println!("{cpu}");
             }
             end.validate((cpu, mem))
         });
@@ -273,21 +275,49 @@ impl CpuState {
             ime: self.ime.unwrap_or_default(),
             ..Default::default()
         };
-        let max_addr = self.ram.iter().max_by(|a,b| a.0.cmp(&b.0)).unwrap();
-        if max_addr.0 > 0xE000 {
-            println!("Max addr = {:0>4X} ({})", max_addr.0, max_addr.0);
-        }
         let mut rom = MemoryBank::default();
         let mut ram = RamBank::default();
+        let mut vram = VRam::default();
+        let mut wram = [[0; 0x1000]; 2];
+        let mut hram = [0; 0x7F];
+        let mut io = IoRegisters::default();
+        let mut forbidden = [0; 0x60];
+        let mut vram_dma = VramDma::default();
         for RegisterState(addr, val) in self.ram {
-            if addr < 0x8000 {
-                rom[addr] = val;
-            } else {
-                ram[addr - 0x8000] = val;
+            match addr {
+                0x0000..=0x7FFF => rom[addr] = val,
+                0x8000..=0x9FFF => vram.vram[0][addr - 0x8000] = val,
+                0xA000..=0xBFFF => ram[addr - 0xA000] = val,
+                0xC000..=0xCFFF => wram[0][addr - 0xC000] = val,
+                0xD000..=0xDFFF => wram[1][addr - 0xD000] = val,
+                // WRAM echos
+                0xE000..=0xEFFF => wram[1][addr - 0xE000] = val,
+                0xF000..=0xFDFF => wram[0][addr - 0xF000] = val,
+                // OAM
+                0xFE00..=0xFE9F => vram.oam[addr - 0xFE00] = val,
+                // Forbidden
+                0xFEA0..=0xFEFF => forbidden[addr - 0xFEA0] = val,
+                // OAM DMA
+                0xFF51 => vram_dma.src_hi = val,
+                0xFF52 => vram_dma.src_lo = val,
+                0xFF53 => vram_dma.dest_hi = val,
+                0xFF54 => vram_dma.dest_lo = val,
+                0xFF55 => vram_dma.trigger(val),
+                // IO
+                0xFF00..=0xFF7F => io.write_byte(addr as u16, val),
+                // HRAM
+                0xFF80..=0xFFFE => hram[addr - 0xFF80] = val,
+                _ => panic!("Tried to write to 0x{addr:0>4X} ({addr})"),
             }
         }
         let mem = MemoryMap {
             mbc: MemoryBankController::Direct { rom, ram },
+            vram,
+            wram,
+            hr: hram,
+            io,
+            forbidden,
+            vram_dma,
             ..Default::default()
         };
         (cpu, mem)

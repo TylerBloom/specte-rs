@@ -106,18 +106,6 @@ impl Default for IoRegisters {
 
 #[derive(Debug, Default, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 struct AudioRegisters {
-    /// The volume control for the amplifier
-    /// This register is at FF24
-    master_control_vin_planning: u8,
-
-    /// The control for the panning of each channel
-    /// This register is at FF26
-    panning: u8,
-
-    /// The master control for audio.
-    /// This register is at FF26
-    master_control: u8,
-
     /// The control for the CH1 sweep
     /// This register is at FF10
     ch1_sweep: u8,
@@ -131,16 +119,22 @@ struct AudioRegisters {
     ch1_vol_and_env: u8,
 
     /// The CH1 period low bits.
-    /// This register is at FF12
+    /// This register is at FF13
     ///
     /// NOTE: This register is write only. Reads return 0xFF.
     ch1_period_low: u8,
 
     /// The control for the CH1 volume and envelope.
-    /// This register is at FF12
+    /// This register is at FF14
     ///
     /// NOTE: Bits 3, 4, and 5 are unused. Also, Bits 0, 1, 2, and 7 are write only.
     ch1_period_and_control: u8,
+
+    /// The register between CH1 and CH2 is not used, but the JSON CPU tests use it for some
+    /// reason...
+    ///
+    /// ADDR: FF15
+    unused_15: u8,
 
     /// The control for the CH2 length timer and duty cycle.
     /// This register is at FF16
@@ -188,11 +182,11 @@ struct AudioRegisters {
     /// NOTE: Bits 3, 4, and 5 are unused. Also, Bits 0, 1, 2, and 7 are write only.
     ch3_period_and_control: u8,
 
-    /// FF30-FF3F
-    /// Accessing this region of memory while the channel is active, accessing this region will
-    /// yield in whatever byte the channel is currently reading.
-    /// NOTE: This is more than the DAC being enabled/disabled.
-    ch3_wave_form: [u8; 0x10],
+    /// The register between CH3 and CH4 is not used, but the JSON CPU tests use it for some
+    /// reason...
+    ///
+    /// ADDR: FF1F
+    unused_1f: u8,
 
     /// The control for the CH4 length timer
     /// This register is at FF20
@@ -211,16 +205,35 @@ struct AudioRegisters {
     /// The CH4 control
     /// This register is at FF23
     ch4_control: u8,
+
+    /// The volume control for the amplifier
+    /// This register is at FF24
+    master_control_vin_planning: u8,
+
+    /// The control for the panning of each channel
+    /// This register is at FF25
+    panning: u8,
+
+    /// The master control for audio.
+    /// This register is at FF26
+    master_control: u8,
+
+    /// The registers between FF23 and FF30 aren't used, but the JSON CPU tests use them for some
+    /// reason...
+    ///
+    /// ADDRS: FF27-FF29
+    unused_gap: [u8; 9],
+
+    /// FF30-FF3F
+    /// Accessing this region of memory while the channel is active, accessing this region will
+    /// yield in whatever byte the channel is currently reading.
+    /// NOTE: This is more than the DAC being enabled/disabled.
+    ch3_wave_form: [u8; 0x10],
 }
 
 impl AudioRegisters {
     fn read_byte(&self, index: u16) -> u8 {
         match index {
-            /* Controls */
-            0xFF24 => self.master_control_vin_planning,
-            0xFF25 => self.panning,
-            // NOTE: Bits 4, 5, 6 are not used
-            0xFF26 => self.master_control & 0b1000_1111,
             /* Channel 1 */
             0xFF10 => self.ch1_sweep,
             0xFF11 => self.ch1_length_and_duty,
@@ -229,6 +242,7 @@ impl AudioRegisters {
             0xFF13 => 0xFF,
             // NOTE: Only the 6th bit is readable
             0xFF14 => self.ch1_period_and_control & 0b0010_0000,
+            0xFF15 => self.unused_15,
             /* Channel 2 */
             0xFF16 => self.ch2_length_and_duty,
             0xFF17 => self.ch2_vol_and_env,
@@ -247,7 +261,7 @@ impl AudioRegisters {
             0xFF1D => 0xFF,
             // NOTE: Only bit 6 is readable
             0xFF1E => self.ch3_period_and_control & 0b0100_0000,
-            n @ 0xFF30..=0xFF3F => self.ch3_wave_form[(n - 0xFF30) as usize],
+            0xFF1F => self.unused_1f,
             /* Channel 4 */
             // NOTE: self.ch4_length_timer is write-only
             0xFF20 => 0xFF,
@@ -255,24 +269,29 @@ impl AudioRegisters {
             0xFF22 => self.ch4_freq_and_rand,
             // NOTE: Only bit 6 is readable
             0xFF23 => self.ch4_control & 0b0100_0000,
+            /* Controls */
+            0xFF24 => self.master_control_vin_planning,
+            0xFF25 => self.panning,
+            // NOTE: Bits 4, 5, 6 are not used
+            0xFF26 => self.master_control & 0b1000_1111,
+            0xFF27..=0xFF2F => self.unused_gap[(index as usize) - 0xFF27],
+            n @ 0xFF30..=0xFF3F => self.ch3_wave_form[(n - 0xFF30) as usize],
             /* Oops... */
-            idx => unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4x}"),
+            ..0xFF10 | 0xFF40.. => {
+                unreachable!("There was an attemped read from an unused bit @ 0x{index:0>4x}")
+            }
         }
     }
 
     fn write_byte(&mut self, index: u16, mut val: u8) {
         match index {
-            /* Controls */
-            // NOTE: Only the topmost bit is writeable
-            0xFF24 => self.master_control_vin_planning = val,
-            0xFF25 => self.panning = val,
-            0xFF26 => self.master_control = val & 0b1000_0000,
             /* Channel 1 */
             // NOTE: The top bit is not used
             0xFF10 => self.ch1_sweep = val & 0b0111_1111,
             0xFF11 => self.ch1_length_and_duty = val,
             0xFF12 => self.ch1_vol_and_env = val,
             0xFF13 => self.ch1_period_low = val,
+            0xFF15 => self.unused_15 = val,
             // NOTE: Bits 3, 4, 5 are not used
             0xFF14 => self.ch1_period_and_control = val & 0b1100_0111,
             /* Channel 2 */
@@ -290,7 +309,7 @@ impl AudioRegisters {
             0xFF1D => self.ch3_period_low = val,
             // NOTE: Bits 3, 4, 5 are not used
             0xFF1E => self.ch3_period_and_control = val & 0b1100_0111,
-            n @ 0xFF30..=0xFF3F => self.ch3_wave_form[(n - 0xFF30) as usize] = val,
+            0xFF1F => self.unused_1f = val,
             /* Channel 4 */
             // NOTE: The top 2 bits are not used
             0xFF20 => self.ch4_length_timer = val & 0b0011_1111,
@@ -298,8 +317,17 @@ impl AudioRegisters {
             0xFF22 => self.ch4_freq_and_rand = val,
             // NOTE: Only the top 2 bits are used
             0xFF23 => self.ch4_control = val & 0b1100_0000,
+            /* Controls */
+            // NOTE: Only the topmost bit is writeable
+            0xFF24 => self.master_control_vin_planning = val,
+            0xFF25 => self.panning = val,
+            0xFF26 => self.master_control = val & 0b1000_0000,
+            0xFF27..=0xFF2F => self.unused_gap[(index as usize) - 0xFF27] = val,
+            n @ 0xFF30..=0xFF3F => self.ch3_wave_form[(n - 0xFF30) as usize] = val,
             /* Oops... */
-            idx => unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4x}"),
+            ..0xFF10 | 0xFF40.. => {
+                unreachable!("There was an attemped read from an unused bit @ 0x{index:0>4x}")
+            }
         }
     }
 }
@@ -447,7 +475,7 @@ impl IoRegisters {
             | 0xFF71
             | 0xFF76.. => 0xFF,
             ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF46 => unreachable!(
-                "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF80! Got index 0x{index:0>4x}"
+                "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70! Got read index 0x{index:0>4x}"
             ),
         }
     }
@@ -502,7 +530,7 @@ impl IoRegisters {
             | 0xFF71
             | 0xFF76.. => {}
             ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF46 | 0xFF80.. => unreachable!(
-                "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
+                "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70! Got write index 0x{index:0>4x}"
             ),
         }
     }
