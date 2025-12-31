@@ -22,6 +22,7 @@ use crate::cpu::check_bit_const;
 use crate::instruction::Instruction;
 use crate::instruction::InterruptOp;
 use crate::lookup::parse_instruction;
+use crate::ppu::Ppu;
 
 pub mod io;
 mod mbc;
@@ -47,6 +48,14 @@ pub trait MemoryLike {
     fn clear_interrupt_req(&mut self, op: InterruptOp) {}
 
     fn vram_transfer(&mut self);
+
+    /// Makes necessary changes in memory that occur during a instruction that aren't just reads
+    /// and writes and then ticks the PPU to make its necessary changes.
+    // FIXME: It generally makes more sense to just have the PPU just take a reference to the
+    // memory (that's the PPU's tick is implemented) and have the tick be done by the Gameboy
+    // directly. Unfortunately, the `MemoryLike` abstraction makes that much more difficult. When
+    // `MemoryLike` is removed, `MemoryMap::tick` does not need to take this reference.
+    fn tick(&mut self, ppu: &mut Ppu);
 }
 
 /// The `impl FnOnce` in `update_byte` would make `MemoryLike` non-object safe, which is needs for
@@ -167,6 +176,18 @@ impl MemoryLike for MemoryMap {
             let byte = self.read_byte(src + i);
             self.write_byte(dest + i, byte);
         }
+    }
+
+    /// This method ticks the memory. The only thing this affects is the divider and timer
+    /// registers.
+    fn tick(&mut self, ppu: &mut Ppu) {
+        if let Some((r, w)) = self.oam_dma.tick() {
+            let byte = self.dma_read_byte(r);
+            // info!("Transferring byte to OAM @ 0x{r:0>4X}: 0x{byte:0>2X}");
+            self.vram.oam[w as usize] = byte;
+        }
+        self.io.tick();
+        ppu.tick(self);
     }
 }
 
@@ -482,17 +503,6 @@ impl MemoryMap {
         }
     }
 
-    /// This method ticks the memory. The only thing this affects is the divider and timer
-    /// registers.
-    pub fn tick(&mut self) {
-        if let Some((r, w)) = self.oam_dma.tick() {
-            let byte = self.dma_read_byte(r);
-            // info!("Transferring byte to OAM @ 0x{r:0>4X}: 0x{byte:0>2X}");
-            self.vram.oam[w as usize] = byte;
-        }
-        self.io.tick();
-    }
-
     pub(crate) fn reset_ppu_status(&mut self) {
         self.io.set_ppu_status(PpuMode::default());
         self.vram.reset_status()
@@ -763,6 +773,8 @@ impl MemoryLike for Vec<u8> {
     }
 
     fn vram_transfer(&mut self) {}
+
+    fn tick(&mut self, _ppu: &mut Ppu) {}
 }
 
 #[cfg(test)]
