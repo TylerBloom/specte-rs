@@ -6,19 +6,26 @@ use serde::Deserialize;
 use serde::Serialize;
 use tracing::trace;
 
+use crate::instruction::AddrAction;
+use crate::instruction::AluOp;
+use crate::instruction::AluSignal;
 use crate::instruction::ArithmeticOp;
 use crate::instruction::BitOp;
 use crate::instruction::BitOpInner;
 use crate::instruction::BitShiftOp;
 use crate::instruction::Condition;
 use crate::instruction::ControlOp;
+use crate::instruction::DataLocation;
 use crate::instruction::HalfRegister;
+use crate::instruction::IduSignal;
 use crate::instruction::Instruction;
 use crate::instruction::InterruptOp;
 use crate::instruction::JumpOp;
 use crate::instruction::LoadAPointer;
 use crate::instruction::LoadOp;
 use crate::instruction::MCycle;
+use crate::instruction::PointerReg;
+use crate::instruction::ReadLocation;
 use crate::instruction::RegOrPointer;
 use crate::instruction::SomeByte;
 use crate::instruction::WideReg;
@@ -70,6 +77,10 @@ pub struct Cpu {
     /// No assumptions about the state of these registers should be made between instructions.
     pub z: Wrapping<u8>,
     pub w: Wrapping<u8>,
+    /// The instruction register. At the end of an instruction, a read is done to load the op code
+    /// for the next instruction. That data is put into this register then decoded into the next
+    /// operation.
+    pub ir: Wrapping<u8>,
 }
 
 #[derive(
@@ -281,26 +292,119 @@ impl Cpu {
     }
 
     pub fn execute(&mut self, cycle: MCycle, mem: &mut impl MemoryLikeExt) {
-        let MCycle { addr_bus, action, idu, alu } = cycle;
+        let MCycle {
+            addr_bus,
+            action,
+            idu,
+            alu,
+        } = cycle;
+        let addr = match addr_bus {
+            PointerReg::PC => self.pc.0,
+            PointerReg::SP => self.sp.0,
+            PointerReg::HL => self.ptr(),
+            PointerReg::BC => self.bc(),
+            PointerReg::DE => self.de(),
+            PointerReg::Ghost => self.ghost_addr(),
+        };
+        match action {
+            AddrAction::Read(loc) => {
+                let byte = Wrapping(mem.read_byte(addr));
+                match loc {
+                    ReadLocation::InstrRegister => self.ir = byte,
+                    ReadLocation::RegisterZ => self.z = byte,
+                    ReadLocation::RegisterW => self.w = byte,
+                    ReadLocation::Other(DataLocation::Bus) => self.z = byte,
+                    ReadLocation::Other(DataLocation::Register(reg)) => self[reg] = byte,
+                    ReadLocation::Other(DataLocation::Literal(_)) => todo!(),
+                }
+            }
+            AddrAction::Write(loc) => {
+                let byte = match loc {
+                    DataLocation::Bus => self.z.0,
+                    DataLocation::Register(reg) => self[reg].0,
+                    DataLocation::Literal(val) => val,
+                };
+                mem.write_byte(addr, byte);
+            }
+            AddrAction::Noop => {}
+        }
+        if let Some((signal, reg)) = idu {
+            let addr = match signal {
+                IduSignal::Inc => addr + 1,
+                IduSignal::Dec => addr - 1,
+                IduSignal::Noop => addr,
+            };
+            match reg {
+                FullRegister::AF => self.write_af(addr),
+                FullRegister::BC => self.write_bc(addr),
+                FullRegister::DE => self.write_de(addr),
+                FullRegister::HL => self.write_hl(addr),
+                FullRegister::SP => self.sp = Wrapping(addr),
+                FullRegister::PC => self.pc = Wrapping(addr),
+            }
+        }
+        let Some(signal) = alu else { return };
+        let AluSignal {
+            input_one,
+            input_two,
+            op,
+            output,
+        } = signal;
+        let val_one = match input_one {
+            DataLocation::Bus => self.z,
+            DataLocation::Register(reg) => self[reg],
+            DataLocation::Literal(val) => Wrapping(val),
+        };
+        let val_two = match input_two {
+            DataLocation::Bus => self.z,
+            DataLocation::Register(reg) => self[reg],
+            DataLocation::Literal(val) => Wrapping(val),
+        };
+        // TODO: This also need set flags
+        let byte = match op {
+            AluOp::Add => val_one + val_two,
+            AluOp::SignedAdd => val_one.add_signed(val_two.0 as i8),
+            AluOp::Subtract => val_one - val_two,
+            AluOp::And => val_one & val_two,
+            AluOp::Or => val_one | val_two,
+            AluOp::Xor => val_one ^ val_two,
+        };
+        match output {
+            DataLocation::Bus => self.z = byte,
+            DataLocation::Register(reg) => self[reg] = byte,
+            DataLocation::Literal(_) => todo!(),
+        }
     }
 
     /// Moves the data in the WZ "ghost" registers into the specified wide register.
     pub fn ghost_move(&mut self, reg: WideReg) {
-        todo!()
+        let addr = self.ghost_addr();
+        match reg {
+            WideReg::BC => self.write_bc(addr),
+            WideReg::DE => self.write_de(addr),
+            WideReg::HL => self.write_hl(addr),
+            WideReg::SP => self.sp = Wrapping(addr),
+        }
     }
 
     /// Moves the data in the WZ "ghost" registers into the specified wide register.
     pub fn ghost_move_wide_reg(&mut self, reg: WideRegWithoutSP) {
-        todo!()
+        let addr = self.ghost_addr();
+        match reg {
+            WideRegWithoutSP::BC => self.write_bc(addr),
+            WideRegWithoutSP::DE => self.write_de(addr),
+            WideRegWithoutSP::HL => self.write_hl(addr),
+            WideRegWithoutSP::AF => self.write_af(addr),
+        }
+    }
+
+    pub fn ghost_addr(&self) -> u16 {
+        u16::from_be_bytes([self.w.0, self.z.0])
     }
 
     /// Increment the ghost register W
     pub fn inc_ghost_w(&mut self) {
-        todo!()
-    }
-
-    pub fn z(&self) -> u8 {
-        todo!()
+        self.w += 1;
     }
 
     /*
@@ -896,6 +1000,12 @@ impl Cpu {
         let [d, e] = val.to_be_bytes().map(Wrapping);
         self.d = d;
         self.e = e;
+    }
+
+    fn write_hl(&mut self, val: u16) {
+        let [h, l] = val.to_be_bytes().map(Wrapping);
+        self.h = h;
+        self.l = l;
     }
 
     fn inc_ptr(&mut self, val: u16) {

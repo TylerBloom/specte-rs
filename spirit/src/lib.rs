@@ -103,15 +103,7 @@ impl Gameboy {
     /// This method is only called by the step sequence when it gets ticked. This represents a
     /// clock cycle (not a machine cycle). This involves ticking the memory and PPU.
     fn tick(&mut self) {
-        self.mem.tick();
-        /*
-        let mask = {
-            let bit = self.cpu().ime as u8;
-            (bit << 0) | (bit << 1) | (bit << 2) | (bit << 3) | (bit << 4)
-        };
-        self.mem.io_mut().interrupt_flags &= mask;
-        */
-        self.ppu.tick(&mut self.mem);
+        self.mem.tick(&mut self.ppu);
     }
 
     pub fn read_op(&self) -> Instruction {
@@ -219,7 +211,7 @@ impl<M: MemoryLikeExt> GameboyState<'_, M> {
     /// This method ticks the memory and PPU and meant to be used when contructing an `MCycle` is
     /// too unwieldy.
     pub(crate) fn blind_tick(&mut self) {
-        todo!()
+        self.mem.tick(self.ppu);
     }
 }
 

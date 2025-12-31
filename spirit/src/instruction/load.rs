@@ -239,7 +239,7 @@ impl LoadOp {
             LoadOp::SPIntoHL(_) => {
                 state.tick(MCycle::load_pc());
                 // It is just easier to handroll this operations than shove it into an MCycle...
-                let z = state.cpu.z() as i16;
+                let z = state.cpu.z.0 as i16;
                 let sp = state.cpu.sp;
                 // TODO: Adjust flags...
                 state.cpu.sp = Wrapping(sp.0.wrapping_add_signed(z));

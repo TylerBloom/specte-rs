@@ -58,12 +58,21 @@ pub(crate) fn deserialize_slices_as_one<
     Not,
     derive_more::Display,
     derive_more::UpperHex,
+    derive_more::BitAnd,
+    derive_more::BitOr,
+    derive_more::BitXor,
     derive_more::BitAndAssign,
     derive_more::BitOrAssign,
     derive_more::BitXorAssign,
 )]
 #[display("{_0}")]
 pub struct Wrapping<T>(pub T);
+
+impl Wrapping<u8> {
+    pub fn add_signed(self, val: i8) -> Self {
+        Self(self.0.wrapping_add_signed(val))
+    }
+}
 
 impl From<u8> for Wrapping<u8> {
     fn from(value: u8) -> Self {
