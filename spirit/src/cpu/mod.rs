@@ -27,6 +27,7 @@ use crate::instruction::RegOrPointer;
 use crate::instruction::SomeByte;
 use crate::instruction::WideReg;
 use crate::instruction::WideRegWithoutSP;
+use crate::lookup::parse_instruction;
 use crate::mem::MemoryLikeExt;
 use crate::utils::Wrapping;
 
@@ -37,7 +38,7 @@ mod cpu_tests;
     Debug, Default, Hash, Clone, PartialEq, Eq, derive_more::Display, Serialize, Deserialize,
 )]
 #[display(
-    "CPU {{ A=0x{:0>2X} F={} B=0x{:0>2X} C=0x{:0>2X} D=0x{:0>2X} E=0x{:0>2X} H=0x{:0>2X} L=0x{:0>2X} SP=0x{:0>2X} PC=0x{:0>2X} IME={} Done={} }}",
+    "CPU {{ A=0x{:0>2X} F={} B=0x{:0>2X} C=0x{:0>2X} D=0x{:0>2X} E=0x{:0>2X} H=0x{:0>2X} L=0x{:0>2X}, Z={:0>2X}, W={:0>2X}, IR={:0>2X} SP=0x{:0>2X} PC=0x{:0>2X} IME={} Done={} }}",
     a,
     f,
     b,
@@ -46,6 +47,9 @@ mod cpu_tests;
     e,
     h,
     l,
+    z,
+    w,
+    ir,
     sp,
     pc,
     ime,
@@ -280,8 +284,8 @@ impl Cpu {
     }
 
     /// Determines what the CPU should do next. Included in this, is a check for interrupts.
-    pub fn read_op(&self, mem: &impl MemoryLikeExt) -> Instruction {
-        mem.read_op(self.pc.0, self.ime)
+    pub fn read_op(&self) -> Instruction {
+        parse_instruction(self.ir.0)
     }
 
     pub fn inc_pc(&mut self) {
@@ -289,6 +293,7 @@ impl Cpu {
     }
 
     pub fn execute(&mut self, cycle: MCycle, mem: &mut impl MemoryLikeExt) {
+        // println!("Executing cycle: {cycle:?}");
         let MCycle {
             addr_bus,
             action,
@@ -397,11 +402,6 @@ impl Cpu {
 
     pub fn ghost_addr(&self) -> u16 {
         u16::from_be_bytes([self.w.0, self.z.0])
-    }
-
-    /// Increment the ghost register W
-    pub fn inc_ghost_w(&mut self) {
-        self.w += 1;
     }
 
     /*

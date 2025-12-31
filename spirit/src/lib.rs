@@ -97,8 +97,12 @@ impl Gameboy {
     /// the intruction is automatically ran.
     pub fn step(&mut self) {
         let op = self.read_op();
-        (0..op.length(&self.cpu)).for_each(|_| self.tick());
-        self.apply_op(op);
+        let state = GameboyState {
+            mem: &mut self.mem,
+            ppu: &mut self.ppu,
+            cpu: &mut self.cpu,
+        };
+        op.execute(state);
     }
 
     /// This method is only called by the step sequence when it gets ticked. This represents a
@@ -108,16 +112,7 @@ impl Gameboy {
     }
 
     pub fn read_op(&self) -> Instruction {
-        self.cpu.read_op(&self.mem)
-    }
-
-    fn apply_op(&mut self, op: Instruction) {
-        let state = GameboyState {
-            mem: &mut self.mem,
-            ppu: &mut self.ppu,
-            cpu: &mut self.cpu,
-        };
-        op.execute(state);
+        self.cpu.read_op()
     }
 
     pub fn is_running(&self) -> bool {

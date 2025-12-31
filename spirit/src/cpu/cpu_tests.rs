@@ -1,9 +1,10 @@
 use std::fmt::Display;
+use std::fmt::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use crate::ppu::Ppu;
 use crate::GameboyState;
+use crate::ppu::Ppu;
 
 use super::Cpu;
 use super::Flags;
@@ -81,9 +82,9 @@ impl<const START: u8> TestBattery<START> {
         let results = self
             .suites
             .into_iter()
-            .filter(|(op, _)| *op == 0x02)
+            // .filter(|(op, _)| *op == 0x08)
             .map(|(op, suite)| (op, suite.execute(op)))
-            .inspect(|(_, report)| println!("{report}"))
+            // .inspect(|(_, report)| println!("{report}"))
             .collect();
         BatteryReport { results }
     }
@@ -140,8 +141,8 @@ impl TestSuite {
             .0
             .into_iter()
             .map(|test| test.execute(op_code))
-            .filter(|report| matches!(report.status, Status::Failed))
-            .take(2)
+            // .filter(|report| matches!(report.status, Status::Failed))
+            // .take(1)
             .collect();
         SuiteReport { results }
     }
@@ -214,28 +215,26 @@ impl CpuTest {
         } = self;
         let result = std::panic::catch_unwind(|| {
             let (mut cpu, mut mem) = init.build();
-            let len = cycles.len() as u8;
-            let mut cycles = len;
             // The PPU isn't actually used but needed for the internal ticking in the operation's
             // execution.
             let mut ppu = Ppu::new();
-            // FIXME: The test assume the CPU's IR has the op code of the load instruction already,
-            // so we need to read the operation and increment the opcode accordingly. This might
-            // cause issue for tests that run mutliple instructions, and will be corrected in the
-            // future.
-            let mut op = cpu.read_op(&mem);
-            cpu.pc += 1u16;
-            while cycles != 0 {
-                cycles = cycles.saturating_sub(op.length(&cpu) / 4);
+            let mut ops = 0;
+            // The end state should place the CPUs in (about) the same PC location, but, should
+            // a bug exist, that might not happen. No tests contains more than 100 ops. If that
+            // occurs, we break
+            while cpu.pc != end.pc && ops < 100 {
+                ops += 1;
+                let mut op = cpu.read_op();
+                // println!("Running instruction: {op}");
+                // println!("Init CPU: {cpu}");
                 let state = GameboyState {
                     mem: &mut mem,
                     ppu: &mut ppu,
                     cpu: &mut cpu,
                 };
                 op.execute(state);
-                op = cpu.read_op(&mem);
+                // println!("Post CPU: {cpu}\n");
             }
-            // FIXME: Once the initial offset is removed, this needs to be removed as well
             cpu.pc -= 1u16;
             // We don't care about the "ghost" registers or the instruction regsiter
             cpu.ir = 0.into();
@@ -248,7 +247,7 @@ impl CpuTest {
             Err(_err) => {
                 let reason =
                     format!("A panic occured while testing op 0x{op_code:0>2X} in test {name:?}");
-                eprintln!("{reason}");
+                // eprintln!("{reason}");
                 (Status::Failed, reason)
             }
         };
@@ -287,6 +286,8 @@ impl CpuState {
             f: Flags::from(self.f),
             h: self.h.into(),
             l: self.l.into(),
+            // The test cases have the PC already incremented before the instruction is read (or
+            // executed). This corrects that offset.
             pc: (self.pc - 1).into(),
             sp: self.sp.into(),
             ime: self.ime.unwrap_or_default(),
@@ -307,20 +308,31 @@ impl CpuState {
                 format!("CPU Mismatch:\n\tExpected {cpu}\n\tKnown    {}", known.0),
             );
         }
-        known
-            .1
-            .iter()
-            .zip(mem.iter())
-            .enumerate()
-            .find_map(|(addr, (known, expected))| {
-                (known != expected).then(|| {
-                    (
-                        Status::Failed,
-                        format!("Mismatch value @ 0x{addr:0>4X} (aka ({addr})): Expected {expected}, Known {known}"),
-                    )
-                })
-            })
-            .unwrap_or_default()
+        if known.1 == mem {
+            (Status::Passed, String::new())
+        } else {
+            let mismatches: Vec<_> = known
+                .1
+                .iter()
+                .zip(mem.iter())
+                .enumerate()
+                .filter(|(_, (a, b))| **a != 0 || **b != 0)
+                .collect();
+            let mut addrs = String::new();
+            let mut knowns = String::new();
+            let mut expecteds = String::new();
+            for (addr, (known, expected)) in mismatches {
+                _ = write!(addrs, "0x{addr:0>4X} ");
+                _ = write!(knowns, "  0x{known:0>2X} ");
+                _ = write!(expecteds, "  0x{expected:0>2X} ");
+            }
+            (
+                Status::Failed,
+                format!(
+                    "Memory diff (addresses, known, expected):\n{addrs}\n{knowns}\n{expecteds}"
+                ),
+            )
+        }
     }
 }
 
