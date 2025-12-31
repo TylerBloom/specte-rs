@@ -218,12 +218,12 @@ impl CpuTest {
             while cycles != 0 {
                 let op = cpu.read_op(&mem);
                 cycles = cycles.saturating_sub(op.length(&cpu) / 4);
-                let mut state = GameboyState {
+                let state = GameboyState {
                     mem: &mut mem,
                     ppu: &mut ppu,
                     cpu: &mut cpu,
                 };
-                op.execute(&mut state);
+                op.execute(state);
                 // println!("{cpu}");
             }
             end.validate((cpu, mem))

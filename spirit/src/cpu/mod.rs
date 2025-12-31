@@ -18,6 +18,7 @@ use crate::instruction::InterruptOp;
 use crate::instruction::JumpOp;
 use crate::instruction::LoadAPointer;
 use crate::instruction::LoadOp;
+use crate::instruction::MCycle;
 use crate::instruction::RegOrPointer;
 use crate::instruction::SomeByte;
 use crate::instruction::WideReg;
@@ -64,6 +65,11 @@ pub struct Cpu {
     /// Once the gameboy has halted, this flag is set. Note that the gameboy can continue to be
     /// ticked, but the stack pointer is not moved, so it will continue to cycle without change.
     pub state: CpuState,
+    /// These two registers are "ghost registers". Z is used as the one byte data bus in most
+    /// cases; however, there are times where a buffer of a second byte is needed.
+    /// No assumptions about the state of these registers should be made between instructions.
+    pub z: Wrapping<u8>,
+    pub w: Wrapping<u8>,
 }
 
 #[derive(
@@ -272,6 +278,29 @@ impl Cpu {
 
     pub fn inc_pc(&mut self) {
         self.pc += 1u16;
+    }
+
+    pub fn execute(&mut self, cycle: MCycle, mem: &mut impl MemoryLikeExt) {
+        let MCycle { addr_bus, action, idu, alu } = cycle;
+    }
+
+    /// Moves the data in the WZ "ghost" registers into the specified wide register.
+    pub fn ghost_move(&mut self, reg: WideReg) {
+        todo!()
+    }
+
+    /// Moves the data in the WZ "ghost" registers into the specified wide register.
+    pub fn ghost_move_wide_reg(&mut self, reg: WideRegWithoutSP) {
+        todo!()
+    }
+
+    /// Increment the ghost register W
+    pub fn inc_ghost_w(&mut self) {
+        todo!()
+    }
+
+    pub fn z(&self) -> u8 {
+        todo!()
     }
 
     /*
@@ -909,6 +938,7 @@ impl Index<HalfRegister> for Cpu {
             HalfRegister::E => &self.e,
             HalfRegister::H => &self.h,
             HalfRegister::L => &self.l,
+            HalfRegister::F => todo!(),
         }
     }
 }
@@ -923,6 +953,7 @@ impl IndexMut<HalfRegister> for Cpu {
             HalfRegister::E => &mut self.e,
             HalfRegister::H => &mut self.h,
             HalfRegister::L => &mut self.l,
+            HalfRegister::F => todo!(),
         }
     }
 }
