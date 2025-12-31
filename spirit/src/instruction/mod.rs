@@ -1,6 +1,9 @@
 use crate::GameboyState;
 use crate::cpu::Cpu;
 use crate::cpu::Flags;
+use crate::cpu::FullRegister;
+use crate::mem::MemoryLike;
+use crate::mem::MemoryLikeExt;
 
 use derive_more::From;
 use derive_more::IsVariant;
@@ -20,6 +23,23 @@ pub use control::*;
 pub use interrupt::*;
 pub use jump::*;
 pub use load::*;
+
+// Refactor plan:
+// Implement the instruction execution via a series of "M Cycle" sub-instructions. This needs to
+// ignore pre-fetching in the last cycle of each instruction.
+//  - Ensure all of the CPU JSON tests continue to pass.
+//  - Sure the test ROM tests continue to pass.
+// Note that the goal here is identical behavior from before the refactor.
+//
+// When these changes are complete, they should be merged in with two follow up PRs.
+// First, instructions should be constructable from a single byte (the op code). The instruction
+// should then communicate via MCycles how to get any literals it uses. (And similarly for prefixed
+// instructions).
+// Using the cycles data from the JSON tests to further verify that this is working correctly.
+//
+// The ultimate goal is the follow flow:
+//  - CPU reads the current state of the IR and constructs an operations
+//  - The operation then constructs ticks and passes them into the "Gameboy state" to be processed
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
 #[display("{_variant}")]
@@ -60,24 +80,156 @@ pub enum Instruction {
     Transfer,
 }
 
-fn read_then_work(state: &mut GameboyState, work: impl FnOnce(&mut Cpu)) {
-    // Read the OP code
-    state.tick();
-    state.tick();
+// TODO: Misc operations (messing with the IME) will also need to be implemented
+// Alternatively, the operation can call some method directly. This prevents a check during
+// every cycle.
+// TODO: This is very premature optimization, but this type could be split into four types to
+// prevent the unnecessary checks for IDU and ALU operations during every tick.
+pub struct MCycle {
+    /// Signals which address will now live on the address bus.
+    pub addr_bus: PointerReg,
+    /// Signals what to do with the address that now lives on the address bus.
+    pub action: AddrAction,
+    /// Contains an optional signal to inc or dec the address on the address bus and then where to
+    /// put the resulting value.
+    pub idu: Option<(IduSignal, FullRegister)>,
+    /// Contains an optional signal to the ALU about where to read data for a binary op and where
+    /// to put the resulting data.
+    pub alu: Option<AluSignal>,
+}
 
-    // Inc PC
-    state.cpu.inc_pc();
-    state.tick();
+impl MCycle {
+    /// The end of every instruction is very similar. The PC is pushed onto the address bus, read
+    /// from, and then incremented
+    pub const fn final_cycle() -> Self {
+        Self {
+            addr_bus: PointerReg::PC,
+            action: AddrAction::Read(ReadLocation::InstrRegister),
+            idu: Some((IduSignal::Inc, FullRegister::PC)),
+            alu: None,
+        }
+    }
 
-    // Do actual work
-    work(&mut state.cpu);
-    state.tick();
+    /// Like the final cycle but with a concurrent ALU process.
+    pub const fn final_with_alu(signal: AluSignal) -> Self {
+        let mut cycle = Self::final_cycle();
+        cycle.alu = Some(signal);
+        cycle
+    }
+
+    pub const fn load_pointer() -> Self {
+        Self {
+            addr_bus: PointerReg::HL,
+            action: AddrAction::Read(ReadLocation::Other(DataLocation::Bus)),
+            idu: None,
+            alu: None,
+        }
+    }
+
+    /// Reads byte pointed to by PC into the data bus and inc PC.
+    pub const fn load_pc() -> Self {
+        MCycle {
+            addr_bus: PointerReg::PC,
+            action: AddrAction::Read(ReadLocation::Other(DataLocation::Bus)),
+            idu: Some((IduSignal::Inc, FullRegister::PC)),
+            alu: None,
+        }
+    }
+}
+
+/// Communicates which 16 bit address is moved from the CPU onto the address bus, which register is
+/// being moved needs to be communicated.
+pub enum PointerReg {
+    PC,
+    SP,
+    HL,
+    BC,
+    DE,
+    /// Use the "ghost registers" WZ as a pointer
+    Ghost,
+}
+
+/// When the new address is put onto the address bus, either data is read from memory or writen
+/// onto the data bus or a register. This communicates that.
+pub enum AddrAction {
+    Read(ReadLocation),
+    Write(DataLocation),
+    Noop,
+}
+
+// FIXME: Fix these names... The instr register is also a data location but the ALU can't use it...
+
+/// When data is read from memory, it can move to several locations. This signals where to put the
+/// data.
+///
+/// NOTE: "Registers" Z and W are what are referred to (in this crate) as "ghost registers". For
+/// single-byte operations that read data in, mess with it, and move it to an 8-bit register, this
+/// can just be thought of as a byte living on the data bus. This idea breaks down when moving a
+/// 2-byte datum around (e.g. loading a 16 bit literal into a wide register). For this, the "ghost"
+/// wide register WZ is needed.
+#[derive(Debug, derive_more::From)]
+pub enum ReadLocation {
+    InstrRegister,
+    RegisterZ,
+    RegisterW,
+    Other(DataLocation),
+}
+
+/// When data is moved from the ALU (or from memory in many cases), there needs to be a single for
+/// where it can go. This communicates those locations.
+#[derive(Debug, Clone, Copy, derive_more::From)]
+pub enum DataLocation {
+    Bus,
+    Register(HalfRegister),
+    // TODO: This is a bit of a work around for cases like where SP is writen to/read from.
+    Literal(u8),
+}
+
+/// The IDU (increment/decrement unit) can, well, either increment or decrement the address on the
+/// address bus (independently from the ALU) and then put the resulting value back into a register.
+pub enum IduSignal {
+    Inc,
+    Dec,
+    Noop,
+}
+
+/// Contains all the data for a signalled operation to the ALU.
+pub struct AluSignal {
+    pub input_one: DataLocation,
+    pub input_two: DataLocation,
+    pub op: AluOp,
+    pub output: DataLocation,
+}
+
+impl AluSignal {
+    pub const fn move_into(src: DataLocation, dest: DataLocation) -> Self {
+        // This is effectively a noop than a move
+        Self {
+            input_one: src,
+            input_two: src,
+            op: AluOp::And,
+            output: dest,
+        }
+    }
+
+    pub const fn move_into_a(src: DataLocation) -> Self {
+        Self::move_into(src, DataLocation::Register(HalfRegister::A))
+    }
+}
+
+/// When an operation is signalled to the ALU, the ALU need to know what binary operation to
+/// perform. This enumerates those operations.
+pub enum AluOp {
+    Add,
+    SignedAdd,
+    Subtract,
+    And,
+    Or,
+    Xor,
 }
 
 impl Instruction {
-    // FIXME: This function (and all subsequent functions) don't need a mutable reference to the
-    // state. That, or should to a mutable reference to the Gameboy itself.
-    pub(crate) fn execute(self, state: &mut GameboyState<'_>) {
+    pub(crate) fn execute<M: MemoryLikeExt>(self, state: GameboyState<'_, M>) {
         match self {
             Instruction::Load(load_op) => load_op.execute(state),
             Instruction::BitShift(bit_shift_op) => bit_shift_op.execute(state),
@@ -86,43 +238,17 @@ impl Instruction {
             Instruction::Jump(jump_op) => jump_op.execute(state),
             Instruction::Arithmetic(arithmetic_op) => arithmetic_op.execute(state),
             Instruction::Interrupt(interrupt_op) => interrupt_op.execute(state),
-            Instruction::Daa => {
-                read_then_work(state, |cpu| cpu.a = to_bcd(cpu.a.0, &mut cpu.f).into())
-            }
-            Instruction::Scf => read_then_work(state, |cpu| {
-                cpu.f.n = false;
-                cpu.f.h = false;
-                cpu.f.c = true;
-            }),
-            Instruction::Cpl => read_then_work(state, |cpu| {
-                cpu.a = !cpu.a;
-                cpu.f.n = true;
-                cpu.f.h = true;
-            }),
-            Instruction::Ccf => read_then_work(state, |cpu| {
-                cpu.f.n = false;
-                cpu.f.h = false;
-                cpu.f.c = !cpu.f.c;
-            }),
-            Instruction::Di => {
-                read_then_work(state, |cpu| {
-                    cpu.f.n = false;
-                    cpu.f.h = false;
-                    cpu.f.c = !cpu.f.c;
-                });
-            }
-            Instruction::Ei => {
-                return read_then_work(state, |cpu| {
-                    cpu.f.n = false;
-                    cpu.f.h = false;
-                    cpu.f.c = !cpu.f.c;
-                });
-            }
+            Instruction::Daa => todo!(),
+            Instruction::Scf => todo!(),
+            Instruction::Cpl => todo!(),
+            Instruction::Ccf => todo!(),
+            Instruction::Di => todo!(),
+            Instruction::Ei => todo!(),
             Instruction::Transfer => todo!(),
         }
-        let cpu = &mut state.cpu;
-        cpu.ime |= cpu.to_set_ime;
-        cpu.to_set_ime = false;
+        // let cpu = &mut state.cpu;
+        // cpu.ime |= cpu.to_set_ime;
+        // cpu.to_set_ime = false;
     }
 
     /// Returns the number of ticks to will take to complete this instruction.
@@ -205,6 +331,17 @@ pub enum WideRegWithoutSP {
     AF,
 }
 
+impl WideRegWithoutSP {
+    pub fn split(self) -> (HalfRegister, HalfRegister) {
+        match self {
+            WideRegWithoutSP::BC => (HalfRegister::B, HalfRegister::C),
+            WideRegWithoutSP::DE => (HalfRegister::D, HalfRegister::E),
+            WideRegWithoutSP::HL => (HalfRegister::H, HalfRegister::L),
+            WideRegWithoutSP::AF => (HalfRegister::A, HalfRegister::F),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
 #[display("{_variant}")]
 pub enum Condition {
@@ -253,6 +390,8 @@ pub enum LoadAPointer {
 pub enum HalfRegister {
     #[display("A")]
     A,
+    #[display("F")]
+    F,
     #[display("B")]
     B,
     #[display("C")]

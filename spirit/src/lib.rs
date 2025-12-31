@@ -14,12 +14,13 @@ use serde::Serialize;
 
 use cpu::Cpu;
 use cpu::CpuState;
+use instruction::*;
 use mem::MemoryLike;
+use mem::MemoryLikeExt;
 use mem::MemoryMap;
 use mem::StartUpHeaders;
 use mem::vram::PpuMode;
 use ppu::Ppu;
-use instruction::*;
 
 pub mod apu;
 pub mod cpu;
@@ -118,12 +119,12 @@ impl Gameboy {
     }
 
     fn apply_op(&mut self, op: Instruction) {
-        let mut state = GameboyState {
+        let state = GameboyState {
             mem: &mut self.mem,
             ppu: &mut self.ppu,
             cpu: &mut self.cpu,
         };
-        op.execute(&mut state);
+        op.execute(state);
     }
 
     pub fn is_running(&self) -> bool {
@@ -200,22 +201,25 @@ impl DerefMut for StartUpSequence {
     }
 }
 
-pub(crate) struct GameboyState<'a> {
-    pub(crate) mem: &'a mut MemoryMap,
+pub(crate) struct GameboyState<'a, M = MemoryMap>
+where
+    M: MemoryLikeExt,
+{
+    pub(crate) mem: &'a mut M,
     pub(crate) ppu: &'a mut Ppu,
     pub(crate) cpu: &'a mut Cpu,
 }
 
-impl GameboyState<'_> {
-    pub(crate) fn tick(&mut self) {
-        todo!()
+impl<M: MemoryLikeExt> GameboyState<'_, M> {
+    pub(crate) fn tick(&mut self, cycle: MCycle) {
+        self.cpu.execute(cycle, self.mem);
+        self.blind_tick();
     }
 
-    pub(crate) fn m_tick(&mut self) {
-        self.tick();
-        self.tick();
-        self.tick();
-        self.tick();
+    /// This method ticks the memory and PPU and meant to be used when contructing an `MCycle` is
+    /// too unwieldy.
+    pub(crate) fn blind_tick(&mut self) {
+        todo!()
     }
 }
 

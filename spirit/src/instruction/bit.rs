@@ -20,50 +20,17 @@ pub enum BitOpInner {
 }
 
 impl BitOp {
-    pub(crate) fn execute(self, state: &mut GameboyState<'_>) {
+    pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
         let BitOp { bit, reg, op } = self;
         debug_assert!(bit < 8);
         match op {
             BitOpInner::Bit => {
-                // self.f.z = !check_bit(bit, byte);
-                // self.f.n = false;
-                // self.f.h = true;
                 todo!()
             }
             BitOpInner::Res => {
-                // Read the OP code
-                state.tick();
-                state.tick();
-
-                // Inc PC
-                state.cpu.inc_pc();
-                state.tick();
-                state.tick();
-
-                match reg {
-                    RegOrPointer::Reg(reg) => {
-                        // Read the OP code
-                        state.tick();
-                        state.tick();
-
-                        // Inc PC
-                        state.cpu.inc_pc();
-                        state.tick();
-                        state.tick();
-
-                        // Do actual work
-                        state.cpu[reg] &= !(0x1 << bit);
-                        state.tick();
-                    }
-                    RegOrPointer::Pointer => {
-                        todo!()
-                    }
-                }
-
-                // self.update_byte(reg, mem, |byte| *byte &= !(0x1 << bit));
+                todo!()
             }
             BitOpInner::Set => {
-                // self.update_byte(reg, mem, |byte| *byte |= 0x1 << bit);
                 todo!()
             }
         }
