@@ -65,6 +65,7 @@ impl<const START: u8> TestBattery<START> {
         let mut suites = Vec::new();
         let end: u8 = START + 0x3F;
         for i in START..=end {
+            let mut path = path.clone();
             path.push(format!("json_test_{i:0>2x}.json"));
             let Ok(file) = std::fs::read_to_string(&path) else {
                 continue;
@@ -73,6 +74,7 @@ impl<const START: u8> TestBattery<START> {
             let suite: TestSuite = serde_json::from_str(&file).unwrap();
             suites.push((i, suite));
         }
+        println!("{} tests to run...", suites.len());
         assert!(!suites.is_empty());
         Self { suites }
     }
@@ -81,7 +83,9 @@ impl<const START: u8> TestBattery<START> {
         let results = self
             .suites
             .into_iter()
+            // .filter(|(op, _)| *op == 0x50)
             .map(|(op, suite)| (op, suite.execute(op)))
+            // .inspect(|(_, report)| println!("{report}"))
             .collect();
         BatteryReport { results }
     }
@@ -224,8 +228,11 @@ impl CpuTest {
                     cpu: &mut cpu,
                 };
                 op.execute(state);
-                // println!("{cpu}");
             }
+            // We don't care about the "ghost" registers or the instruction regsiter
+            cpu.ir = 0.into();
+            cpu.z = 0.into();
+            cpu.w = 0.into();
             end.validate((cpu, mem))
         });
         let (status, reason) = match result {
