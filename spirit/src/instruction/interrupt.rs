@@ -1,4 +1,4 @@
-use crate::GameboyState;
+use crate::{mem::{MemoryLike, MemoryLikeExt}, GameboyState};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
 #[display("{_variant}")]
@@ -17,7 +17,7 @@ pub enum InterruptOp {
 }
 
 impl InterruptOp {
-    pub(crate) fn execute(self, state: &mut GameboyState<'_>) {
+    pub(crate) fn execute<M: MemoryLikeExt>(self, state: GameboyState<'_, M>) {
         match self {
             InterruptOp::VBlank => todo!(),
             InterruptOp::LCD => todo!(),

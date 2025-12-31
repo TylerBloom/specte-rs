@@ -30,7 +30,7 @@ pub enum BitShiftOp {
 }
 
 impl BitShiftOp {
-    pub(crate) fn execute(self, state: &mut GameboyState<'_>) {
+    pub(crate) fn execute<M: MemoryLikeExt>(self, state: GameboyState<'_, M>) {
         match self {
             BitShiftOp::Rlc(reg_or_pointer) => todo!(),
             BitShiftOp::Rlca => todo!(),

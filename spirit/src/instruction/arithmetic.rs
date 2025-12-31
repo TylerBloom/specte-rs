@@ -35,7 +35,7 @@ pub enum ArithmeticOp {
 }
 
 impl ArithmeticOp {
-    pub(crate) fn execute(self, state: &mut GameboyState<'_>) {
+    pub(crate) fn execute<M: MemoryLikeExt>(self, state: GameboyState<'_, M>) {
         match self {
             ArithmeticOp::Add(some_byte) => todo!(),
             ArithmeticOp::Add16(wide_reg) => todo!(),
