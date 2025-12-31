@@ -152,7 +152,7 @@ impl LoadOp {
                     LoadAPointer::Hld => MCycle {
                         addr_bus: PointerReg::HL,
                         action: AddrAction::Read(DataLocation::Bus.into()),
-                        idu: Some((IduSignal::Inc, FullRegister::HL)),
+                        idu: Some((IduSignal::Dec, FullRegister::HL)),
                         alu: None,
                     },
                 };
@@ -184,7 +184,7 @@ impl LoadOp {
                     LoadAPointer::Hld => MCycle {
                         addr_bus: PointerReg::HL,
                         action: AddrAction::Write(HalfRegister::A.into()),
-                        idu: Some((IduSignal::Inc, FullRegister::HL)),
+                        idu: Some((IduSignal::Dec, FullRegister::HL)),
                         alu: None,
                     },
                 };
