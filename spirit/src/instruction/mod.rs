@@ -88,6 +88,7 @@ pub enum Instruction {
 // every cycle.
 // TODO: This is very premature optimization, but this type could be split into four types to
 // prevent the unnecessary checks for IDU and ALU operations during every tick.
+#[derive(Debug)]
 pub struct MCycle {
     /// Signals which address will now live on the address bus.
     pub addr_bus: PointerReg,
@@ -142,6 +143,7 @@ impl MCycle {
 
 /// Communicates which 16 bit address is moved from the CPU onto the address bus, which register is
 /// being moved needs to be communicated.
+#[derive(Debug)]
 pub enum PointerReg {
     PC,
     SP,
@@ -154,6 +156,7 @@ pub enum PointerReg {
 
 /// When the new address is put onto the address bus, either data is read from memory or writen
 /// onto the data bus or a register. This communicates that.
+#[derive(Debug)]
 pub enum AddrAction {
     Read(ReadLocation),
     Write(DataLocation),
@@ -190,6 +193,7 @@ pub enum DataLocation {
 
 /// The IDU (increment/decrement unit) can, well, either increment or decrement the address on the
 /// address bus (independently from the ALU) and then put the resulting value back into a register.
+#[derive(Debug)]
 pub enum IduSignal {
     Inc,
     Dec,
@@ -197,6 +201,7 @@ pub enum IduSignal {
 }
 
 /// Contains all the data for a signalled operation to the ALU.
+#[derive(Debug)]
 pub struct AluSignal {
     pub input_one: DataLocation,
     pub input_two: DataLocation,
@@ -222,6 +227,7 @@ impl AluSignal {
 
 /// When an operation is signalled to the ALU, the ALU need to know what binary operation to
 /// perform. This enumerates those operations.
+#[derive(Debug)]
 pub enum AluOp {
     Add,
     SignedAdd,
