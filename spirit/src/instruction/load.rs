@@ -207,19 +207,20 @@ impl LoadOp {
                     alu: None,
                 };
                 state.tick(cycle);
-                // Write SP to the stack using the "ghost pointer"
+                // Write SP to mem using the "ghost pointer"
                 let [s, p] = state.cpu.sp.0.to_be_bytes();
                 let cycle = MCycle {
                     addr_bus: PointerReg::Ghost,
-                    action: AddrAction::Write(s.into()),
+                    action: AddrAction::Write(p.into()),
                     idu: None,
                     alu: None,
                 };
                 state.tick(cycle);
-                state.cpu.inc_ghost_w();
+                // Increment the "ghost pointer"
+                state.cpu.z += 1;
                 let cycle = MCycle {
                     addr_bus: PointerReg::Ghost,
-                    action: AddrAction::Write(p.into()),
+                    action: AddrAction::Write(s.into()),
                     idu: None,
                     alu: None,
                 };

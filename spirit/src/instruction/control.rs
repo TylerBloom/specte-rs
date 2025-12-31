@@ -12,10 +12,10 @@ pub enum ControlOp {
 }
 
 impl ControlOp {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, state: GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
         match self {
+            ControlOp::Noop => state.tick(MCycle::final_cycle()),
             ControlOp::Halt => todo!(),
-            ControlOp::Noop => todo!(),
             ControlOp::Stop => todo!(),
         }
     }
