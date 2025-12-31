@@ -1,3 +1,4 @@
+#![allow(unused_variables, dead_code, unused_mut)]
 //! Spirit is the core crate for the specters project. Contained here is the all of the logic for
 //! creating a gameboy emulator and running it with a game ROM. This crate aims to be platform
 //! agnostic and free of the UI-specifics. Other projects will wrap this logic in their own ways.
@@ -82,8 +83,8 @@ impl Gameboy {
             // TODO: Either commit to this all of the way or don't. The core issue here is that
             // some data might be read and is not meant to be an instruction. Panic catching is
             // also an option here.
-            if let Instruction::Jump(JumpOp::Absolute(dest)) = op {
-                pc = dest;
+            if let Instruction::Jump(JumpOp::Absolute) = op {
+                todo!()
             } else {
                 pc += op.size() as u16;
             }

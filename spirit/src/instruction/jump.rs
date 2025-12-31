@@ -5,26 +5,26 @@ use super::*;
 #[display("{_variant}")]
 pub enum JumpOp {
     /// Op Codes: 0x20, 0x30, 0x28, 0x38
-    #[display("JR {_0}, 0x{_1:0>2X}")]
-    ConditionalRelative(Condition, i8),
+    #[display("JR {_0}")]
+    ConditionalRelative(Condition),
     /// Op Code: 0x18
-    #[display("JR 0x{_0:0>2X}")]
-    Relative(i8),
+    #[display("JR")]
+    Relative,
     /// Op Codes: 0xC2, 0xD2, 0xCA, 0xDA
-    #[display("JP {_0}, 0x{_1:0>4X}")]
-    ConditionalAbsolute(Condition, u16),
+    #[display("JP {_0}")]
+    ConditionalAbsolute(Condition),
     /// Op Code: 0xC3
-    #[display("JP 0x{_0:0>2X}")]
-    Absolute(u16),
+    #[display("JP")]
+    Absolute,
     /// Op Code: 0xE9
     #[display("JP HL")]
     JumpToHL,
     /// Op Code: 0xCD
-    #[display("CALL 0x{_0:0>4X}")]
-    Call(u16),
+    #[display("CALL ")]
+    Call,
     /// Op Codes: 0xC4, 0xD4, 0xCC, 0xDC
-    #[display("CALL {_0}, 0x{_1:0>4X}")]
-    ConditionalCall(Condition, u16),
+    #[display("CALL {_0}")]
+    ConditionalCall(Condition),
     /// Op Code: 0xC9
     #[display("RET")]
     Return,
@@ -64,13 +64,13 @@ pub enum JumpOp {
 impl JumpOp {
     pub(crate) fn execute<M: MemoryLikeExt>(self, state: GameboyState<'_, M>) {
         match self {
-            JumpOp::ConditionalRelative(condition, _) => todo!(),
-            JumpOp::Relative(_) => todo!(),
-            JumpOp::ConditionalAbsolute(condition, _) => todo!(),
-            JumpOp::Absolute(_) => todo!(),
+            JumpOp::ConditionalRelative(condition) => todo!(),
+            JumpOp::Relative => todo!(),
+            JumpOp::ConditionalAbsolute(condition) => todo!(),
+            JumpOp::Absolute => todo!(),
             JumpOp::JumpToHL => todo!(),
-            JumpOp::Call(_) => todo!(),
-            JumpOp::ConditionalCall(condition, _) => todo!(),
+            JumpOp::Call => todo!(),
+            JumpOp::ConditionalCall(condition) => todo!(),
             JumpOp::Return => todo!(),
             JumpOp::ConditionalReturn(condition) => todo!(),
             JumpOp::ReturnAndEnable => todo!(),
@@ -88,13 +88,13 @@ impl JumpOp {
     /// Returns the number of ticks to will take to complete this instruction.
     pub fn length(&self, cpu: &Cpu) -> u8 {
         match self {
-            JumpOp::ConditionalRelative(cond, _) => 8 + (4 * cond.passed(cpu) as u8),
-            JumpOp::Relative(_) => 12,
-            JumpOp::ConditionalAbsolute(cond, _) => 12 + (4 * cond.passed(cpu) as u8),
-            JumpOp::Absolute(_) => 16,
+            JumpOp::ConditionalRelative(cond) => 8 + (4 * cond.passed(cpu) as u8),
+            JumpOp::Relative => 12,
+            JumpOp::ConditionalAbsolute(cond) => 12 + (4 * cond.passed(cpu) as u8),
+            JumpOp::Absolute => 16,
             JumpOp::JumpToHL => 4,
-            JumpOp::Call(_) => 24,
-            JumpOp::ConditionalCall(cond, _) => 12 + (12 * cond.passed(cpu) as u8),
+            JumpOp::Call => 24,
+            JumpOp::ConditionalCall(cond) => 12 + (12 * cond.passed(cpu) as u8),
             JumpOp::Return => 16,
             JumpOp::ConditionalReturn(cond) => 8 + (12 * cond.passed(cpu) as u8),
             JumpOp::ReturnAndEnable => 16,
@@ -112,13 +112,13 @@ impl JumpOp {
     /// Returns the size of the bytes to took to construct this instruction
     pub const fn size(&self) -> u8 {
         match self {
-            JumpOp::ConditionalRelative(_, _) => 2,
-            JumpOp::Relative(_) => 2,
-            JumpOp::ConditionalAbsolute(_, _) => 3,
-            JumpOp::Absolute(_) => 3,
+            JumpOp::ConditionalRelative(_) => 2,
+            JumpOp::Relative => 2,
+            JumpOp::ConditionalAbsolute(_) => 3,
+            JumpOp::Absolute => 3,
             JumpOp::JumpToHL => 1,
-            JumpOp::Call(_) => 3,
-            JumpOp::ConditionalCall(_, _) => 3,
+            JumpOp::Call => 3,
+            JumpOp::ConditionalCall(_) => 3,
             JumpOp::Return => 1,
             JumpOp::ConditionalReturn(_) => 1,
             JumpOp::ReturnAndEnable => 1,

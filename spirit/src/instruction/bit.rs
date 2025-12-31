@@ -1,9 +1,10 @@
 use super::*;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
-#[display("{op} {bit} {reg}")]
+#[display("{op} {reg}")]
 pub struct BitOp {
-    pub bit: u8,
+    // This is going to be calculated from the op code, which is in the CPU's IR register
+    // pub bit: u8,
     pub reg: RegOrPointer,
     pub op: BitOpInner,
 }
@@ -21,8 +22,7 @@ pub enum BitOpInner {
 
 impl BitOp {
     pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
-        let BitOp { bit, reg, op } = self;
-        debug_assert!(bit < 8);
+        let BitOp { reg, op } = self;
         match op {
             BitOpInner::Bit => {
                 todo!()

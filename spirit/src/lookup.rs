@@ -1,57 +1,18 @@
 use array_concat::concat_arrays;
 
 use crate::instruction::*;
-// #[cfg(test)]
-use crate::mem::MemoryLike;
-#[cfg(not(test))]
-use crate::mem::MemoryMap;
 
-#[cfg(test)]
 #[track_caller]
-pub fn parse_instruction(mem: &dyn MemoryLike, pc: u16) -> Instruction {
-    OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
+pub fn parse_instruction(op_code: u8) -> Instruction {
+    OP_LOOKUP[op_code as usize]
 }
 
-#[cfg(test)]
 #[track_caller]
-fn parse_prefixed_instruction(mem: &dyn MemoryLike, pc: u16) -> Instruction {
-    PREFIXED_OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
+fn parse_prefixed_instruction(op_code: u8) -> Instruction {
+    PREFIXED_OP_LOOKUP[op_code as usize]
 }
 
-#[cfg(test)]
-type OpArray<const N: usize> = [fn(&dyn MemoryLike, u16) -> Instruction; N];
-
-#[cfg(not(test))]
-#[track_caller]
-pub fn parse_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
-    OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
-}
-
-#[cfg(not(test))]
-#[track_caller]
-fn parse_prefixed_instruction(mem: &MemoryMap, pc: u16) -> Instruction {
-    PREFIXED_OP_LOOKUP[mem.read_byte(pc) as usize](mem, pc)
-}
-
-#[cfg(not(test))]
-type OpArray<const N: usize> = [fn(&MemoryMap, u16) -> Instruction; N];
-#[cfg(test)]
-#[track_caller]
-fn invalid_op_code(mem: &dyn MemoryLike, pc: u16) -> Instruction {
-    unreachable!(
-        "Op code '0x{:0>2X}' @ 0x{pc:0>4X} does not correspond to any valid operation",
-        mem.read_byte(pc)
-    )
-}
-
-#[cfg(not(test))]
-#[track_caller]
-fn invalid_op_code(mem: &MemoryMap, pc: u16) -> Instruction {
-    unreachable!(
-        "Op code '0x{:0>2X}' @ 0x{pc:0>4X} does not correspond to any valid operation",
-        mem.read_byte(pc)
-    )
-}
+type OpArray<const N: usize> = [Instruction; N];
 
 enum InnerRegOrPointer {
     A,
@@ -80,340 +41,141 @@ impl InnerRegOrPointer {
 }
 
 macro_rules! define_op {
-    () => {
-        invalid_op_code
-    };
-    (DAA) => {
-        |_, _| Instruction::Daa
-    };
-    (SCF) => {
-        |_, _| Instruction::Scf
-    };
-    (CPL) => {
-        |_, _| Instruction::Cpl
-    };
-    (CCF) => {
-        |_, _| Instruction::Ccf
-    };
-    (NOOP) => {
-        |_, _| Instruction::ControlOp(ControlOp::Noop)
-    };
-    (JR) => {
-        |data, pc| Instruction::Jump(JumpOp::Relative(data.read_byte(pc + 1) as i8))
-    };
-    (JR, $r: ident) => {
-        |data, pc| {
-            Instruction::Jump(JumpOp::ConditionalRelative(
-                Condition::$r,
-                data.read_byte(pc + 1) as i8,
-            ))
-        }
-    };
-    (JP) => {
-        |data, pc| {
-            Instruction::Jump(JumpOp::Absolute(u16::from_le_bytes([
-                data.read_byte(pc + 1),
-                data.read_byte(pc + 2),
-            ])))
-        }
-    };
-    (JP, HL) => {
-        |_, _| Instruction::Jump(JumpOp::JumpToHL)
-    };
-    (JP, $r: ident) => {
-        |data, pc| {
-            Instruction::Jump(JumpOp::ConditionalAbsolute(
-                Condition::$r,
-                u16::from_le_bytes([data.read_byte(pc + 1), data.read_byte(pc + 2)]),
-            ))
-        }
-    };
-    (STOP) => {
-        |data, pc| Instruction::ControlOp(ControlOp::Stop(data.read_byte(pc + 1)))
-    };
-    (ADD) => {
-        |data, pc| {
-            Instruction::Arithmetic(ArithmeticOp::Add(SomeByte::Direct(data.read_byte(pc + 1))))
-        }
-    };
-    (ADD, SP) => {
-        |data, pc| Instruction::Arithmetic(ArithmeticOp::AddSP(data.read_byte(pc + 1) as i8))
-    };
-    (ADD, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Add(InnerRegOrPointer::$r.convert().into()))
-    };
-    (ADC) => {
-        |data, pc| {
-            Instruction::Arithmetic(ArithmeticOp::Adc(SomeByte::Direct(data.read_byte(pc + 1))))
-        }
-    };
-    (ADC, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Adc(InnerRegOrPointer::$r.convert().into()))
-    };
-    (SUB) => {
-        |data, pc| {
-            Instruction::Arithmetic(ArithmeticOp::Sub(SomeByte::Direct(data.read_byte(pc + 1))))
-        }
-    };
-    (SUB, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Sub(InnerRegOrPointer::$r.convert().into()))
-    };
-    (SBC) => {
-        |data, pc| {
-            Instruction::Arithmetic(ArithmeticOp::Sbc(SomeByte::Direct(data.read_byte(pc + 1))))
-        }
-    };
-    (SBC, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Sbc(InnerRegOrPointer::$r.convert().into()))
-    };
-    (AND) => {
-        |data, pc| {
-            Instruction::Arithmetic(ArithmeticOp::And(SomeByte::Direct(data.read_byte(pc + 1))))
-        }
-    };
-    (AND, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::And(InnerRegOrPointer::$r.convert().into()))
-    };
-    (XOR) => {
-        |data, pc| {
-            Instruction::Arithmetic(ArithmeticOp::Xor(SomeByte::Direct(data.read_byte(pc + 1))))
-        }
-    };
-    (XOR, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Xor(InnerRegOrPointer::$r.convert().into()))
-    };
-    (OR) => {
-        |data, pc| {
-            Instruction::Arithmetic(ArithmeticOp::Or(SomeByte::Direct(data.read_byte(pc + 1))))
-        }
-    };
-    (OR, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Or(InnerRegOrPointer::$r.convert().into()))
-    };
-    (CP) => {
-        |data, pc| {
-            Instruction::Arithmetic(ArithmeticOp::Cp(SomeByte::Direct(data.read_byte(pc + 1))))
-        }
-    };
-    (CP, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Cp(InnerRegOrPointer::$r.convert().into()))
-    };
-    (ADD16, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Add16(WideReg::$r))
-    };
-    (INC, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Inc(InnerRegOrPointer::$r.convert()))
-    };
-    (INC16, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Inc16(WideReg::$r))
-    };
-    (DEC, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Dec(InnerRegOrPointer::$r.convert()))
-    };
-    (DEC16, $r: ident) => {
-        |_, _| Instruction::Arithmetic(ArithmeticOp::Dec16(WideReg::$r))
-    };
-    (LD, $r: ident, A) => {
-        |_, _| Instruction::Load(LoadOp::StoreFromA(LoadAPointer::$r))
-    };
-    (LD SP) => {
-        |data, pc| {
-            Instruction::Load(LoadOp::StoreSP(u16::from_le_bytes([
-                data.read_byte(pc + 1),
-                data.read_byte(pc + 2),
-            ])))
-        }
-    };
-    (LoadA) => {
-        |data, pc| {
-            Instruction::Load(LoadOp::LoadA {
-                ptr: u16::from_le_bytes([data.read_byte(pc + 1), data.read_byte(pc + 2)]),
-            })
-        }
-    };
-    (StoreA) => {
-        |data, pc| {
-            Instruction::Load(LoadOp::StoreA {
-                ptr: u16::from_le_bytes([data.read_byte(pc + 1), data.read_byte(pc + 2)]),
-            })
-        }
-    };
-    (LD, $r: ident) => {
-        |data, pc| {
-            Instruction::Load(LoadOp::Direct(
-                InnerRegOrPointer::$r.convert(),
-                data.read_byte(pc + 1),
-            ))
-        }
-    };
-    (LD16, $r: ident) => {
-        |data, pc| {
-            Instruction::Load(LoadOp::Direct16(
-                WideReg::$r,
-                u16::from_le_bytes([data.read_byte(pc + 1), data.read_byte(pc + 2)]),
-            ))
-        }
-    };
-    (LD, A, $r: ident) => {
-        |_, _| Instruction::Load(LoadOp::LoadIntoA(LoadAPointer::$r))
-    };
-    (LD, HL, SP) => {
-        |data, pc| Instruction::Load(LoadOp::SPIntoHL(data.read_byte(pc + 1) as i8))
-    };
-    (LD, SP, HL) => {
-        |_, _| Instruction::Load(LoadOp::HLIntoSP)
-    };
-    (LD, $r1: ident, $r2: ident,) => {
-        |_, _| {
-            Instruction::Load(LoadOp::Basic {
-                dest: InnerRegOrPointer::$r1.convert(),
-                src: InnerRegOrPointer::$r2.convert(),
-            })
-        }
-    };
-    (LD, Pointer, Pointer,) => {
-        |_, _| Instruction::ControlOp(ControlOp::Halt)
-    };
-    (POP, $r: ident) => {
-        |_, _| Instruction::Load(LoadOp::Pop(WideRegWithoutSP::$r))
-    };
-    (PUSH, $r: ident) => {
-        |_, _| Instruction::Load(LoadOp::Push(WideRegWithoutSP::$r))
-    };
-    (RET) => {
-        |_, _| Instruction::Jump(JumpOp::Return)
-    };
-    (RETI) => {
-        |_, _| Instruction::Jump(JumpOp::ReturnAndEnable)
-    };
-    (RET, $r: ident) => {
-        |_, _| Instruction::Jump(JumpOp::ConditionalReturn(Condition::$r))
-    };
-    (CALL) => {
-        |data, pc| {
-            Instruction::Jump(JumpOp::Call(u16::from_le_bytes([
-                data.read_byte(pc + 1),
-                data.read_byte(pc + 2),
-            ])))
-        }
-    };
-    (CALL, $r: ident) => {
-        |data, pc| {
-            Instruction::Jump(JumpOp::ConditionalCall(
-                Condition::$r,
-                u16::from_le_bytes([data.read_byte(pc + 1), data.read_byte(pc + 2)]),
-            ))
-        }
-    };
-    (PREFIX) => {
-        |mem, pc| parse_prefixed_instruction(mem, pc + 1)
-    };
-    (DI) => {
-        |_, _| Instruction::Di
-    };
-    (EI) => {
-        |_, _| Instruction::Ei
-    };
-    (RST00) => {
-        |_, _| Instruction::Jump(JumpOp::RST00)
-    };
-    (RST08) => {
-        |_, _| Instruction::Jump(JumpOp::RST08)
-    };
-    (RST10) => {
-        |_, _| Instruction::Jump(JumpOp::RST10)
-    };
-    (RST18) => {
-        |_, _| Instruction::Jump(JumpOp::RST18)
-    };
-    (RST20) => {
-        |_, _| Instruction::Jump(JumpOp::RST20)
-    };
-    (RST28) => {
-        |_, _| Instruction::Jump(JumpOp::RST28)
-    };
-    (RST30) => {
-        |_, _| Instruction::Jump(JumpOp::RST30)
-    };
-    (RST38) => {
-        |_, _| Instruction::Jump(JumpOp::RST38)
-    };
-    (LoadHigh) => {
-        |data, pc| Instruction::Load(LoadOp::LoadHigh(data.read_byte(pc + 1)))
-    };
-    (StoreHigh) => {
-        |data, pc| Instruction::Load(LoadOp::StoreHigh(data.read_byte(pc + 1)))
-    };
-    (LDHCA) => {
-        |_, _| Instruction::Load(LoadOp::Ldhca)
-    };
-    (LDHAC) => {
-        |_, _| Instruction::Load(LoadOp::Ldhac)
-    };
+    () => {{ Instruction::Unused }};
+    (DAA) => {{ Instruction::Daa }};
+    (SCF) => {{ Instruction::Scf }};
+    (CPL) => {{ Instruction::Cpl }};
+    (CCF) => {{ Instruction::Ccf }};
+    (NOOP) => {{ Instruction::ControlOp(ControlOp::Noop) }};
+    (JR) => {{ Instruction::Jump(JumpOp::Relative) }};
+    (JR, $r: ident) => {{ Instruction::Jump(JumpOp::ConditionalRelative(Condition::$r)) }};
+    (JP) => {{ Instruction::Jump(JumpOp::Absolute) }};
+    (JP, HL) => {{ Instruction::Jump(JumpOp::JumpToHL) }};
+    (JP, $r: ident) => {{ Instruction::Jump(JumpOp::ConditionalAbsolute(Condition::$r)) }};
+    (STOP) => {{ Instruction::ControlOp(ControlOp::Stop) }};
+    (ADD) => {{ Instruction::Arithmetic(ArithmeticOp::Add(SomeByte::Direct)) }};
+    (ADD, SP) => {{ Instruction::Arithmetic(ArithmeticOp::AddSP) }};
+    (ADD, $r: ident) => {{
+        Instruction::Arithmetic(ArithmeticOp::Add(SomeByte::Referenced(
+            InnerRegOrPointer::$r.convert(),
+        )))
+    }};
+    (ADC) => {{ Instruction::Arithmetic(ArithmeticOp::Adc(SomeByte::Direct)) }};
+    (ADC, $r: ident) => {{
+        Instruction::Arithmetic(ArithmeticOp::Adc(SomeByte::Referenced(
+            InnerRegOrPointer::$r.convert(),
+        )))
+    }};
+    (SUB) => {{ Instruction::Arithmetic(ArithmeticOp::Sub(SomeByte::Direct)) }};
+    (SUB, $r: ident) => {{
+        Instruction::Arithmetic(ArithmeticOp::Sub(SomeByte::Referenced(
+            InnerRegOrPointer::$r.convert(),
+        )))
+    }};
+    (SBC) => {{ Instruction::Arithmetic(ArithmeticOp::Sbc(SomeByte::Direct)) }};
+    (SBC, $r: ident) => {{
+        Instruction::Arithmetic(ArithmeticOp::Sbc(SomeByte::Referenced(
+            InnerRegOrPointer::$r.convert(),
+        )))
+    }};
+    (AND) => {{ Instruction::Arithmetic(ArithmeticOp::And(SomeByte::Direct)) }};
+    (AND, $r: ident) => {{
+        Instruction::Arithmetic(ArithmeticOp::And(SomeByte::Referenced(
+            InnerRegOrPointer::$r.convert(),
+        )))
+    }};
+    (XOR) => {{ Instruction::Arithmetic(ArithmeticOp::Xor(SomeByte::Direct)) }};
+    (XOR, $r: ident) => {{
+        Instruction::Arithmetic(ArithmeticOp::Xor(SomeByte::Referenced(
+            InnerRegOrPointer::$r.convert(),
+        )))
+    }};
+    (OR) => {{ Instruction::Arithmetic(ArithmeticOp::Or(SomeByte::Direct)) }};
+    (OR, $r: ident) => {{
+        Instruction::Arithmetic(ArithmeticOp::Or(SomeByte::Referenced(
+            InnerRegOrPointer::$r.convert(),
+        )))
+    }};
+    (CP) => {{ Instruction::Arithmetic(ArithmeticOp::Cp(SomeByte::Direct)) }};
+    (CP, $r: ident) => {{
+        Instruction::Arithmetic(ArithmeticOp::Cp(SomeByte::Referenced(
+            InnerRegOrPointer::$r.convert(),
+        )))
+    }};
+    (ADD16, $r: ident) => {{ Instruction::Arithmetic(ArithmeticOp::Add16(WideReg::$r)) }};
+    (INC, $r: ident) => {{ Instruction::Arithmetic(ArithmeticOp::Inc(InnerRegOrPointer::$r.convert())) }};
+    (INC16, $r: ident) => {{ Instruction::Arithmetic(ArithmeticOp::Inc16(WideReg::$r)) }};
+    (DEC, $r: ident) => {{ Instruction::Arithmetic(ArithmeticOp::Dec(InnerRegOrPointer::$r.convert())) }};
+    (DEC16, $r: ident) => {{ Instruction::Arithmetic(ArithmeticOp::Dec16(WideReg::$r)) }};
+    (LD, $r: ident, A) => {{ Instruction::Load(LoadOp::StoreFromA(LoadAPointer::$r)) }};
+    (LD SP) => {{ Instruction::Load(LoadOp::StoreSP) }};
+    (LoadA) => {{ Instruction::Load(LoadOp::LoadA) }};
+    (StoreA) => {{ Instruction::Load(LoadOp::StoreA) }};
+    (LD, $r: ident) => {{ Instruction::Load(LoadOp::Direct(InnerRegOrPointer::$r.convert())) }};
+    (LD16, $r: ident) => {{ Instruction::Load(LoadOp::Direct16(WideReg::$r)) }};
+    (LD, A, $r: ident) => {{ Instruction::Load(LoadOp::LoadIntoA(LoadAPointer::$r)) }};
+    (LD, HL, SP) => {{ Instruction::Load(LoadOp::SPIntoHL) }};
+    (LD, SP, HL) => {{ Instruction::Load(LoadOp::HLIntoSP) }};
+    (LD, $r1: ident, $r2: ident,) => {{
+        Instruction::Load(LoadOp::Basic {
+            dest: InnerRegOrPointer::$r1.convert(),
+            src: InnerRegOrPointer::$r2.convert(),
+        })
+    }};
+    (LD, Pointer, Pointer,) => {{ Instruction::ControlOp(ControlOp::Halt) }};
+    (POP, $r: ident) => {{ Instruction::Load(LoadOp::Pop(WideRegWithoutSP::$r)) }};
+    (PUSH, $r: ident) => {{ Instruction::Load(LoadOp::Push(WideRegWithoutSP::$r)) }};
+    (RET) => {{ Instruction::Jump(JumpOp::Return) }};
+    (RETI) => {{ Instruction::Jump(JumpOp::ReturnAndEnable) }};
+    (RET, $r: ident) => {{ Instruction::Jump(JumpOp::ConditionalReturn(Condition::$r)) }};
+    (CALL) => {{ Instruction::Jump(JumpOp::Call) }};
+    (CALL, $r: ident) => {{ Instruction::Jump(JumpOp::ConditionalCall(Condition::$r)) }};
+    (PREFIX) => {{ Instruction::Prefixed }};
+    (DI) => {{ Instruction::Di }};
+    (EI) => {{ Instruction::Ei }};
+    (RST00) => {{ Instruction::Jump(JumpOp::RST00) }};
+    (RST08) => {{ Instruction::Jump(JumpOp::RST08) }};
+    (RST10) => {{ Instruction::Jump(JumpOp::RST10) }};
+    (RST18) => {{ Instruction::Jump(JumpOp::RST18) }};
+    (RST20) => {{ Instruction::Jump(JumpOp::RST20) }};
+    (RST28) => {{ Instruction::Jump(JumpOp::RST28) }};
+    (RST30) => {{ Instruction::Jump(JumpOp::RST30) }};
+    (RST38) => {{ Instruction::Jump(JumpOp::RST38) }};
+    (LoadHigh) => {{ Instruction::Load(LoadOp::LoadHigh) }};
+    (StoreHigh) => {{ Instruction::Load(LoadOp::StoreHigh) }};
+    (LDHCA) => {{ Instruction::Load(LoadOp::Ldhca) }};
+    (LDHAC) => {{ Instruction::Load(LoadOp::Ldhac) }};
     /* --- Prefixed op definitions --- */
-    (RLCA) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Rlca)
-    };
-    (RLA) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Rla)
-    };
-    (RL, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Rl(InnerRegOrPointer::$r.convert()))
-    };
-    (RLC, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Rlc(InnerRegOrPointer::$r.convert()))
-    };
-    (RRCA) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Rrca)
-    };
-    (RRA) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Rra)
-    };
-    (RRC, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Rrc(InnerRegOrPointer::$r.convert()))
-    };
-    (RR, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Rr(InnerRegOrPointer::$r.convert()))
-    };
-    (SLA, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Sla(InnerRegOrPointer::$r.convert()))
-    };
-    (SRA, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Sra(InnerRegOrPointer::$r.convert()))
-    };
-    (SWAP, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Swap(InnerRegOrPointer::$r.convert()))
-    };
-    (SRL, $r: ident) => {
-        |_, _| Instruction::BitShift(BitShiftOp::Srl(InnerRegOrPointer::$r.convert()))
-    };
-    (BIT, $b: literal, $r: ident) => {
-        |data, pc| {
-            Instruction::Bit(BitOp {
-                bit: (data.read_byte(pc) - 0x40) / 8,
-                reg: InnerRegOrPointer::$r.convert(),
-                op: BitOpInner::Bit,
-            })
-        }
-    };
-    (RES, $b: literal, $r: ident) => {
-        |data, pc| {
-            Instruction::Bit(BitOp {
-                bit: (data.read_byte(pc) - 0x80) / 8,
-                reg: InnerRegOrPointer::$r.convert(),
-                op: BitOpInner::Res,
-            })
-        }
-    };
-    (SET, $b: literal, $r: ident) => {
-        |data, pc| {
-            Instruction::Bit(BitOp {
-                bit: (data.read_byte(pc) - 0xC0) / 8,
-                reg: InnerRegOrPointer::$r.convert(),
-                op: BitOpInner::Set,
-            })
-        }
-    };
+    (RLCA) => {{ Instruction::BitShift(BitShiftOp::Rlca) }};
+    (RLA) => {{ Instruction::BitShift(BitShiftOp::Rla) }};
+    (RL, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Rl(InnerRegOrPointer::$r.convert())) }};
+    (RLC, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Rlc(InnerRegOrPointer::$r.convert())) }};
+    (RRCA) => {{ Instruction::BitShift(BitShiftOp::Rrca) }};
+    (RRA) => {{ Instruction::BitShift(BitShiftOp::Rra) }};
+    (RRC, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Rrc(InnerRegOrPointer::$r.convert())) }};
+    (RR, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Rr(InnerRegOrPointer::$r.convert())) }};
+    (SLA, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Sla(InnerRegOrPointer::$r.convert())) }};
+    (SRA, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Sra(InnerRegOrPointer::$r.convert())) }};
+    (SWAP, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Swap(InnerRegOrPointer::$r.convert())) }};
+    (SRL, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Srl(InnerRegOrPointer::$r.convert())) }};
+    (BIT, $b: literal, $r: ident) => {{
+        Instruction::Bit(BitOp {
+            reg: InnerRegOrPointer::$r.convert(),
+            op: BitOpInner::Bit,
+        })
+    }};
+    (RES, $b: literal, $r: ident) => {{
+        Instruction::Bit(BitOp {
+            reg: InnerRegOrPointer::$r.convert(),
+            op: BitOpInner::Res,
+        })
+    }};
+    (SET, $b: literal, $r: ident) => {{
+        Instruction::Bit(BitOp {
+            reg: InnerRegOrPointer::$r.convert(),
+            op: BitOpInner::Set,
+        })
+    }};
 }
 
 macro_rules! define_op_chunk {
@@ -787,31 +549,18 @@ mod test {
     fn dedupped_op_lookup_tables() {
         let mut data = MemoryMap::construct();
         // Test standard ops
-        let mut ops: Vec<_> = (0..=u8::MAX)
-            .filter_map(|i| {
-                data.rom_mut()[0] = i;
-                std::panic::catch_unwind(|| parse_instruction(&data, 0)).ok()
-            })
-            .collect();
+        let mut ops: Vec<_> = (0..=u8::MAX).map(|i| parse_instruction(i)).collect();
         // Ensure (almost) all of the operations are actually returning unique values
-        let len = (u8::MAX - 10) as usize;
-        assert_eq!(len, ops.len());
         ops.dedup();
-        assert_eq!(len, ops.len());
+        assert_eq!((u8::MAX - 9) as usize, ops.len());
 
         // Test prefixed ops
         let mut more_ops: Vec<_> = (0..=u8::MAX)
-            .filter_map(|i| {
-                data.rom_mut()[0] = i;
-                std::panic::catch_unwind(|| parse_prefixed_instruction(&data, 0)).ok()
-            })
+            .map(|i| parse_prefixed_instruction(i))
             .collect();
         // Ensure all of the operations are actually returning unique values
         assert_eq!(0x100, more_ops.len());
         more_ops.dedup();
         assert_eq!(0x100, more_ops.len());
-        ops.extend(more_ops);
-        ops.dedup();
-        assert_eq!(len + 0x100, ops.len());
     }
 }
