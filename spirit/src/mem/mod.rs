@@ -160,7 +160,7 @@ impl MemoryLike for MemoryMap {
         ) {
             (Some(op), _) => op,
             (None, Some(op)) if ime => op,
-            _ => parse_instruction(self, addr),
+            _ => parse_instruction(self.read_byte(addr)),
         }
     }
 
@@ -769,7 +769,7 @@ impl MemoryLike for Vec<u8> {
     }
 
     fn read_op(&self, addr: u16, _ime: bool) -> Instruction {
-        parse_instruction(self, addr)
+        parse_instruction(self.read_byte(addr))
     }
 
     fn vram_transfer(&mut self) {}

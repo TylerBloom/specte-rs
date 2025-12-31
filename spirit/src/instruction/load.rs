@@ -12,11 +12,11 @@ pub enum LoadOp {
         src: RegOrPointer,
     },
     /// Used for opcodes 0xX1
-    #[display("LD 0x{_1:0>4X} -> {_0}")]
-    Direct16(WideReg, u16),
+    #[display("LD -> {_0}")]
+    Direct16(WideReg),
     /// Used for opcodes 0x_6 and 0x_E
-    #[display("LD 0x{_1:0>2X} -> {_0}")]
-    Direct(RegOrPointer, u8),
+    #[display("LD -> {_0}")]
+    Direct(RegOrPointer),
     /// Used for opcodes 0x_A
     #[display("LD {_0} -> A")]
     LoadIntoA(LoadAPointer),
@@ -25,15 +25,15 @@ pub enum LoadOp {
     StoreFromA(LoadAPointer),
     /// Opcode: 0x08
     /// Store SP & $FF at address n16 and SP >> 8 at address n16 + 1.
-    #[display("LD SP -> 0x{_0:0>4X}")]
-    StoreSP(u16),
+    #[display("LD SP -> _")]
+    StoreSP,
     /// Opcode: 0xF9
     #[display("LD SP -> HL")]
     HLIntoSP,
     /// Opcode: 0xF8
     /// Add the signed value e8 to SP and store the result in HL.
-    #[display("LD SP + {_0} -> HL")]
-    SPIntoHL(i8),
+    #[display("LD SP+ -> HL")]
+    SPIntoHL,
     /// Used for opcodes 0x_1
     #[display("POP {_0}")]
     Pop(WideRegWithoutSP),
@@ -41,11 +41,11 @@ pub enum LoadOp {
     #[display("PUSH {_0}")]
     Push(WideRegWithoutSP),
     /// Used for opcode 0xE0
-    #[display("LDH A -> 0xFF{_0:0>2X}")]
-    LoadHigh(u8),
+    #[display("LDH A")]
+    LoadHigh,
     /// Used for opcode 0xF0
-    #[display("LDH 0xFF{_0:0>2X} -> A")]
-    StoreHigh(u8),
+    #[display("LDH A")]
+    StoreHigh,
     /// Used for opcode 0xE2
     #[display("LDHCA")]
     Ldhca,
@@ -55,11 +55,11 @@ pub enum LoadOp {
     // TODO: These are backwards. For `LoadA`, the ptr is the dest and A is the value. The reverse
     // is true for `StoreA`.
     /// Used for opcode 0xEA
-    #[display("LD 0x{ptr:0>4X} -> A")]
-    LoadA { ptr: u16 },
+    #[display("LD A")]
+    LoadA,
     /// Used for opcode 0xFA
-    #[display("LD A -> 0x{ptr:0>4X}")]
-    StoreA { ptr: u16 },
+    #[display("LD A")]
+    StoreA,
 }
 
 impl LoadOp {
@@ -91,7 +91,7 @@ impl LoadOp {
                     todo!("Impl HALT")
                 }
             },
-            LoadOp::Direct16(wide_reg, _) => {
+            LoadOp::Direct16(wide_reg) => {
                 let cycle = MCycle {
                     addr_bus: PointerReg::PC,
                     action: AddrAction::Read(ReadLocation::RegisterZ),
@@ -109,7 +109,7 @@ impl LoadOp {
                 state.tick(MCycle::final_cycle());
                 state.cpu.ghost_move(wide_reg);
             }
-            LoadOp::Direct(reg_or_pointer, _) => match reg_or_pointer {
+            LoadOp::Direct(reg_or_pointer) => match reg_or_pointer {
                 RegOrPointer::Reg(reg) => {
                     let cycle = MCycle::load_pc();
                     state.tick(cycle);
@@ -191,7 +191,7 @@ impl LoadOp {
                 state.tick(cycle);
                 state.tick(MCycle::final_cycle());
             }
-            LoadOp::StoreSP(_) => {
+            LoadOp::StoreSP => {
                 // Construct pointer out of "ghost registers"
                 let cycle = MCycle {
                     addr_bus: PointerReg::PC,
@@ -236,7 +236,7 @@ impl LoadOp {
                 state.tick(cycle);
                 state.tick(MCycle::final_cycle());
             }
-            LoadOp::SPIntoHL(_) => {
+            LoadOp::SPIntoHL => {
                 state.tick(MCycle::load_pc());
                 // It is just easier to handroll this operations than shove it into an MCycle...
                 let z = state.cpu.z.0 as i16;
@@ -289,7 +289,7 @@ impl LoadOp {
                 state.tick(cycle);
                 state.tick(MCycle::final_cycle());
             }
-            LoadOp::LoadHigh(_) => {
+            LoadOp::LoadHigh => {
                 let cycle = MCycle {
                     addr_bus: PointerReg::PC,
                     action: AddrAction::Read(ReadLocation::RegisterZ),
@@ -307,7 +307,7 @@ impl LoadOp {
                 state.tick(cycle);
                 state.tick(MCycle::final_cycle());
             }
-            LoadOp::StoreHigh(_) => {
+            LoadOp::StoreHigh => {
                 let cycle = MCycle {
                     addr_bus: PointerReg::PC,
                     action: AddrAction::Read(ReadLocation::RegisterZ),
@@ -351,7 +351,7 @@ impl LoadOp {
                 let signal = AluSignal::move_into_a(DataLocation::Bus);
                 state.tick(MCycle::final_with_alu(signal));
             }
-            LoadOp::LoadA { ptr: _ } => {
+            LoadOp::LoadA  => {
                 let cycle = MCycle {
                     addr_bus: PointerReg::PC,
                     action: AddrAction::Read(ReadLocation::RegisterZ),
@@ -375,7 +375,7 @@ impl LoadOp {
                 state.tick(cycle);
                 state.tick(MCycle::final_cycle());
             }
-            LoadOp::StoreA { ptr: _ } => {
+            LoadOp::StoreA  => {
                 let cycle = MCycle {
                     addr_bus: PointerReg::PC,
                     action: AddrAction::Read(ReadLocation::RegisterZ),
@@ -419,18 +419,18 @@ impl LoadOp {
                 ..
             } => 8,
             LoadOp::Basic { .. } => 4,
-            LoadOp::Direct16(_, _) => 12,
-            LoadOp::Direct(RegOrPointer::Pointer, _) => 12,
-            LoadOp::Direct(_, _) => 8,
+            LoadOp::Direct16(_) => 12,
+            LoadOp::Direct(RegOrPointer::Pointer) => 12,
+            LoadOp::Direct(_) => 8,
             LoadOp::LoadIntoA(_) => 8,
             LoadOp::StoreFromA(_) => 8,
-            LoadOp::StoreSP(_) => 20,
+            LoadOp::StoreSP => 20,
             LoadOp::HLIntoSP => 8,
-            LoadOp::SPIntoHL(_) => 12,
+            LoadOp::SPIntoHL => 12,
             LoadOp::Pop(_) => 12,
             LoadOp::Push(_) => 16,
-            LoadOp::LoadHigh(_) => 12,
-            LoadOp::StoreHigh(_) => 12,
+            LoadOp::LoadHigh => 12,
+            LoadOp::StoreHigh => 12,
             LoadOp::Ldhca => 8,
             LoadOp::Ldhac => 8,
             LoadOp::LoadA { .. } => 16,
@@ -442,17 +442,17 @@ impl LoadOp {
     pub const fn size(&self) -> u8 {
         match self {
             LoadOp::Basic { .. } => 1,
-            LoadOp::Direct16(_, _) => 3,
-            LoadOp::Direct(_, _) => 2,
+            LoadOp::Direct16(_) => 3,
+            LoadOp::Direct(_) => 2,
             LoadOp::LoadIntoA(_) => 1,
             LoadOp::StoreFromA(_) => 1,
-            LoadOp::StoreSP(_) => 3,
+            LoadOp::StoreSP => 3,
             LoadOp::HLIntoSP => 1,
-            LoadOp::SPIntoHL(_) => 2,
+            LoadOp::SPIntoHL => 2,
             LoadOp::Pop(_) => 1,
             LoadOp::Push(_) => 1,
-            LoadOp::LoadHigh(_) => 2,
-            LoadOp::StoreHigh(_) => 2,
+            LoadOp::LoadHigh => 2,
+            LoadOp::StoreHigh => 2,
             LoadOp::Ldhca => 1,
             LoadOp::Ldhac => 1,
             LoadOp::LoadA { .. } => 3,

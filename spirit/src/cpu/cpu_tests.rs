@@ -61,7 +61,7 @@ struct TestBattery<const START: u8> {
 }
 
 impl<const START: u8> TestBattery<START> {
-    fn construct(mut path: PathBuf) -> Self {
+    fn construct(path: PathBuf) -> Self {
         let mut suites = Vec::new();
         let end: u8 = START + 0x3F;
         for i in START..=end {
@@ -70,11 +70,9 @@ impl<const START: u8> TestBattery<START> {
             let Ok(file) = std::fs::read_to_string(&path) else {
                 continue;
             };
-            path.pop();
             let suite: TestSuite = serde_json::from_str(&file).unwrap();
             suites.push((i, suite));
         }
-        println!("{} tests to run...", suites.len());
         assert!(!suites.is_empty());
         Self { suites }
     }
@@ -83,9 +81,9 @@ impl<const START: u8> TestBattery<START> {
         let results = self
             .suites
             .into_iter()
-            // .filter(|(op, _)| *op == 0x50)
+            .filter(|(op, _)| *op == 0x02)
             .map(|(op, suite)| (op, suite.execute(op)))
-            // .inspect(|(_, report)| println!("{report}"))
+            .inspect(|(_, report)| println!("{report}"))
             .collect();
         BatteryReport { results }
     }
@@ -142,6 +140,8 @@ impl TestSuite {
             .0
             .into_iter()
             .map(|test| test.execute(op_code))
+            .filter(|report| matches!(report.status, Status::Failed))
+            .take(2)
             .collect();
         SuiteReport { results }
     }
@@ -219,8 +219,13 @@ impl CpuTest {
             // The PPU isn't actually used but needed for the internal ticking in the operation's
             // execution.
             let mut ppu = Ppu::new();
+            // FIXME: The test assume the CPU's IR has the op code of the load instruction already,
+            // so we need to read the operation and increment the opcode accordingly. This might
+            // cause issue for tests that run mutliple instructions, and will be corrected in the
+            // future.
+            let mut op = cpu.read_op(&mem);
+            cpu.pc += 1u16;
             while cycles != 0 {
-                let op = cpu.read_op(&mem);
                 cycles = cycles.saturating_sub(op.length(&cpu) / 4);
                 let state = GameboyState {
                     mem: &mut mem,
@@ -228,7 +233,10 @@ impl CpuTest {
                     cpu: &mut cpu,
                 };
                 op.execute(state);
+                op = cpu.read_op(&mem);
             }
+            // FIXME: Once the initial offset is removed, this needs to be removed as well
+            cpu.pc -= 1u16;
             // We don't care about the "ghost" registers or the instruction regsiter
             cpu.ir = 0.into();
             cpu.z = 0.into();

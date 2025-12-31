@@ -1,4 +1,3 @@
-
 use super::*;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
@@ -8,8 +7,8 @@ pub enum ArithmeticOp {
     Add(SomeByte),
     #[display("ADD HL, {_0}")]
     Add16(WideReg),
-    #[display("ADD SP, {_0}")]
-    AddSP(i8),
+    #[display("ADD SP, ")]
+    AddSP,
     #[display("ADC {_0}")]
     Adc(SomeByte),
     #[display("SUB {_0}")]
@@ -39,7 +38,7 @@ impl ArithmeticOp {
         match self {
             ArithmeticOp::Add(some_byte) => todo!(),
             ArithmeticOp::Add16(wide_reg) => todo!(),
-            ArithmeticOp::AddSP(_) => todo!(),
+            ArithmeticOp::AddSP => todo!(),
             ArithmeticOp::Adc(some_byte) => todo!(),
             ArithmeticOp::Sub(some_byte) => todo!(),
             ArithmeticOp::Sbc(some_byte) => todo!(),
@@ -80,7 +79,7 @@ impl ArithmeticOp {
             ArithmeticOp::Dec(RegOrPointer::Reg(_)) => 4,
             ArithmeticOp::Inc16(_) => 8,
             ArithmeticOp::Dec16(_) => 8,
-            ArithmeticOp::AddSP(_) => 16,
+            ArithmeticOp::AddSP => 16,
         }
     }
 
@@ -88,27 +87,27 @@ impl ArithmeticOp {
     pub const fn size(&self) -> u8 {
         match self {
             ArithmeticOp::Add16(_) => 1,
-            ArithmeticOp::Add(SomeByte::Direct(_)) => 2,
+            ArithmeticOp::Add(SomeByte::Direct) => 2,
             ArithmeticOp::Add(_) => 1,
-            ArithmeticOp::Adc(SomeByte::Direct(_)) => 2,
+            ArithmeticOp::Adc(SomeByte::Direct) => 2,
             ArithmeticOp::Adc(_) => 1,
-            ArithmeticOp::Sub(SomeByte::Direct(_)) => 2,
+            ArithmeticOp::Sub(SomeByte::Direct) => 2,
             ArithmeticOp::Sub(_) => 1,
-            ArithmeticOp::Sbc(SomeByte::Direct(_)) => 2,
+            ArithmeticOp::Sbc(SomeByte::Direct) => 2,
             ArithmeticOp::Sbc(_) => 1,
-            ArithmeticOp::And(SomeByte::Direct(_)) => 2,
+            ArithmeticOp::And(SomeByte::Direct) => 2,
             ArithmeticOp::And(_) => 1,
-            ArithmeticOp::Xor(SomeByte::Direct(_)) => 2,
+            ArithmeticOp::Xor(SomeByte::Direct) => 2,
             ArithmeticOp::Xor(_) => 1,
-            ArithmeticOp::Or(SomeByte::Direct(_)) => 2,
+            ArithmeticOp::Or(SomeByte::Direct) => 2,
             ArithmeticOp::Or(_) => 1,
-            ArithmeticOp::Cp(SomeByte::Direct(_)) => 2,
+            ArithmeticOp::Cp(SomeByte::Direct) => 2,
             ArithmeticOp::Cp(_) => 1,
             ArithmeticOp::Inc(_) => 1,
             ArithmeticOp::Dec(_) => 1,
             ArithmeticOp::Inc16(_) => 1,
             ArithmeticOp::Dec16(_) => 1,
-            ArithmeticOp::AddSP(_) => 2,
+            ArithmeticOp::AddSP => 2,
         }
     }
 }
