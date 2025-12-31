@@ -4,14 +4,12 @@ use std::ops::IndexMut;
 
 use serde::Deserialize;
 use serde::Serialize;
-use tracing::trace;
 
 use crate::instruction::AddrAction;
 use crate::instruction::AluOp;
 use crate::instruction::AluSignal;
 use crate::instruction::ArithmeticOp;
 use crate::instruction::BitOp;
-use crate::instruction::BitOpInner;
 use crate::instruction::BitShiftOp;
 use crate::instruction::Condition;
 use crate::instruction::ControlOp;
@@ -21,7 +19,6 @@ use crate::instruction::IduSignal;
 use crate::instruction::Instruction;
 use crate::instruction::InterruptOp;
 use crate::instruction::JumpOp;
-use crate::instruction::LoadAPointer;
 use crate::instruction::LoadOp;
 use crate::instruction::MCycle;
 use crate::instruction::PointerReg;
@@ -508,117 +505,123 @@ impl Cpu {
     }
 
     fn execute_arithmetic_op(&mut self, op: ArithmeticOp, mem: &mut impl MemoryLikeExt) {
-        match op {
-            ArithmeticOp::AddSP(val) => {
-                let (sp, _c) = self.sp.0.overflowing_add_signed(val as i16);
-                self.f.z = false;
-                self.f.n = false;
-                self.f.h = (self.sp.0 << 12) > (sp << 12);
-                self.f.c = (self.sp.0 << 8) > (sp << 8);
-                self.sp = Wrapping(sp);
+        /*
+            match op {
+                ArithmeticOp::AddSP(val) => {
+                    let (sp, _c) = self.sp.0.overflowing_add_signed(val as i16);
+                    self.f.z = false;
+                    self.f.n = false;
+                    self.f.h = (self.sp.0 << 12) > (sp << 12);
+                    self.f.c = (self.sp.0 << 8) > (sp << 8);
+                    self.sp = Wrapping(sp);
+                }
+                ArithmeticOp::Inc16(reg) => {
+                    self.update_wide_reg(reg, |value| *value = value.wrapping_add(1))
+                }
+                ArithmeticOp::Dec16(reg) => {
+                    self.update_wide_reg(reg, |value| *value = value.wrapping_sub(1))
+                }
+                ArithmeticOp::Add16(reg) => {
+                    let value = self.read_wide_reg(reg);
+                    let ptr = self.ptr();
+                    self.f.h = (ptr & 0x0FFF) + (value & 0x0FFF) > 0x0FFF;
+                    let (ptr, carry) = ptr.overflowing_add(value);
+                    self.set_ptr(ptr);
+                    self.f.n = false;
+                    self.f.c = carry;
+                }
+                ArithmeticOp::Add(byte) => {
+                    let byte = self.unwrap_some_byte(mem, byte);
+                    addition_operation(&mut self.a.0, byte, &mut self.f);
+                }
+                ArithmeticOp::Adc(byte) => {
+                    let byte = self.unwrap_some_byte(mem, byte);
+                    let h = (byte & 0x0F) + (self.f.c as u8) + (self.a.0 & 0x0F) > 0x0F;
+                    let (byte, carry) = byte.overflowing_add(self.f.c as u8);
+                    addition_operation(&mut self.a.0, byte, &mut self.f);
+                    self.f.h = h;
+                    self.f.c |= carry;
+                }
+                ArithmeticOp::Sub(byte) => {
+                    let byte = self.unwrap_some_byte(mem, byte);
+                    subtraction_operation(&mut self.a.0, byte, &mut self.f);
+                }
+                ArithmeticOp::Sbc(byte) => {
+                    let byte = self.unwrap_some_byte(mem, byte);
+                    let (a, carry1) = self.a.0.overflowing_sub(byte);
+                    let (a, carry2) = a.overflowing_sub(self.f.c as u8);
+                    let (val, h1) = (self.a.0 & 0x0F).overflowing_sub(byte & 0x0F);
+                    let h2 = (val & 0x0F).overflowing_sub(self.f.c as u8).1;
+                    self.f.z = a == 0;
+                    self.f.n = true;
+                    self.f.h = h1 | h2;
+                    self.f.c = carry1 | carry2;
+                    self.a = a.into();
+                }
+                ArithmeticOp::And(byte) => {
+                    let byte = self.unwrap_some_byte(mem, byte);
+                    self.a &= byte;
+                    self.f.z = self.a.0 == 0;
+                    self.f.n = false;
+                    self.f.h = true;
+                    self.f.c = false;
+                }
+                ArithmeticOp::Xor(byte) => {
+                    let byte = self.unwrap_some_byte(mem, byte);
+                    self.a ^= byte;
+                    self.f.z = self.a.0 == 0;
+                    self.f.n = false;
+                    self.f.h = false;
+                    self.f.c = false;
+                }
+                ArithmeticOp::Or(byte) => {
+                    let byte = self.unwrap_some_byte(mem, byte);
+                    self.a |= byte;
+                    self.f.z = self.a.0 == 0;
+                    self.f.n = false;
+                    self.f.h = false;
+                    self.f.c = false;
+                }
+                ArithmeticOp::Cp(byte) => {
+                    let byte = self.unwrap_some_byte(mem, byte);
+                    let mut a = self.a;
+                    subtraction_operation(&mut a.0, byte, &mut self.f);
+                }
+                ArithmeticOp::Inc(reg) => {
+                    let mut h = false;
+                    let val = self.update_byte(reg, mem, |byte| {
+                        let b = *byte;
+                        h = b & 0x0F == 0x0F;
+                        *byte = b.wrapping_add(1);
+                    });
+                    self.f.z = val == 0;
+                    self.f.n = false;
+                    self.f.h = h;
+                }
+                ArithmeticOp::Dec(reg) => {
+                    let mut h = false;
+                    let val = self.update_byte(reg, mem, |byte| {
+                        let b = *byte;
+                        h = check_bit_const::<4>(b);
+                        *byte = b.wrapping_sub(1);
+                    });
+                    self.f.z = val == 0;
+                    self.f.n = true;
+                    self.f.h = h ^ check_bit_const::<4>(val);
+                }
             }
-            ArithmeticOp::Inc16(reg) => {
-                self.update_wide_reg(reg, |value| *value = value.wrapping_add(1))
-            }
-            ArithmeticOp::Dec16(reg) => {
-                self.update_wide_reg(reg, |value| *value = value.wrapping_sub(1))
-            }
-            ArithmeticOp::Add16(reg) => {
-                let value = self.read_wide_reg(reg);
-                let ptr = self.ptr();
-                self.f.h = (ptr & 0x0FFF) + (value & 0x0FFF) > 0x0FFF;
-                let (ptr, carry) = ptr.overflowing_add(value);
-                self.set_ptr(ptr);
-                self.f.n = false;
-                self.f.c = carry;
-            }
-            ArithmeticOp::Add(byte) => {
-                let byte = self.unwrap_some_byte(mem, byte);
-                addition_operation(&mut self.a.0, byte, &mut self.f);
-            }
-            ArithmeticOp::Adc(byte) => {
-                let byte = self.unwrap_some_byte(mem, byte);
-                let h = (byte & 0x0F) + (self.f.c as u8) + (self.a.0 & 0x0F) > 0x0F;
-                let (byte, carry) = byte.overflowing_add(self.f.c as u8);
-                addition_operation(&mut self.a.0, byte, &mut self.f);
-                self.f.h = h;
-                self.f.c |= carry;
-            }
-            ArithmeticOp::Sub(byte) => {
-                let byte = self.unwrap_some_byte(mem, byte);
-                subtraction_operation(&mut self.a.0, byte, &mut self.f);
-            }
-            ArithmeticOp::Sbc(byte) => {
-                let byte = self.unwrap_some_byte(mem, byte);
-                let (a, carry1) = self.a.0.overflowing_sub(byte);
-                let (a, carry2) = a.overflowing_sub(self.f.c as u8);
-                let (val, h1) = (self.a.0 & 0x0F).overflowing_sub(byte & 0x0F);
-                let h2 = (val & 0x0F).overflowing_sub(self.f.c as u8).1;
-                self.f.z = a == 0;
-                self.f.n = true;
-                self.f.h = h1 | h2;
-                self.f.c = carry1 | carry2;
-                self.a = a.into();
-            }
-            ArithmeticOp::And(byte) => {
-                let byte = self.unwrap_some_byte(mem, byte);
-                self.a &= byte;
-                self.f.z = self.a.0 == 0;
-                self.f.n = false;
-                self.f.h = true;
-                self.f.c = false;
-            }
-            ArithmeticOp::Xor(byte) => {
-                let byte = self.unwrap_some_byte(mem, byte);
-                self.a ^= byte;
-                self.f.z = self.a.0 == 0;
-                self.f.n = false;
-                self.f.h = false;
-                self.f.c = false;
-            }
-            ArithmeticOp::Or(byte) => {
-                let byte = self.unwrap_some_byte(mem, byte);
-                self.a |= byte;
-                self.f.z = self.a.0 == 0;
-                self.f.n = false;
-                self.f.h = false;
-                self.f.c = false;
-            }
-            ArithmeticOp::Cp(byte) => {
-                let byte = self.unwrap_some_byte(mem, byte);
-                let mut a = self.a;
-                subtraction_operation(&mut a.0, byte, &mut self.f);
-            }
-            ArithmeticOp::Inc(reg) => {
-                let mut h = false;
-                let val = self.update_byte(reg, mem, |byte| {
-                    let b = *byte;
-                    h = b & 0x0F == 0x0F;
-                    *byte = b.wrapping_add(1);
-                });
-                self.f.z = val == 0;
-                self.f.n = false;
-                self.f.h = h;
-            }
-            ArithmeticOp::Dec(reg) => {
-                let mut h = false;
-                let val = self.update_byte(reg, mem, |byte| {
-                    let b = *byte;
-                    h = check_bit_const::<4>(b);
-                    *byte = b.wrapping_sub(1);
-                });
-                self.f.z = val == 0;
-                self.f.n = true;
-                self.f.h = h ^ check_bit_const::<4>(val);
-            }
-        }
+        */
+        panic!()
     }
 
-    fn unwrap_some_byte(&self, mem: &impl MemoryLikeExt, byte: SomeByte) -> u8 {
+    fn unwrap_some_byte(&self, _mem: &impl MemoryLikeExt, _byte: SomeByte) -> u8 {
+        /*
         match byte {
             SomeByte::Direct(byte) => byte,
             SomeByte::Referenced(reg) => self.copy_byte(mem, reg),
         }
+        */
+        panic!("This method will no longer be used")
     }
 
     pub fn copy_byte(&self, mem: &impl MemoryLikeExt, reg: RegOrPointer) -> u8 {
@@ -686,6 +689,7 @@ impl Cpu {
     }
 
     fn execute_jump_op(&mut self, op: JumpOp, mem: &mut impl MemoryLikeExt) {
+        /*
         match op {
             JumpOp::ConditionalRelative(cond, val) => {
                 if self.matches(cond) {
@@ -740,6 +744,8 @@ impl Cpu {
             JumpOp::RST30 => self.rst::<0x30>(mem),
             JumpOp::RST38 => self.rst::<0x38>(mem),
         }
+        */
+        panic!("This function will soon be removed");
     }
 
     fn rst<const N: u16>(&mut self, mem: &mut impl MemoryLikeExt) {
@@ -751,11 +757,12 @@ impl Cpu {
         match op {
             ControlOp::Noop => {}
             ControlOp::Halt => self.halt(),
-            ControlOp::Stop(_) => self.state = CpuState::Stopped,
+            ControlOp::Stop => self.state = CpuState::Stopped,
         }
     }
 
     fn execute_bit_op(&mut self, op: BitOp, mem: &mut impl MemoryLikeExt) {
+        /*
         let BitOp { bit, reg, op } = op;
         debug_assert!(bit < 8);
         let byte = self.copy_byte(mem, reg);
@@ -772,6 +779,8 @@ impl Cpu {
                 self.update_byte(reg, mem, |byte| *byte |= 0x1 << bit);
             }
         }
+        */
+        panic!()
     }
 
     fn execute_bit_shift_op(&mut self, op: BitShiftOp, mem: &mut impl MemoryLikeExt) {
@@ -890,90 +899,93 @@ impl Cpu {
     }
 
     fn execute_load_op(&mut self, op: LoadOp, mem: &mut impl MemoryLikeExt) {
-        match op {
-            LoadOp::Basic {
-                dest: RegOrPointer::Pointer,
-                src: RegOrPointer::Pointer,
-            } => self.halt(),
-            LoadOp::Basic { dest, src } => self.write_byte(dest, mem, self.copy_byte(mem, src)),
-            LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),
-            LoadOp::Direct(reg, val) => self.write_byte(reg, mem, val),
-            LoadOp::LoadIntoA(ptr) => {
-                let index = match ptr {
-                    LoadAPointer::BC => self.bc(),
-                    LoadAPointer::DE => self.de(),
-                    LoadAPointer::Hli => {
-                        let digest = self.ptr();
-                        self.inc_ptr(1);
-                        digest
-                    }
-                    LoadAPointer::Hld => {
-                        let digest = self.ptr();
-                        self.dec_ptr(1);
-                        digest
-                    }
-                };
-                self.a.0 = mem.read_byte(index);
+        /*
+            match op {
+                LoadOp::Basic {
+                    dest: RegOrPointer::Pointer,
+                    src: RegOrPointer::Pointer,
+                } => self.halt(),
+                LoadOp::Basic { dest, src } => self.write_byte(dest, mem, self.copy_byte(mem, src)),
+                LoadOp::Direct16(reg, val) => self.write_wide_reg(reg, val),
+                LoadOp::Direct(reg, val) => self.write_byte(reg, mem, val),
+                LoadOp::LoadIntoA(ptr) => {
+                    let index = match ptr {
+                        LoadAPointer::BC => self.bc(),
+                        LoadAPointer::DE => self.de(),
+                        LoadAPointer::Hli => {
+                            let digest = self.ptr();
+                            self.inc_ptr(1);
+                            digest
+                        }
+                        LoadAPointer::Hld => {
+                            let digest = self.ptr();
+                            self.dec_ptr(1);
+                            digest
+                        }
+                    };
+                    self.a.0 = mem.read_byte(index);
+                }
+                LoadOp::StoreFromA(ptr) => {
+                    let index = match ptr {
+                        LoadAPointer::BC => self.bc(),
+                        LoadAPointer::DE => self.de(),
+                        LoadAPointer::Hli => {
+                            let digest = self.ptr();
+                            self.inc_ptr(1);
+                            digest
+                        }
+                        LoadAPointer::Hld => {
+                            let digest = self.ptr();
+                            self.dec_ptr(1);
+                            digest
+                        }
+                    };
+                    mem.write_byte(index, self.a.0)
+                }
+                LoadOp::StoreSP(val) => {
+                    let [hi, lo] = self.sp.0.to_be_bytes();
+                    mem.write_byte(val, lo);
+                    mem.write_byte(val + 1, hi);
+                }
+                LoadOp::HLIntoSP => self.sp = Wrapping(self.ptr()),
+                LoadOp::SPIntoHL(val) => {
+                    let sp = self.sp.0.wrapping_add_signed(val as i16);
+                    self.f.z = false;
+                    self.f.n = false;
+                    self.f.h = (self.sp.0 << 12) > (sp << 12);
+                    self.f.c = (self.sp.0 << 8) > (sp << 8);
+                    let [h, l] = sp.to_be_bytes().map(Wrapping);
+                    self.h = h;
+                    self.l = l;
+                }
+                LoadOp::Pop(reg) => {
+                    let ptr = self.pop_pc(mem);
+                    self.write_wide_reg_without_sp(reg, ptr);
+                }
+                LoadOp::Push(reg) => {
+                    let [a, b] = match reg {
+                        WideRegWithoutSP::BC => [self.b.0, self.c.0],
+                        WideRegWithoutSP::DE => [self.d.0, self.e.0],
+                        WideRegWithoutSP::HL => [self.h.0, self.l.0],
+                        WideRegWithoutSP::AF => [self.a.0, self.f.as_byte()],
+                    };
+                    self.sp -= 1u16;
+                    mem.write_byte(self.sp.0, a);
+                    self.sp -= 1u16;
+                    mem.write_byte(self.sp.0, b);
+                }
+                LoadOp::LoadHigh(val) => {
+                    trace!("LoadHigh(0x{val:0>2X})");
+                    mem.write_byte(u16::from_be_bytes([0xFF, val]), self.a.0);
+                }
+                LoadOp::StoreHigh(val) => self.a.0 = mem.read_byte(u16::from_be_bytes([0xFF, val])),
+                LoadOp::Ldhca => mem.write_byte(u16::from_be_bytes([0xFF, self.c.0]), self.a.0),
+                LoadOp::Ldhac => self.a.0 = mem.read_byte(u16::from_be_bytes([0xFF, self.c.0])),
+                LoadOp::LoadA { ptr } => mem.write_byte(ptr, self.a.0),
+                LoadOp::StoreA { ptr } => self.a.0 = mem.read_byte(ptr),
             }
-            LoadOp::StoreFromA(ptr) => {
-                let index = match ptr {
-                    LoadAPointer::BC => self.bc(),
-                    LoadAPointer::DE => self.de(),
-                    LoadAPointer::Hli => {
-                        let digest = self.ptr();
-                        self.inc_ptr(1);
-                        digest
-                    }
-                    LoadAPointer::Hld => {
-                        let digest = self.ptr();
-                        self.dec_ptr(1);
-                        digest
-                    }
-                };
-                mem.write_byte(index, self.a.0)
-            }
-            LoadOp::StoreSP(val) => {
-                let [hi, lo] = self.sp.0.to_be_bytes();
-                mem.write_byte(val, lo);
-                mem.write_byte(val + 1, hi);
-            }
-            LoadOp::HLIntoSP => self.sp = Wrapping(self.ptr()),
-            LoadOp::SPIntoHL(val) => {
-                let sp = self.sp.0.wrapping_add_signed(val as i16);
-                self.f.z = false;
-                self.f.n = false;
-                self.f.h = (self.sp.0 << 12) > (sp << 12);
-                self.f.c = (self.sp.0 << 8) > (sp << 8);
-                let [h, l] = sp.to_be_bytes().map(Wrapping);
-                self.h = h;
-                self.l = l;
-            }
-            LoadOp::Pop(reg) => {
-                let ptr = self.pop_pc(mem);
-                self.write_wide_reg_without_sp(reg, ptr);
-            }
-            LoadOp::Push(reg) => {
-                let [a, b] = match reg {
-                    WideRegWithoutSP::BC => [self.b.0, self.c.0],
-                    WideRegWithoutSP::DE => [self.d.0, self.e.0],
-                    WideRegWithoutSP::HL => [self.h.0, self.l.0],
-                    WideRegWithoutSP::AF => [self.a.0, self.f.as_byte()],
-                };
-                self.sp -= 1u16;
-                mem.write_byte(self.sp.0, a);
-                self.sp -= 1u16;
-                mem.write_byte(self.sp.0, b);
-            }
-            LoadOp::LoadHigh(val) => {
-                trace!("LoadHigh(0x{val:0>2X})");
-                mem.write_byte(u16::from_be_bytes([0xFF, val]), self.a.0);
-            }
-            LoadOp::StoreHigh(val) => self.a.0 = mem.read_byte(u16::from_be_bytes([0xFF, val])),
-            LoadOp::Ldhca => mem.write_byte(u16::from_be_bytes([0xFF, self.c.0]), self.a.0),
-            LoadOp::Ldhac => self.a.0 = mem.read_byte(u16::from_be_bytes([0xFF, self.c.0])),
-            LoadOp::LoadA { ptr } => mem.write_byte(ptr, self.a.0),
-            LoadOp::StoreA { ptr } => self.a.0 = mem.read_byte(ptr),
-        }
+        */
+        panic!()
     }
 
     fn write_af(&mut self, val: u16) {

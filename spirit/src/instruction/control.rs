@@ -7,8 +7,8 @@ pub enum ControlOp {
     Halt,
     #[display("NOOP")]
     Noop,
-    #[display("Stop 0x{_0:0>2X}")]
-    Stop(u8),
+    #[display("Stop")]
+    Stop,
 }
 
 impl ControlOp {
@@ -16,7 +16,7 @@ impl ControlOp {
         match self {
             ControlOp::Halt => todo!(),
             ControlOp::Noop => todo!(),
-            ControlOp::Stop(_) => todo!(),
+            ControlOp::Stop => todo!(),
         }
     }
 
@@ -24,7 +24,7 @@ impl ControlOp {
     pub fn length(&self) -> u8 {
         match self {
             ControlOp::Noop => 4,
-            ControlOp::Stop(_) => 4,
+            ControlOp::Stop => 4,
             ControlOp::Halt => 4,
         }
     }
@@ -33,7 +33,7 @@ impl ControlOp {
     pub const fn size(&self) -> u8 {
         match self {
             ControlOp::Noop => 1,
-            ControlOp::Stop(_) => 2,
+            ControlOp::Stop => 2,
             ControlOp::Halt => 1,
         }
     }

@@ -2,7 +2,6 @@ use crate::GameboyState;
 use crate::cpu::Cpu;
 use crate::cpu::Flags;
 use crate::cpu::FullRegister;
-use crate::mem::MemoryLike;
 use crate::mem::MemoryLikeExt;
 
 use derive_more::From;
@@ -78,6 +77,10 @@ pub enum Instruction {
     /// This is not a real instruction, but its used to communicate that the VRAM DMA is
     /// transferring data. One of these operations represents 16 bytes being transferred.
     Transfer,
+    /// Load the next byte as an op code for a prefixed instruction
+    Prefixed,
+    /// Used for the handful of unused op codes
+    Unused,
 }
 
 // TODO: Misc operations (messing with the IME) will also need to be implemented
@@ -245,6 +248,8 @@ impl Instruction {
             Instruction::Di => todo!(),
             Instruction::Ei => todo!(),
             Instruction::Transfer => todo!(),
+            Instruction::Unused => panic!("Attempted to execute an invalid operation code!!"),
+            Instruction::Prefixed => todo!(),
         }
         // let cpu = &mut state.cpu;
         // cpu.ime |= cpu.to_set_ime;
@@ -262,15 +267,16 @@ impl Instruction {
             Instruction::Bit(op) => op.length(),
             Instruction::Jump(op) => op.length(cpu),
             Instruction::Arithmetic(op) => op.length(),
-            Instruction::Interrupt(_) => 20, // Interrupts are, basically, calls but last 5 cycles
+            Instruction::Interrupt(_) => 20,
             Instruction::Daa => 4,
             Instruction::Scf => 4,
             Instruction::Cpl => 4,
             Instruction::Ccf => 4,
             Instruction::Di => 4,
             Instruction::Ei => 4,
-            // It takes 24 ticks to transfer 16 bytes.
             Instruction::Transfer => 24,
+            Instruction::Unused => 0,
+            Instruction::Prefixed => 8,
         }
     }
 
@@ -283,15 +289,16 @@ impl Instruction {
             Instruction::Bit(op) => op.size(),
             Instruction::Jump(op) => op.size(),
             Instruction::Arithmetic(op) => op.size(),
-            Instruction::Interrupt(_) => 0, // Interrupts don't move the PC
+            Instruction::Interrupt(_) => 0,
             Instruction::Daa => 1,
             Instruction::Scf => 1,
             Instruction::Cpl => 1,
             Instruction::Ccf => 1,
             Instruction::Di => 1,
             Instruction::Ei => 1,
-            // This is a fake instruction and it should not move the PC
             Instruction::Transfer => 0,
+            Instruction::Unused => 0,
+            Instruction::Prefixed => 2,
         }
     }
 }
@@ -301,8 +308,8 @@ impl Instruction {
 pub enum SomeByte {
     #[display("{_0}")]
     Referenced(RegOrPointer),
-    #[display("0x{_0:0>2X}")]
-    Direct(u8),
+    #[display("")]
+    Direct,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
