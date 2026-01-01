@@ -308,6 +308,9 @@ impl Cpu {
             PointerReg::DE => self.de(),
             PointerReg::Ghost => self.ghost_addr(),
         };
+        // TODO: There might be a better way to sequence this. For reads (and noops), we want to
+        // perform the action then execute the IDU and ALU signals. For writes, we want the
+        // reverse. Verify this...
         match action {
             AddrAction::Read(loc) => {
                 let byte = Wrapping(mem.read_byte(addr));
@@ -362,14 +365,78 @@ impl Cpu {
             DataLocation::Register(reg) => self[reg],
             DataLocation::Literal(val) => Wrapping(val),
         };
-        // TODO: This also need set flags
         let byte = match op {
-            AluOp::Add => val_one + val_two,
+            AluOp::Move => val_one,
             AluOp::SignedAdd => val_one.add_signed(val_two.0 as i8),
-            AluOp::Subtract => val_one - val_two,
-            AluOp::And => val_one & val_two,
-            AluOp::Or => val_one | val_two,
-            AluOp::Xor => val_one ^ val_two,
+            AluOp::Add => {
+                let (val, carry) = val_one.overflowing_add(val_two);
+                self.f.z = val == 0;
+                self.f.n = false;
+                self.f.h = (val_one.0 & 0x0F) + (val_two.0 & 0x0F) > 0x0F;
+                self.f.c = carry;
+                val
+            }
+            AluOp::Adc => {
+                let h = (val_one.0 & 0x0F) + (val_two.0 & 0x0F) + (self.f.c as u8) > 0x0F;
+                let (val, carry) = val_one.overflowing_add(val_two);
+                let (val, c) = val.overflowing_add(self.f.c as u8);
+                self.f.z = val == 0;
+                self.f.n = false;
+                self.f.h = h;
+                self.f.c = carry | c;
+                val
+            }
+            AluOp::Subtract => {
+                let (val, carry) = val_one.overflowing_sub(val_two);
+                self.f.z = val == 0;
+                self.f.n = true;
+                self.f.h = (val_one.0 & 0x0F).overflowing_sub(val_two.0 & 0x0F).1;
+                self.f.c = carry;
+                val
+            }
+            AluOp::Sbc => {
+                let (val, carry) = val_one.overflowing_sub(val_two);
+                let (val, c) = val.overflowing_sub(self.f.c as u8);
+                let (v, h1) = (val_one.0 & 0x0F).overflowing_sub(val_two.0 & 0x0F);
+                let (_, h2) = v.overflowing_sub(self.f.c as u8);
+                self.f.z = val == 0;
+                self.f.n = true;
+                self.f.h = h1 | h2;
+                self.f.c = carry | c;
+                val
+            }
+            AluOp::And => {
+                let val = val_one & val_two;
+                self.f.z = val == 0;
+                self.f.n = false;
+                self.f.h = true;
+                self.f.c = false;
+                val
+            }
+            AluOp::Or => {
+                let val = val_one | val_two;
+                self.f.z = val == 0;
+                self.f.n = false;
+                self.f.h = false;
+                self.f.c = false;
+                val
+            }
+            AluOp::Xor => {
+                let val = val_one ^ val_two;
+                self.f.z = val == 0;
+                self.f.n = false;
+                self.f.h = false;
+                self.f.c = false;
+                val
+            }
+            AluOp::Cp => {
+                let (val, carry) = val_one.overflowing_sub(val_two);
+                self.f.z = val == 0;
+                self.f.n = true;
+                self.f.h = (val_one.0 & 0x0F).overflowing_sub(val_two.0 & 0x0F).1;
+                self.f.c = carry;
+                val_one
+            }
         };
         match output {
             DataLocation::Bus => self.z = byte,
@@ -994,7 +1061,7 @@ impl Cpu {
         self.f.set_from_byte(f);
     }
 
-    fn bc(&self) -> u16 {
+    pub(crate) fn bc(&self) -> u16 {
         u16::from_be_bytes([self.b.0, self.c.0])
     }
 
@@ -1004,7 +1071,7 @@ impl Cpu {
         self.c = c;
     }
 
-    fn de(&self) -> u16 {
+    pub(crate) fn de(&self) -> u16 {
         u16::from_be_bytes([self.d.0, self.e.0])
     }
 

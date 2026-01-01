@@ -82,7 +82,7 @@ impl<const START: u8> TestBattery<START> {
         let results = self
             .suites
             .into_iter()
-            // .filter(|(op, _)| *op == 0x08)
+            // .filter(|(op, _)| *op == 0x09)
             .map(|(op, suite)| (op, suite.execute(op)))
             // .inspect(|(_, report)| println!("{report}"))
             .collect();
@@ -213,6 +213,7 @@ impl CpuTest {
             end,
             cycles,
         } = self;
+        // println!("Running test: {name}");
         let result = std::panic::catch_unwind(|| {
             let (mut cpu, mut mem) = init.build();
             // The PPU isn't actually used but needed for the internal ticking in the operation's
