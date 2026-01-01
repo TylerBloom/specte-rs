@@ -114,6 +114,18 @@ impl MCycle {
         }
     }
 
+    /// Used for cycles that are hand rolled. Note that this is *not* the cycle used by the NOOP
+    /// instruction.
+    pub const fn noop() -> Self {
+        Self {
+            // This is not actually used
+            addr_bus: PointerReg::PC,
+            action: AddrAction::Noop,
+            idu: None,
+            alu: None,
+        }
+    }
+
     /// Like the final cycle but with a concurrent ALU process.
     pub const fn final_with_alu(signal: AluSignal) -> Self {
         let mut cycle = Self::final_cycle();
@@ -215,13 +227,72 @@ impl AluSignal {
         Self {
             input_one: src,
             input_two: src,
-            op: AluOp::And,
+            op: AluOp::Move,
             output: dest,
         }
     }
 
     pub const fn move_into_a(src: DataLocation) -> Self {
         Self::move_into(src, DataLocation::Register(HalfRegister::A))
+    }
+
+    const fn accumulator_op(src: DataLocation, op: AluOp) -> Self {
+        Self {
+            input_one: DataLocation::Register(HalfRegister::A),
+            input_two: src,
+            op,
+            output: DataLocation::Register(HalfRegister::A),
+        }
+    }
+
+    pub const fn add(src: DataLocation) -> Self {
+        Self::accumulator_op(src, AluOp::Add)
+    }
+
+    pub const fn inc(reg: DataLocation) -> Self {
+        Self {
+            input_one: reg,
+            input_two: DataLocation::Literal(1),
+            op: AluOp::Add,
+            output: reg,
+        }
+    }
+
+    pub const fn adc(src: DataLocation) -> Self {
+        Self::accumulator_op(src, AluOp::Adc)
+    }
+
+    pub const fn sub(src: DataLocation) -> Self {
+        Self::accumulator_op(src, AluOp::Subtract)
+    }
+
+    pub const fn dec(reg: DataLocation) -> Self {
+        Self {
+            input_one: reg,
+            input_two: DataLocation::Literal(1),
+            op: AluOp::Subtract,
+            output: reg,
+        }
+    }
+
+    pub const fn sbc(src: DataLocation) -> Self {
+        Self::accumulator_op(src, AluOp::Sbc)
+    }
+
+    pub const fn and(src: DataLocation) -> Self {
+        Self::accumulator_op(src, AluOp::And)
+    }
+
+    pub const fn xor(src: DataLocation) -> Self {
+        Self::accumulator_op(src, AluOp::Xor)
+    }
+
+    pub const fn or(src: DataLocation) -> Self {
+        Self::accumulator_op(src, AluOp::Or)
+    }
+
+    pub const fn cp(src: DataLocation) -> Self {
+        Self::accumulator_op(src, AluOp::Cp)
     }
 }
 
@@ -235,6 +306,10 @@ pub enum AluOp {
     And,
     Or,
     Xor,
+    Move,
+    Adc,
+    Sbc,
+    Cp,
 }
 
 impl Instruction {

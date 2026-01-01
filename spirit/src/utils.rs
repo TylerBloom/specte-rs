@@ -72,6 +72,24 @@ impl Wrapping<u8> {
     pub fn add_signed(self, val: i8) -> Self {
         Self(self.0.wrapping_add_signed(val))
     }
+
+    pub fn overflowing_add(self, val: impl Into<Self>) -> (Self, bool) {
+        self.overflowing_add_inner(val.into())
+    }
+
+    fn overflowing_add_inner(self, val: Self) -> (Self, bool) {
+        let (val, carry) = self.0.overflowing_add(val.0);
+        (Self(val), carry)
+    }
+
+    pub fn overflowing_sub(self, val: impl Into<Self>) -> (Self, bool) {
+        self.overflowing_sub_inner(val.into())
+    }
+
+    fn overflowing_sub_inner(self, val: Self) -> (Self, bool) {
+        let (val, carry) = self.0.overflowing_sub(val.0);
+        (Self(val), carry)
+    }
 }
 
 impl From<u8> for Wrapping<u8> {
