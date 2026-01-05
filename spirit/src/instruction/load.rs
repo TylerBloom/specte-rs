@@ -434,8 +434,8 @@ impl LoadOp {
             LoadOp::StoreHigh => 12,
             LoadOp::Ldhca => 8,
             LoadOp::Ldhac => 8,
-            LoadOp::LoadA { .. } => 16,
-            LoadOp::StoreA { .. } => 16,
+            LoadOp::LoadA => 16,
+            LoadOp::StoreA => 16,
         }
     }
 
@@ -456,8 +456,8 @@ impl LoadOp {
             LoadOp::StoreHigh => 2,
             LoadOp::Ldhca => 1,
             LoadOp::Ldhac => 1,
-            LoadOp::LoadA { .. } => 3,
-            LoadOp::StoreA { .. } => 3,
+            LoadOp::LoadA => 3,
+            LoadOp::StoreA => 3,
         }
     }
 }

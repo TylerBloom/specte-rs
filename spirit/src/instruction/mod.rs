@@ -14,6 +14,7 @@ mod control;
 mod interrupt;
 mod jump;
 mod load;
+mod prefixed;
 
 pub use arithmetic::*;
 pub use bit::*;
@@ -22,6 +23,7 @@ pub use control::*;
 pub use interrupt::*;
 pub use jump::*;
 pub use load::*;
+pub use prefixed::*;
 
 // Refactor plan:
 // Implement the instruction execution via a series of "M Cycle" sub-instructions. This needs to
@@ -46,11 +48,7 @@ pub enum Instruction {
     #[display("{_0}")]
     Load(LoadOp),
     #[display("{_0}")]
-    BitShift(BitShiftOp),
-    #[display("{_0}")]
     ControlOp(ControlOp),
-    #[display("{_0}")]
-    Bit(BitOp),
     #[display("{_0}")]
     Jump(JumpOp),
     #[display("{_0}")]
@@ -74,6 +72,16 @@ pub enum Instruction {
     /// Enable interupts
     #[display("EI")]
     Ei,
+    /// The RLA, RLCA, RRA, RRCA are, in a sense, bit shift operations. However, they are the only
+    /// shifting ops that are not prefixed, so they are classified as misc.
+    #[display("RLA")]
+    Rla,
+    #[display("RLCA")]
+    Rlca,
+    #[display("RRA")]
+    Rra,
+    #[display("RRCA")]
+    Rrca,
     /// This is not a real instruction, but its used to communicate that the VRAM DMA is
     /// transferring data. One of these operations represents 16 bytes being transferred.
     Transfer,
@@ -81,13 +89,6 @@ pub enum Instruction {
     Prefixed,
     /// Used for the handful of unused op codes
     Unused,
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
-#[display("{_variant}")]
-pub enum PrefixedInstruction {
-    BitShift(BitShiftOp),
-    Bit(BitOp),
 }
 
 // TODO: Misc operations (messing with the IME) will also need to be implemented
@@ -323,9 +324,7 @@ impl Instruction {
     pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
         match self {
             Instruction::Load(load_op) => load_op.execute(state),
-            Instruction::BitShift(bit_shift_op) => bit_shift_op.execute(state),
             Instruction::ControlOp(control_op) => control_op.execute(state),
-            Instruction::Bit(bit_op) => bit_op.execute(state),
             Instruction::Jump(jump_op) => jump_op.execute(state),
             Instruction::Arithmetic(arithmetic_op) => arithmetic_op.execute(state),
             Instruction::Interrupt(interrupt_op) => interrupt_op.execute(state),
@@ -335,11 +334,16 @@ impl Instruction {
             Instruction::Ccf => todo!(),
             Instruction::Di => todo!(),
             Instruction::Ei => todo!(),
-            Instruction::Transfer => todo!(),
+            Instruction::Rla => todo!(),
+            Instruction::Rlca => todo!(),
+            Instruction::Rra => todo!(),
+            Instruction::Rrca => todo!(),
             Instruction::Prefixed => {
                 state.tick(MCycle::load_pc());
                 let op = state.cpu.read_prefixed_op();
+                op.execute(state);
             }
+            Instruction::Transfer => todo!(),
             Instruction::Unused => panic!("Attempted to execute an invalid operation code!!"),
         }
         // let cpu = &mut state.cpu;
@@ -353,9 +357,7 @@ impl Instruction {
     pub fn length(&self, cpu: &Cpu) -> u8 {
         match self {
             Instruction::Load(op) => op.length(),
-            Instruction::BitShift(op) => op.length(),
             Instruction::ControlOp(op) => op.length(),
-            Instruction::Bit(op) => op.length(),
             Instruction::Jump(op) => op.length(cpu),
             Instruction::Arithmetic(op) => op.length(),
             Instruction::Interrupt(_) => 20,
@@ -368,6 +370,10 @@ impl Instruction {
             Instruction::Transfer => 24,
             Instruction::Unused => 0,
             Instruction::Prefixed => 8,
+            Instruction::Rla => todo!(),
+            Instruction::Rlca => todo!(),
+            Instruction::Rra => todo!(),
+            Instruction::Rrca => todo!(),
         }
     }
 
@@ -375,9 +381,7 @@ impl Instruction {
     pub const fn size(&self) -> u8 {
         match self {
             Instruction::Load(op) => op.size(),
-            Instruction::BitShift(op) => op.size(),
             Instruction::ControlOp(op) => op.size(),
-            Instruction::Bit(op) => op.size(),
             Instruction::Jump(op) => op.size(),
             Instruction::Arithmetic(op) => op.size(),
             Instruction::Interrupt(_) => 0,
@@ -390,6 +394,10 @@ impl Instruction {
             Instruction::Transfer => 0,
             Instruction::Unused => 0,
             Instruction::Prefixed => 2,
+            Instruction::Rla => todo!(),
+            Instruction::Rlca => todo!(),
+            Instruction::Rra => todo!(),
+            Instruction::Rrca => todo!(),
         }
     }
 }
