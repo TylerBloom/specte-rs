@@ -22,12 +22,14 @@ use crate::instruction::JumpOp;
 use crate::instruction::LoadOp;
 use crate::instruction::MCycle;
 use crate::instruction::PointerReg;
+use crate::instruction::PrefixedInstruction;
 use crate::instruction::ReadLocation;
 use crate::instruction::RegOrPointer;
 use crate::instruction::SomeByte;
 use crate::instruction::WideReg;
 use crate::instruction::WideRegWithoutSP;
 use crate::lookup::parse_instruction;
+use crate::lookup::parse_prefixed_instruction;
 use crate::mem::MemoryLikeExt;
 use crate::utils::Wrapping;
 
@@ -286,6 +288,11 @@ impl Cpu {
     /// Determines what the CPU should do next. Included in this, is a check for interrupts.
     pub fn read_op(&self) -> Instruction {
         parse_instruction(self.ir.0)
+    }
+
+    /// Determines what the CPU should do next
+    pub fn read_prefixed_op(&self) -> PrefixedInstruction {
+        parse_prefixed_instruction(self.ir.0)
     }
 
     pub fn inc_pc(&mut self) {
