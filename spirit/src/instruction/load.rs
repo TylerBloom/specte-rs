@@ -352,7 +352,7 @@ impl LoadOp {
                 let signal = AluSignal::move_into_a(DataLocation::Bus);
                 state.tick(MCycle::final_with_alu(signal));
             }
-            LoadOp::LoadA  => {
+            LoadOp::LoadA => {
                 let cycle = MCycle {
                     addr_bus: PointerReg::PC,
                     action: AddrAction::Read(ReadLocation::RegisterZ),
@@ -376,7 +376,7 @@ impl LoadOp {
                 state.tick(cycle);
                 state.tick(MCycle::final_cycle());
             }
-            LoadOp::StoreA  => {
+            LoadOp::StoreA => {
                 let cycle = MCycle {
                     addr_bus: PointerReg::PC,
                     action: AddrAction::Read(ReadLocation::RegisterZ),

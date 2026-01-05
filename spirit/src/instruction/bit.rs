@@ -5,6 +5,7 @@ use super::*;
 pub struct BitOp {
     // This is going to be calculated from the op code, which is in the CPU's IR register
     // pub bit: u8,
+    pub bit: u8,
     pub reg: RegOrPointer,
     pub op: BitOpInner,
 }
@@ -22,7 +23,7 @@ pub enum BitOpInner {
 
 impl BitOp {
     pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
-        let BitOp { reg, op } = self;
+        let BitOp { bit, reg, op } = self;
         match op {
             BitOpInner::Bit => {
                 todo!()
