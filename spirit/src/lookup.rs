@@ -8,11 +8,9 @@ pub fn parse_instruction(op_code: u8) -> Instruction {
 }
 
 #[track_caller]
-fn parse_prefixed_instruction(op_code: u8) -> Instruction {
+pub fn parse_prefixed_instruction(op_code: u8) -> PrefixedInstruction {
     PREFIXED_OP_LOOKUP[op_code as usize]
 }
-
-type OpArray<const N: usize> = [Instruction; N];
 
 enum InnerRegOrPointer {
     A,
@@ -145,33 +143,35 @@ macro_rules! define_op {
     (StoreHigh) => {{ Instruction::Load(LoadOp::StoreHigh) }};
     (LDHCA) => {{ Instruction::Load(LoadOp::Ldhca) }};
     (LDHAC) => {{ Instruction::Load(LoadOp::Ldhac) }};
-    /* --- Prefixed op definitions --- */
     (RLCA) => {{ Instruction::BitShift(BitShiftOp::Rlca) }};
     (RLA) => {{ Instruction::BitShift(BitShiftOp::Rla) }};
-    (RL, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Rl(InnerRegOrPointer::$r.convert())) }};
-    (RLC, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Rlc(InnerRegOrPointer::$r.convert())) }};
     (RRCA) => {{ Instruction::BitShift(BitShiftOp::Rrca) }};
     (RRA) => {{ Instruction::BitShift(BitShiftOp::Rra) }};
-    (RRC, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Rrc(InnerRegOrPointer::$r.convert())) }};
-    (RR, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Rr(InnerRegOrPointer::$r.convert())) }};
-    (SLA, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Sla(InnerRegOrPointer::$r.convert())) }};
-    (SRA, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Sra(InnerRegOrPointer::$r.convert())) }};
-    (SWAP, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Swap(InnerRegOrPointer::$r.convert())) }};
-    (SRL, $r: ident) => {{ Instruction::BitShift(BitShiftOp::Srl(InnerRegOrPointer::$r.convert())) }};
+}
+
+macro_rules! define_prefixed_op {
+    (RL, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Rl(InnerRegOrPointer::$r.convert())) }};
+    (RLC, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Rlc(InnerRegOrPointer::$r.convert())) }};
+    (RRC, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Rrc(InnerRegOrPointer::$r.convert())) }};
+    (RR, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Rr(InnerRegOrPointer::$r.convert())) }};
+    (SLA, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Sla(InnerRegOrPointer::$r.convert())) }};
+    (SRA, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Sra(InnerRegOrPointer::$r.convert())) }};
+    (SWAP, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Swap(InnerRegOrPointer::$r.convert())) }};
+    (SRL, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Srl(InnerRegOrPointer::$r.convert())) }};
     (BIT, $b: literal, $r: ident) => {{
-        Instruction::Bit(BitOp {
+        PrefixedInstruction::Bit(BitOp {
             reg: InnerRegOrPointer::$r.convert(),
             op: BitOpInner::Bit,
         })
     }};
     (RES, $b: literal, $r: ident) => {{
-        Instruction::Bit(BitOp {
+        PrefixedInstruction::Bit(BitOp {
             reg: InnerRegOrPointer::$r.convert(),
             op: BitOpInner::Res,
         })
     }};
     (SET, $b: literal, $r: ident) => {{
-        Instruction::Bit(BitOp {
+        PrefixedInstruction::Bit(BitOp {
             reg: InnerRegOrPointer::$r.convert(),
             op: BitOpInner::Set,
         })
@@ -180,7 +180,7 @@ macro_rules! define_op {
 
 macro_rules! define_op_chunk {
     (LD) => {{
-        const OPS: OpArray<0x40> = concat_arrays!(
+        const OPS: [Instruction; 0x40] = concat_arrays!(
             define_op_chunk!(LD, B),
             define_op_chunk!(LD, C),
             define_op_chunk!(LD, D),
@@ -192,34 +192,8 @@ macro_rules! define_op_chunk {
         );
         OPS
     }};
-    ($x: ident, NUM) => {{
-        const OPS: OpArray<0x40> = concat_arrays!(
-            define_op_chunk!($x, 0,),
-            define_op_chunk!($x, 1,),
-            define_op_chunk!($x, 2,),
-            define_op_chunk!($x, 3,),
-            define_op_chunk!($x, 4,),
-            define_op_chunk!($x, 5,),
-            define_op_chunk!($x, 6,),
-            define_op_chunk!($x, 7,)
-        );
-        OPS
-    }};
-    ($x: ident, $i: literal,) => {{
-        const OPS: OpArray<0x08> = [
-            define_op!($x, $i, B),
-            define_op!($x, $i, C),
-            define_op!($x, $i, D),
-            define_op!($x, $i, E),
-            define_op!($x, $i, H),
-            define_op!($x, $i, L),
-            define_op!($x, $i, Pointer),
-            define_op!($x, $i, A),
-        ];
-        OPS
-    }};
     ($x: ident) => {{
-        const OPS: OpArray<8> = [
+        const OPS: [Instruction; 8] = [
             define_op!($x, B),
             define_op!($x, C),
             define_op!($x, D),
@@ -232,7 +206,7 @@ macro_rules! define_op_chunk {
         OPS
     }};
     ($x: ident, $r: ident) => {{
-        const OPS: OpArray<8> = [
+        const OPS: [Instruction; 8] = [
             define_op!($x, $r, B,),
             define_op!($x, $r, C,),
             define_op!($x, $r, D,),
@@ -241,6 +215,48 @@ macro_rules! define_op_chunk {
             define_op!($x, $r, L,),
             define_op!($x, $r, Pointer,),
             define_op!($x, $r, A,),
+        ];
+        OPS
+    }};
+}
+
+macro_rules! define_prefixed_op_chunk {
+    ($x: ident, NUM) => {{
+        const OPS: [PrefixedInstruction; 0x40] = concat_arrays!(
+            define_prefixed_op_chunk!($x, 0,),
+            define_prefixed_op_chunk!($x, 1,),
+            define_prefixed_op_chunk!($x, 2,),
+            define_prefixed_op_chunk!($x, 3,),
+            define_prefixed_op_chunk!($x, 4,),
+            define_prefixed_op_chunk!($x, 5,),
+            define_prefixed_op_chunk!($x, 6,),
+            define_prefixed_op_chunk!($x, 7,)
+        );
+        OPS
+    }};
+    ($x: ident, $i: literal,) => {{
+        const OPS: [PrefixedInstruction; 0x08] = [
+            define_prefixed_op!($x, $i, B),
+            define_prefixed_op!($x, $i, C),
+            define_prefixed_op!($x, $i, D),
+            define_prefixed_op!($x, $i, E),
+            define_prefixed_op!($x, $i, H),
+            define_prefixed_op!($x, $i, L),
+            define_prefixed_op!($x, $i, Pointer),
+            define_prefixed_op!($x, $i, A),
+        ];
+        OPS
+    }};
+    ($x: ident) => {{
+        const OPS: [PrefixedInstruction; 8] = [
+            define_prefixed_op!($x, B),
+            define_prefixed_op!($x, C),
+            define_prefixed_op!($x, D),
+            define_prefixed_op!($x, E),
+            define_prefixed_op!($x, H),
+            define_prefixed_op!($x, L),
+            define_prefixed_op!($x, Pointer),
+            define_prefixed_op!($x, A),
         ];
         OPS
     }};
@@ -255,26 +271,11 @@ macro_rules! define_op_lookup_table {
             define_op_lookup_table!(CHUNK_FOUR)
         )
     };
-    (PREFIXED) => {
-        concat_arrays!(
-            define_op_chunk!(RLC),
-            define_op_chunk!(RRC),
-            define_op_chunk!(RL),
-            define_op_chunk!(RR),
-            define_op_chunk!(SLA),
-            define_op_chunk!(SRA),
-            define_op_chunk!(SWAP),
-            define_op_chunk!(SRL),
-            define_op_chunk!(BIT, NUM),
-            define_op_chunk!(RES, NUM),
-            define_op_chunk!(SET, NUM)
-        )
-    };
     // NOTE: It is planned to use a transposition method for the top and bottom rows-of-four of
     // the op table. That way, they all can be defined in a similar way (in rows),
     // transposed in columns, and concatinated.
     (CHUNK_ONE) => {{
-        const TO_TRANSPOSED: [OpArray<4>; 0x10] = [
+        const TO_TRANSPOSED: [[Instruction; 4]; 0x10] = [
             [
                 define_op!(NOOP),
                 define_op!(STOP),
@@ -372,8 +373,8 @@ macro_rules! define_op_lookup_table {
                 define_op!(CCF),
             ],
         ];
-        const TRANSPOSED: [OpArray<16>; 4] = transpose!(TO_TRANSPOSED);
-        const CHUNK: OpArray<0x40> =
+        const TRANSPOSED: [[Instruction; 16]; 4] = transpose!(TO_TRANSPOSED);
+        const CHUNK: [Instruction; 0x40] =
             concat_arrays!(TRANSPOSED[0], TRANSPOSED[1], TRANSPOSED[2], TRANSPOSED[3]);
         CHUNK
     }};
@@ -381,7 +382,7 @@ macro_rules! define_op_lookup_table {
         define_op_chunk!(LD)
     };
     (CHUNK_THREE) => {{
-        const CHUNK: OpArray<0x40> = concat_arrays!(
+        const CHUNK: [Instruction; 0x40] = concat_arrays!(
             define_op_chunk!(ADD),
             define_op_chunk!(ADC),
             define_op_chunk!(SUB),
@@ -394,7 +395,7 @@ macro_rules! define_op_lookup_table {
         CHUNK
     }};
     (CHUNK_FOUR) => {{
-        const TO_TRANSPOSED: [OpArray<4>; 0x10] = [
+        const TO_TRANSPOSED: [[Instruction; 4]; 0x10] = [
             [
                 define_op!(RET, NotZero),
                 define_op!(RET, NotCarry),
@@ -492,16 +493,34 @@ macro_rules! define_op_lookup_table {
                 define_op!(RST38),
             ],
         ];
-        const TRANSPOSED: [OpArray<16>; 4] = transpose!(TO_TRANSPOSED);
-        const CHUNK: OpArray<0x40> =
+        const TRANSPOSED: [[Instruction; 16]; 4] = transpose!(TO_TRANSPOSED);
+        const CHUNK: [Instruction; 0x40] =
             concat_arrays!(TRANSPOSED[0], TRANSPOSED[1], TRANSPOSED[2], TRANSPOSED[3]);
         CHUNK
     }};
 }
 
+macro_rules! define_prefixed_op_lookup_table {
+    () => {
+        concat_arrays!(
+            define_prefixed_op_chunk!(RLC),
+            define_prefixed_op_chunk!(RRC),
+            define_prefixed_op_chunk!(RL),
+            define_prefixed_op_chunk!(RR),
+            define_prefixed_op_chunk!(SLA),
+            define_prefixed_op_chunk!(SRA),
+            define_prefixed_op_chunk!(SWAP),
+            define_prefixed_op_chunk!(SRL),
+            define_prefixed_op_chunk!(BIT, NUM),
+            define_prefixed_op_chunk!(RES, NUM),
+            define_prefixed_op_chunk!(SET, NUM)
+        )
+    };
+}
+
 macro_rules! transpose {
     ($arr: ident) => {{
-        const TRANSPOSED: [OpArray<16>; 4] = [
+        const TRANSPOSED: [[Instruction; 16]; 4] = [
             transpose!($arr, 0),
             transpose!($arr, 1),
             transpose!($arr, 2),
@@ -510,7 +529,7 @@ macro_rules! transpose {
         TRANSPOSED
     }};
     ($arr: ident, $i: literal) => {{
-        const INNER: OpArray<16> = [
+        const INNER: [Instruction; 16] = [
             $arr[0][$i],
             $arr[1][$i],
             $arr[2][$i],
@@ -532,11 +551,8 @@ macro_rules! transpose {
     }};
 }
 
-// TODO: Fix this once array_concat doesn't emit it anymore
-#[allow(unexpected_cfgs)]
-static OP_LOOKUP: OpArray<0x100> = define_op_lookup_table!();
-#[allow(unexpected_cfgs)]
-static PREFIXED_OP_LOOKUP: OpArray<0x100> = define_op_lookup_table!(PREFIXED);
+static OP_LOOKUP: [Instruction; 0x100] = define_op_lookup_table!();
+static PREFIXED_OP_LOOKUP: [PrefixedInstruction; 0x100] = define_prefixed_op_lookup_table!();
 
 #[cfg(test)]
 mod test {

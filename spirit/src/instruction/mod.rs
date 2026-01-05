@@ -83,6 +83,13 @@ pub enum Instruction {
     Unused,
 }
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
+#[display("{_variant}")]
+pub enum PrefixedInstruction {
+    BitShift(BitShiftOp),
+    Bit(BitOp),
+}
+
 // TODO: Misc operations (messing with the IME) will also need to be implemented
 // Alternatively, the operation can call some method directly. This prevents a check during
 // every cycle.
@@ -313,7 +320,7 @@ pub enum AluOp {
 }
 
 impl Instruction {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, state: GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
         match self {
             Instruction::Load(load_op) => load_op.execute(state),
             Instruction::BitShift(bit_shift_op) => bit_shift_op.execute(state),
@@ -329,8 +336,11 @@ impl Instruction {
             Instruction::Di => todo!(),
             Instruction::Ei => todo!(),
             Instruction::Transfer => todo!(),
+            Instruction::Prefixed => {
+                state.tick(MCycle::load_pc());
+                let op = state.cpu.read_prefixed_op();
+            }
             Instruction::Unused => panic!("Attempted to execute an invalid operation code!!"),
-            Instruction::Prefixed => todo!(),
         }
         // let cpu = &mut state.cpu;
         // cpu.ime |= cpu.to_set_ime;
