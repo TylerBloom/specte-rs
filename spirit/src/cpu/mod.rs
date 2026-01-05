@@ -858,6 +858,8 @@ impl Cpu {
     }
 
     fn execute_bit_shift_op(&mut self, op: BitShiftOp, mem: &mut impl MemoryLikeExt) {
+        panic!()
+        /*
         match op {
             BitShiftOp::Rlc(reg) => {
                 let mut carry = false;
@@ -965,6 +967,7 @@ impl Cpu {
                 self.f.set_for_byte_shift_op(byte == 0, carry)
             }
         }
+        */
     }
 
     fn halt(&mut self) {
