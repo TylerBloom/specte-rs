@@ -143,10 +143,10 @@ macro_rules! define_op {
     (StoreHigh) => {{ Instruction::Load(LoadOp::StoreHigh) }};
     (LDHCA) => {{ Instruction::Load(LoadOp::Ldhca) }};
     (LDHAC) => {{ Instruction::Load(LoadOp::Ldhac) }};
-    (RLCA) => {{ Instruction::BitShift(BitShiftOp::Rlca) }};
-    (RLA) => {{ Instruction::BitShift(BitShiftOp::Rla) }};
-    (RRCA) => {{ Instruction::BitShift(BitShiftOp::Rrca) }};
-    (RRA) => {{ Instruction::BitShift(BitShiftOp::Rra) }};
+    (RLCA) => {{ Instruction::Rlca }};
+    (RLA) => {{ Instruction::Rla }};
+    (RRCA) => {{ Instruction::Rrca }};
+    (RRA) => {{ Instruction::Rra }};
 }
 
 macro_rules! define_prefixed_op {
