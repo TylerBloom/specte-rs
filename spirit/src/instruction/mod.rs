@@ -354,6 +354,14 @@ pub enum AluOp {
     Bit(u8),
     Res(u8),
     Set(u8),
+    Rl,
+    Rlc,
+    Rr,
+    Rrc,
+    Sla,
+    Sra,
+    Swap,
+    Srl,
 }
 
 impl Instruction {
