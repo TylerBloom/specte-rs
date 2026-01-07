@@ -150,6 +150,15 @@ impl MCycle {
         }
     }
 
+    pub const fn write_pointer() -> Self {
+        Self {
+            addr_bus: PointerReg::HL,
+            action: AddrAction::Write(DataLocation::Bus),
+            idu: None,
+            alu: None,
+        }
+    }
+
     /// Reads byte pointed to by PC into the data bus and inc PC.
     pub const fn load_pc() -> Self {
         MCycle {
@@ -302,6 +311,30 @@ impl AluSignal {
     pub const fn cp(src: DataLocation) -> Self {
         Self::accumulator_op(src, AluOp::Cp)
     }
+
+    const fn bit_op(src: DataLocation, op: AluOp) -> Self {
+        Self {
+            input_one: src,
+            input_two: src,
+            op,
+            output: src,
+        }
+    }
+
+    pub fn bit(bit: u8, src: impl Into<DataLocation>) -> Self {
+        debug_assert!(bit < 8);
+        Self::bit_op(src.into(), AluOp::Bit(bit))
+    }
+
+    pub fn res(bit: u8, src: impl Into<DataLocation>) -> Self {
+        debug_assert!(bit < 8);
+        Self::bit_op(src.into(), AluOp::Res(bit))
+    }
+
+    pub fn set(bit: u8, src: impl Into<DataLocation>) -> Self {
+        debug_assert!(bit < 8);
+        Self::bit_op(src.into(), AluOp::Set(bit))
+    }
 }
 
 /// When an operation is signalled to the ALU, the ALU need to know what binary operation to
@@ -318,6 +351,9 @@ pub enum AluOp {
     Adc,
     Sbc,
     Cp,
+    Bit(u8),
+    Res(u8),
+    Set(u8),
 }
 
 impl Instruction {
@@ -339,7 +375,7 @@ impl Instruction {
             Instruction::Rra => todo!(),
             Instruction::Rrca => todo!(),
             Instruction::Prefixed => {
-                state.tick(MCycle::load_pc());
+                state.tick(MCycle::final_cycle());
                 let op = state.cpu.read_prefixed_op();
                 op.execute(state);
             }

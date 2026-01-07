@@ -444,6 +444,14 @@ impl Cpu {
                 self.f.c = carry;
                 val_one
             }
+            AluOp::Bit(bit) => {
+                self.f.z = (val_one.0 & (1 << bit)) == 0;
+                self.f.n = false;
+                self.f.h = true;
+                val_one
+            }
+            AluOp::Res(bit) => Wrapping(val_one.0 & (!(1 << bit))),
+            AluOp::Set(bit) => Wrapping(val_one.0 | (1 << bit)),
         };
         match output {
             DataLocation::Bus => self.z = byte,
