@@ -150,14 +150,14 @@ macro_rules! define_op {
 }
 
 macro_rules! define_prefixed_op {
-    (RL, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Rl(InnerRegOrPointer::$r.convert())) }};
-    (RLC, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Rlc(InnerRegOrPointer::$r.convert())) }};
-    (RRC, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Rrc(InnerRegOrPointer::$r.convert())) }};
-    (RR, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Rr(InnerRegOrPointer::$r.convert())) }};
-    (SLA, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Sla(InnerRegOrPointer::$r.convert())) }};
-    (SRA, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Sra(InnerRegOrPointer::$r.convert())) }};
-    (SWAP, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Swap(InnerRegOrPointer::$r.convert())) }};
-    (SRL, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp::Srl(InnerRegOrPointer::$r.convert())) }};
+    (RL, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp { op: BitShiftOpInner::Rl, reg: InnerRegOrPointer::$r.convert()}) }};
+    (RLC, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp { op: BitShiftOpInner::Rlc, reg: InnerRegOrPointer::$r.convert()}) }};
+    (RR, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp { op: BitShiftOpInner::Rr, reg: InnerRegOrPointer::$r.convert()}) }};
+    (RRC, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp { op: BitShiftOpInner::Rrc, reg: InnerRegOrPointer::$r.convert()}) }};
+    (SLA, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp { op: BitShiftOpInner::Sla, reg: InnerRegOrPointer::$r.convert()}) }};
+    (SRA, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp { op: BitShiftOpInner::Sra, reg: InnerRegOrPointer::$r.convert()}) }};
+    (SWAP, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp { op: BitShiftOpInner::Swap, reg: InnerRegOrPointer::$r.convert()}) }};
+    (SRL, $r: ident) => {{ PrefixedInstruction::BitShift(BitShiftOp { op: BitShiftOpInner::Srl, reg: InnerRegOrPointer::$r.convert()}) }};
     (BIT, $b: literal, $r: ident) => {{
         PrefixedInstruction::Bit(BitOp {
             bit: $b,
