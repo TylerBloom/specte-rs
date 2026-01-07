@@ -452,6 +452,68 @@ impl Cpu {
             }
             AluOp::Res(bit) => Wrapping(val_one.0 & (!(1 << bit))),
             AluOp::Set(bit) => Wrapping(val_one.0 | (1 << bit)),
+            AluOp::Rl => {
+                let carry = self.f.c as u8;
+                let mask = carry | (carry << 7);
+                let [c, new] = (u16::from_be_bytes([mask, val_one.0]).rotate_left(1)).to_be_bytes();
+                let new_carry = c & 1 != 0;
+                self.f.set_for_byte_shift_op(val_one == 0, new_carry);
+                new.into()
+            }
+            AluOp::Rlc => {
+                let byte = val_one.0.rotate_left(1);
+                let carry = check_bit_const::<0>(byte);
+                self.f.set_for_byte_shift_op(byte == 0, carry);
+                byte.into()
+            }
+            AluOp::Rr => {
+                let mask = self.f.c as u8;
+                let [new, c] = u16::from_be_bytes([val_one.0, mask])
+                    .rotate_right(1)
+                    .to_be_bytes();
+                let new_carry = c == 0x80;
+                self.f.set_for_byte_shift_op(new == 0, new_carry);
+                new.into()
+            }
+            AluOp::Rrc => {
+                let byte = val_one.0.rotate_right(1);
+                let carry = check_bit_const::<7>(byte);
+                self.f.set_for_byte_shift_op(byte == 0, carry);
+                byte.into()
+            }
+            AluOp::Sla => {
+                let [c, new] = u16::from_be_bytes([0, val_one.0])
+                    .rotate_left(1)
+                    .to_be_bytes();
+                let new_carry = c != 0;
+                self.f.set_for_byte_shift_op(new == 0, new_carry);
+                new.into()
+            }
+            AluOp::Sra => {
+                let bit = select_bit::<7>(val_one.0);
+                let [mut new, c] = u16::from_be_bytes([val_two.0, 0])
+                    .rotate_right(1)
+                    .to_be_bytes();
+                new |= bit;
+                let carry = c == 0x80;
+                self.f.set_for_byte_shift_op(new == 0, carry);
+                new.into()
+            }
+            AluOp::Swap => {
+                let lw = (val_one.0 & 0xF0) >> 4;
+                let hi = (val_one.0 & 0x0F) << 4;
+                let byte = hi | lw;
+                self.f.set_for_byte_shift_op(byte == 0, false);
+                byte.into()
+            }
+            AluOp::Srl => {
+                let [new, c] = u16::from_be_bytes([val_one.0, 0])
+                    .rotate_right(1)
+                    .to_be_bytes();
+                let carry = c == 0x80;
+                self.f.set_for_byte_shift_op(new == 0, carry);
+                new.into()
+            }
         };
         match output {
             DataLocation::Bus => self.z = byte,
