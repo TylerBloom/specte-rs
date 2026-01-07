@@ -82,7 +82,7 @@ impl<const START: u8> TestBattery<START> {
         let results = self
             .suites
             .into_iter()
-            // .filter(|(op, _)| *op == 0x09)
+            // .filter(|(op, _)| *op == 0xCB)
             .map(|(op, suite)| (op, suite.execute(op)))
             // .inspect(|(_, report)| println!("{report}"))
             .collect();
@@ -140,6 +140,7 @@ impl TestSuite {
         let results = self
             .0
             .into_iter()
+            // .skip(0x40 * 100)
             .map(|test| test.execute(op_code))
             // .filter(|report| matches!(report.status, Status::Failed))
             // .take(1)
