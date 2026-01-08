@@ -240,12 +240,21 @@ impl LoadOp {
             LoadOp::SPIntoHL => {
                 state.tick(MCycle::load_pc());
                 // It is just easier to handroll this operations than shove it into an MCycle...
-                let z = state.cpu.z.0 as i16;
-                let sp = state.cpu.sp;
-                // TODO: Adjust flags...
-                state.cpu.sp = Wrapping(sp.0.wrapping_add_signed(z));
-                state.blind_tick();
+                state.tick(MCycle::noop());
+                let z = state.cpu.z.0;
+                let sp = state.cpu.sp.0;
+                let [h, l] = sp
+                    .wrapping_add_signed((z as i8) as i16)
+                    .to_be_bytes()
+                    .map(Wrapping);
+                let hl = u16::from_be_bytes([h.0, l.0]);
+                state.cpu.h = h;
+                state.cpu.f.z = false;
+                state.cpu.f.n = false;
+                state.cpu.f.h = (sp << 12) > (hl << 12);
+                state.cpu.f.c = (sp << 8) > (hl << 8);
                 state.tick(MCycle::final_cycle());
+                state.cpu.l = l;
             }
             LoadOp::Pop(wide_reg_without_sp) => {
                 let cycle = MCycle {
@@ -284,7 +293,7 @@ impl LoadOp {
                 let cycle = MCycle {
                     addr_bus: PointerReg::SP,
                     action: AddrAction::Write(least.into()),
-                    idu: Some((IduSignal::Dec, FullRegister::SP)),
+                    idu: None,
                     alu: None,
                 };
                 state.tick(cycle);
@@ -362,7 +371,7 @@ impl LoadOp {
                 state.tick(cycle);
                 let cycle = MCycle {
                     addr_bus: PointerReg::PC,
-                    action: AddrAction::Read(ReadLocation::RegisterZ),
+                    action: AddrAction::Read(ReadLocation::RegisterW),
                     idu: Some((IduSignal::Inc, FullRegister::PC)),
                     alu: None,
                 };
@@ -386,7 +395,7 @@ impl LoadOp {
                 state.tick(cycle);
                 let cycle = MCycle {
                     addr_bus: PointerReg::PC,
-                    action: AddrAction::Read(ReadLocation::RegisterZ),
+                    action: AddrAction::Read(ReadLocation::RegisterW),
                     idu: Some((IduSignal::Inc, FullRegister::PC)),
                     alu: None,
                 };
