@@ -1,6 +1,5 @@
 use crate::GameboyState;
 use crate::cpu::Cpu;
-use crate::cpu::Flags;
 use crate::cpu::FullRegister;
 use crate::mem::MemoryLikeExt;
 
@@ -639,28 +638,4 @@ impl InnerRegOrPointer {
             InnerRegOrPointer::Pointer => RegOrPointer::Pointer,
         }
     }
-}
-
-/// Takes a byte that is in standard binary representation and converts it to binary coded decimal.
-fn to_bcd(mut val: u8, flags: &mut Flags) -> u8 {
-    if !flags.n {
-        // after an addition, adjust if (half-)carry occurred or if result is out of bounds
-        if flags.c || val > 0x99 {
-            val = val.wrapping_add(0x60);
-            flags.c = true;
-        }
-        if flags.h || (val & 0x0f) > 0x09 {
-            val = val.wrapping_add(0x6);
-        }
-    } else {
-        if flags.c {
-            val = val.wrapping_sub(0x60);
-        }
-        if flags.h {
-            val = val.wrapping_sub(0x6);
-        }
-    }
-    flags.z = val == 0;
-    flags.h = false;
-    val
 }

@@ -147,7 +147,6 @@ impl ArithmeticOp {
                 let old_sp = state.cpu.sp.0;
                 state.tick(MCycle::noop());
                 state.tick(MCycle::noop());
-                let z = state.cpu.z.0;
                 let (sp, _c) = old_sp.overflowing_add_signed(state.cpu.z.0 as i8 as i16);
                 state.cpu.f.z = false;
                 state.cpu.f.n = false;
