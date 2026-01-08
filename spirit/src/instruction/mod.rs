@@ -367,11 +367,11 @@ pub enum AluOp {
 impl Instruction {
     pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
         match self {
-            Instruction::Load(load_op) => load_op.execute(state),
-            Instruction::ControlOp(control_op) => control_op.execute(state),
-            Instruction::Jump(jump_op) => jump_op.execute(state),
-            Instruction::Arithmetic(arithmetic_op) => arithmetic_op.execute(state),
-            Instruction::Interrupt(interrupt_op) => interrupt_op.execute(state),
+            Instruction::Load(load_op) => load_op.execute(&mut state),
+            Instruction::ControlOp(control_op) => control_op.execute(&mut state),
+            Instruction::Jump(jump_op) => jump_op.execute(&mut state),
+            Instruction::Arithmetic(arithmetic_op) => arithmetic_op.execute(&mut state),
+            Instruction::Interrupt(interrupt_op) => interrupt_op.execute(&mut state),
             Instruction::Daa => todo!(),
             Instruction::Scf => todo!(),
             Instruction::Cpl => todo!(),
