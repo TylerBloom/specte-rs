@@ -29,7 +29,7 @@ pub enum BitShiftOpInner {
 }
 
 impl BitShiftOp {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLikeExt>(self, state: &mut GameboyState<'_, M>) {
         let Self { reg, op } = self;
         let op = match op {
             BitShiftOpInner::Rl => AluOp::Rl,
