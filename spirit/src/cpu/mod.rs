@@ -263,7 +263,6 @@ impl Cpu {
             CpuState::Halted => Instruction::Stall,
             CpuState::Stopped => Instruction::Stopped,
         }
-
     }
 
     /// Determines what the CPU should do next

@@ -106,7 +106,9 @@ impl Gameboy {
 
     pub fn read_op(&self) -> Instruction {
         match (
-            self.mem.vram_dma.get_op(self.mem.io.lcd_y, self.mem.vram.status),
+            self.mem
+                .vram_dma
+                .get_op(self.mem.io.lcd_y, self.mem.vram.status),
             self.mem.check_interrupt(),
         ) {
             (Some(op), _) => op,
