@@ -385,14 +385,13 @@ impl Instruction {
             Instruction::Prefixed => {
                 state.tick(MCycle::final_cycle());
                 let op = state.cpu.read_prefixed_op();
-                op.execute(state);
+                op.execute(&mut state);
             }
             Instruction::Transfer => todo!(),
             Instruction::Unused => panic!("Attempted to execute an invalid operation code!!"),
         }
-        // let cpu = &mut state.cpu;
-        // cpu.ime |= cpu.to_set_ime;
-        // cpu.to_set_ime = false;
+        state.cpu.ime |= state.cpu.to_set_ime;
+        state.cpu.to_set_ime = false;
     }
 
     /// Returns the number of ticks to will take to complete this instruction.
