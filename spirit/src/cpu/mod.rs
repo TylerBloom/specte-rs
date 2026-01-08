@@ -258,7 +258,12 @@ impl Cpu {
 
     /// Determines what the CPU should do next. Included in this, is a check for interrupts.
     pub fn read_op(&self) -> Instruction {
-        parse_instruction(self.ir.0)
+        match self.state {
+            CpuState::Running => parse_instruction(self.ir.0),
+            CpuState::Halted => Instruction::Stall,
+            CpuState::Stopped => Instruction::Stopped,
+        }
+
     }
 
     /// Determines what the CPU should do next

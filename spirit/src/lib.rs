@@ -105,7 +105,14 @@ impl Gameboy {
     }
 
     pub fn read_op(&self) -> Instruction {
-        self.cpu.read_op()
+        match (
+            self.mem.vram_dma.get_op(self.mem.io.lcd_y, self.mem.vram.status),
+            self.mem.check_interrupt(),
+        ) {
+            (Some(op), _) => op,
+            (None, Some(op)) if self.cpu.ime => op,
+            _ => self.cpu.read_op(),
+        }
     }
 
     pub fn is_running(&self) -> bool {

@@ -84,6 +84,11 @@ pub enum Instruction {
     /// This is not a real instruction, but its used to communicate that the VRAM DMA is
     /// transferring data. One of these operations represents 16 bytes being transferred.
     Transfer,
+    /// This is not a real operation. Rather is executed while halted, waiting for an interrupt.
+    Stall,
+    /// This is not a real operation. Rather is executed when the system is stopped. If executed,
+    /// this is the only instruction that will be executed until the system resets.
+    Stopped,
     /// Load the next byte as an op code for a prefixed instruction
     Prefixed,
     /// Used for the handful of unused op codes
@@ -437,6 +442,18 @@ impl Instruction {
                 let op = state.cpu.read_prefixed_op();
                 op.execute(&mut state);
             }
+            Instruction::Stall => state.tick(MCycle {
+                addr_bus: PointerReg::PC,
+                action: AddrAction::Noop,
+                idu: None,
+                alu: None,
+            }),
+            Instruction::Stopped => state.tick(MCycle {
+                addr_bus: PointerReg::PC,
+                action: AddrAction::Noop,
+                idu: None,
+                alu: None,
+            }),
             Instruction::Transfer => todo!(),
             Instruction::Unused => panic!("Attempted to execute an invalid operation code!!"),
         }
@@ -467,6 +484,8 @@ impl Instruction {
             Instruction::Rlca => todo!(),
             Instruction::Rra => todo!(),
             Instruction::Rrca => todo!(),
+            Instruction::Stall => todo!(),
+            Instruction::Stopped => todo!(),
         }
     }
 
@@ -491,6 +510,8 @@ impl Instruction {
             Instruction::Rlca => todo!(),
             Instruction::Rra => todo!(),
             Instruction::Rrca => todo!(),
+            Instruction::Stall => todo!(),
+            Instruction::Stopped => todo!(),
         }
     }
 }
