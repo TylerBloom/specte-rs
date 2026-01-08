@@ -89,7 +89,9 @@ impl LoadOp {
                     state.tick(MCycle::final_cycle());
                 }
                 (RegOrPointer::Pointer, RegOrPointer::Pointer) => {
-                    todo!("Impl HALT")
+                    todo!()
+                    // self.state = CpuState::Halted;
+                    // self.pc -= Wrapping(ControlOp::Halt.size() as u16);
                 }
             },
             LoadOp::Direct16(wide_reg) => {

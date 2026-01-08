@@ -18,7 +18,7 @@ pub enum InterruptOp {
 }
 
 impl InterruptOp {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, state: &mut GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLikeExt>(self, _state: &mut GameboyState<'_, M>) {
         match self {
             InterruptOp::VBlank => todo!(),
             InterruptOp::LCD => todo!(),

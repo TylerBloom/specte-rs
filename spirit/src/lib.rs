@@ -1,4 +1,3 @@
-#![allow(unused_variables, dead_code, unused_mut)]
 //! Spirit is the core crate for the specters project. Contained here is the all of the logic for
 //! creating a gameboy emulator and running it with a game ROM. This crate aims to be platform
 //! agnostic and free of the UI-specifics. Other projects will wrap this logic in their own ways.
@@ -103,12 +102,6 @@ impl Gameboy {
             cpu: &mut self.cpu,
         };
         op.execute(state);
-    }
-
-    /// This method is only called by the step sequence when it gets ticked. This represents a
-    /// clock cycle (not a machine cycle). This involves ticking the memory and PPU.
-    fn tick(&mut self) {
-        self.mem.tick(&mut self.ppu);
     }
 
     pub fn read_op(&self) -> Instruction {
