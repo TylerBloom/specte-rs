@@ -211,7 +211,7 @@ impl CpuTest {
             name,
             initial: init,
             end,
-            cycles,
+            cycles: _,
         } = self;
         // println!("Running test: {name}");
         let result = std::panic::catch_unwind(|| {
@@ -225,7 +225,7 @@ impl CpuTest {
             // occurs, we break
             while cpu.pc != end.pc && ops < 100 {
                 ops += 1;
-                let mut op = cpu.read_op();
+                let op = cpu.read_op();
                 // println!("Running instruction: {op}");
                 // println!("Init CPU: {cpu}");
                 let state = GameboyState {

@@ -15,7 +15,11 @@ impl ControlOp {
     pub(crate) fn execute<M: MemoryLikeExt>(self, state: &mut GameboyState<'_, M>) {
         match self {
             ControlOp::Noop => state.tick(MCycle::final_cycle()),
-            ControlOp::Halt => todo!(),
+            ControlOp::Halt => {
+                todo!()
+                // self.state = CpuState::Halted;
+                // self.pc -= Wrapping(ControlOp::Halt.size() as u16);
+            }
             ControlOp::Stop => todo!(),
         }
     }

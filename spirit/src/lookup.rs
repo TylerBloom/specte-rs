@@ -599,14 +599,11 @@ static PREFIXED_OP_LOOKUP: [PrefixedInstruction; 0x100] = define_prefixed_op_loo
 
 #[cfg(test)]
 mod test {
-    use crate::mem::MemoryMap;
-
     use super::parse_instruction;
     use super::parse_prefixed_instruction;
 
     #[test]
     fn dedupped_op_lookup_tables() {
-        let mut data = MemoryMap::construct();
         // Test standard ops
         let mut ops: Vec<_> = (0..=u8::MAX).map(|i| parse_instruction(i)).collect();
         // Ensure (almost) all of the operations are actually returning unique values
