@@ -312,6 +312,26 @@ impl AluSignal {
         Self::accumulator_op(src, AluOp::Cp)
     }
 
+    pub fn daa() -> Self {
+        Self::accumulator_op(HalfRegister::A.into(), AluOp::Daa)
+    }
+
+    pub fn rla() -> Self {
+        Self::accumulator_op(HalfRegister::A.into(), AluOp::Rla)
+    }
+
+    pub fn rlca() -> Self {
+        Self::accumulator_op(HalfRegister::A.into(), AluOp::Rlca)
+    }
+
+    pub fn rra() -> Self {
+        Self::accumulator_op(HalfRegister::A.into(), AluOp::Rra)
+    }
+
+    pub fn rrca() -> Self {
+        Self::accumulator_op(HalfRegister::A.into(), AluOp::Rrca)
+    }
+
     const fn bit_op(src: DataLocation, op: AluOp) -> Self {
         Self {
             input_one: src,
@@ -362,6 +382,11 @@ pub enum AluOp {
     Sra,
     Swap,
     Srl,
+    Daa,
+    Rla,
+    Rlca,
+    Rra,
+    Rrca,
 }
 
 impl Instruction {
@@ -372,16 +397,42 @@ impl Instruction {
             Instruction::Jump(jump_op) => jump_op.execute(&mut state),
             Instruction::Arithmetic(arithmetic_op) => arithmetic_op.execute(&mut state),
             Instruction::Interrupt(interrupt_op) => interrupt_op.execute(&mut state),
-            Instruction::Daa => todo!(),
-            Instruction::Scf => todo!(),
-            Instruction::Cpl => todo!(),
-            Instruction::Ccf => todo!(),
-            Instruction::Di => todo!(),
-            Instruction::Ei => todo!(),
-            Instruction::Rla => todo!(),
-            Instruction::Rlca => todo!(),
-            Instruction::Rra => todo!(),
-            Instruction::Rrca => todo!(),
+            Instruction::Daa => {
+                state.tick(MCycle::final_with_alu(AluSignal::daa()));
+            }
+            Instruction::Scf => {
+                state.tick(MCycle::final_cycle());
+                state.cpu.f.n = false;
+                state.cpu.f.h = false;
+                state.cpu.f.c = true;
+            }
+            Instruction::Cpl => {
+                state.tick(MCycle::final_cycle());
+                let a = state.cpu.a.0;
+                state.cpu.a = (!a).into();
+                state.cpu.f.n = true;
+                state.cpu.f.h = true;
+            }
+            Instruction::Ccf => {
+                state.tick(MCycle::final_cycle());
+                state.cpu.f.n = false;
+                state.cpu.f.h = false;
+                let c = state.cpu.f.c;
+                state.cpu.f.c = !c;
+            }
+            Instruction::Rla => state.tick(MCycle::final_with_alu(AluSignal::rla())),
+            Instruction::Rlca => state.tick(MCycle::final_with_alu(AluSignal::rlca())),
+            Instruction::Rra => state.tick(MCycle::final_with_alu(AluSignal::rra())),
+            Instruction::Rrca => state.tick(MCycle::final_with_alu(AluSignal::rrca())),
+            Instruction::Di => {
+                state.tick(MCycle::final_cycle());
+                state.cpu.to_set_ime = false;
+                state.cpu.ime = false;
+            }
+            Instruction::Ei => {
+                state.tick(MCycle::final_cycle());
+                state.cpu.to_set_ime = true;
+            }
             Instruction::Prefixed => {
                 state.tick(MCycle::final_cycle());
                 let op = state.cpu.read_prefixed_op();
