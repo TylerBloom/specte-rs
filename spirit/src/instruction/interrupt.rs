@@ -1,4 +1,5 @@
-use crate::{GameboyState, mem::MemoryLikeExt};
+use crate::GameboyState;
+use crate::mem::MemoryLikeExt;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
 #[display("{_variant}")]
