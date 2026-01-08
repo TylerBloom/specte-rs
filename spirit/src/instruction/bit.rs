@@ -47,7 +47,7 @@ impl BitOp {
                 state.tick(cycle);
                 state.tick(MCycle::write_pointer());
                 state.tick(MCycle::final_cycle());
-            },
+            }
         }
     }
 

@@ -1,4 +1,5 @@
-use crate::{mem::MemoryLikeExt, utils::Wrapping};
+use crate::mem::MemoryLikeExt;
+use crate::utils::Wrapping;
 
 use super::*;
 
