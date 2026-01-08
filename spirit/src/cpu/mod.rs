@@ -40,7 +40,7 @@ mod cpu_tests;
     Debug, Default, Hash, Clone, PartialEq, Eq, derive_more::Display, Serialize, Deserialize,
 )]
 #[display(
-    "CPU {{ A=0x{:0>2X} F={} B=0x{:0>2X} C=0x{:0>2X} D=0x{:0>2X} E=0x{:0>2X} H=0x{:0>2X} L=0x{:0>2X}, Z={:0>2X}, W={:0>2X}, IR={:0>2X} SP=0x{:0>2X} PC=0x{:0>2X} IME={} Done={} }}",
+    "CPU {{ A=0x{:0>2X} F={} B=0x{:0>2X} C=0x{:0>2X} D=0x{:0>2X} E=0x{:0>2X} H=0x{:0>2X} L=0x{:0>2X}, Z={:0>2X}, W={:0>2X}, IR={:0>2X} SP=0x{:0>4X} PC=0x{:0>4X} IME={} Done={} }}",
     a,
     f,
     b,

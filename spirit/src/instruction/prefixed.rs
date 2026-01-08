@@ -12,7 +12,7 @@ pub enum PrefixedInstruction {
 }
 
 impl PrefixedInstruction {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLikeExt>(self, state: &mut GameboyState<'_, M>) {
         match self {
             PrefixedInstruction::BitShift(op) => op.execute(state),
             PrefixedInstruction::Bit(op) => op.execute(state),
