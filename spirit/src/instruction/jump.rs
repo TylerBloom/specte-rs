@@ -261,6 +261,7 @@ impl JumpOp {
                 state.tick(MCycle::final_cycle());
             }
             JumpOp::ConditionalReturn(cond) => {
+                state.tick(MCycle::noop());
                 if cond.passed(state.cpu) {
                     let cycle = MCycle {
                         addr_bus: PointerReg::SP,

@@ -1,3 +1,4 @@
+use crate::cpu::CpuState;
 use crate::mem::MemoryLikeExt;
 use crate::utils::Wrapping;
 
@@ -89,9 +90,8 @@ impl LoadOp {
                     state.tick(MCycle::final_cycle());
                 }
                 (RegOrPointer::Pointer, RegOrPointer::Pointer) => {
-                    todo!()
-                    // self.state = CpuState::Halted;
-                    // self.pc -= Wrapping(ControlOp::Halt.size() as u16);
+                    state.tick(MCycle::final_cycle());
+                    state.cpu.state = CpuState::Halted;
                 }
             },
             LoadOp::Direct16(wide_reg) => {

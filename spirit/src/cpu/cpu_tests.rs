@@ -232,6 +232,7 @@ impl CpuTest {
                     mem: &mut mem,
                     ppu: &mut ppu,
                     cpu: &mut cpu,
+                    cycle_count: 0,
                 };
                 op.execute(state);
                 // println!("Post CPU: {cpu}\n");

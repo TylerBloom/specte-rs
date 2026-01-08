@@ -1,3 +1,5 @@
+use crate::cpu::CpuState;
+
 use super::*;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
@@ -16,11 +18,13 @@ impl ControlOp {
         match self {
             ControlOp::Noop => state.tick(MCycle::final_cycle()),
             ControlOp::Halt => {
-                todo!()
-                // self.state = CpuState::Halted;
-                // self.pc -= Wrapping(ControlOp::Halt.size() as u16);
+                state.tick(MCycle::final_cycle());
+                state.cpu.state = CpuState::Halted;
             }
-            ControlOp::Stop => todo!(),
+            ControlOp::Stop => {
+                state.tick(MCycle::final_cycle());
+                state.cpu.state = CpuState::Stopped;
+            }
         }
     }
 
