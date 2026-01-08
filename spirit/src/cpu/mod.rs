@@ -514,6 +514,37 @@ impl Cpu {
                 self.f.set_for_byte_shift_op(new == 0, carry);
                 new.into()
             }
+            AluOp::Daa => Wrapping(to_bcd(self.a.0, &mut self.f)),
+            AluOp::Rla => {
+                let byte = self.a.0;
+                let carry = self.f.c as u8;
+                let mask = carry | (carry << 7);
+                let [c, new] = (u16::from_be_bytes([mask, byte]).rotate_left(1)).to_be_bytes();
+                self.f.set_for_byte_shift_op(false, c & 1 != 0);
+                Wrapping(new)
+            }
+            AluOp::Rlca => {
+                let byte = self.a.0;
+                let [c, new] = u16::from_be_bytes([0, byte]).rotate_left(1).to_be_bytes();
+                self.f.set_for_byte_shift_op(false, c == 1);
+                Wrapping(c | new)
+            }
+            AluOp::Rra => {
+                let mask = self.f.c as u8;
+                let byte = self.a.0;
+                let [new, c] = u16::from_be_bytes([byte, mask])
+                    .rotate_right(1)
+                    .to_be_bytes();
+                self.f.set_for_byte_shift_op(false, c == 0x80);
+                Wrapping(new)
+            }
+            AluOp::Rrca => {
+                let byte = self.a.0;
+                let [new, c] = u16::from_be_bytes([byte, 0]).rotate_right(1).to_be_bytes();
+                let carry = c == 0x80;
+                self.f.set_for_byte_shift_op(false, carry);
+                Wrapping(c | new)
+            }
         };
         match output {
             DataLocation::Bus => self.z = byte,
