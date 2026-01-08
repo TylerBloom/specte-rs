@@ -63,7 +63,7 @@ pub enum LoadOp {
 }
 
 impl LoadOp {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLikeExt>(self, state: &mut GameboyState<'_, M>) {
         match self {
             LoadOp::Basic { dest, src } => match (dest, src) {
                 (RegOrPointer::Reg(dest), RegOrPointer::Reg(src)) => {

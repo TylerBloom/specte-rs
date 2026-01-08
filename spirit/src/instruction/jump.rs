@@ -62,7 +62,7 @@ pub enum JumpOp {
 }
 
 impl JumpOp {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, state: GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLikeExt>(self, state: &mut GameboyState<'_, M>) {
         match self {
             JumpOp::ConditionalRelative(condition) => todo!(),
             JumpOp::Relative => todo!(),

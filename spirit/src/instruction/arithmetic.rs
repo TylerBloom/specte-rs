@@ -34,7 +34,7 @@ pub enum ArithmeticOp {
 }
 
 impl ArithmeticOp {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLikeExt>(self, state: &mut GameboyState<'_, M>) {
         fn load_byte<M: MemoryLikeExt>(
             state: &mut GameboyState<'_, M>,
             byte: SomeByte,
@@ -54,35 +54,35 @@ impl ArithmeticOp {
 
         match self {
             ArithmeticOp::Add(byte) => {
-                let reg = load_byte(&mut state, byte);
+                let reg = load_byte(state, byte);
                 state.tick(MCycle::final_with_alu(AluSignal::add(reg)));
             }
             ArithmeticOp::Adc(byte) => {
-                let reg = load_byte(&mut state, byte);
+                let reg = load_byte(state, byte);
                 state.tick(MCycle::final_with_alu(AluSignal::adc(reg)));
             }
             ArithmeticOp::Sub(byte) => {
-                let reg = load_byte(&mut state, byte);
+                let reg = load_byte(state, byte);
                 state.tick(MCycle::final_with_alu(AluSignal::sub(reg)));
             }
             ArithmeticOp::Sbc(byte) => {
-                let reg = load_byte(&mut state, byte);
+                let reg = load_byte(state, byte);
                 state.tick(MCycle::final_with_alu(AluSignal::sbc(reg)));
             }
             ArithmeticOp::And(byte) => {
-                let reg = load_byte(&mut state, byte);
+                let reg = load_byte(state, byte);
                 state.tick(MCycle::final_with_alu(AluSignal::and(reg)));
             }
             ArithmeticOp::Xor(byte) => {
-                let reg = load_byte(&mut state, byte);
+                let reg = load_byte(state, byte);
                 state.tick(MCycle::final_with_alu(AluSignal::xor(reg)));
             }
             ArithmeticOp::Or(byte) => {
-                let reg = load_byte(&mut state, byte);
+                let reg = load_byte(state, byte);
                 state.tick(MCycle::final_with_alu(AluSignal::or(reg)));
             }
             ArithmeticOp::Cp(byte) => {
-                let reg = load_byte(&mut state, byte);
+                let reg = load_byte(state, byte);
                 state.tick(MCycle::final_with_alu(AluSignal::cp(reg)));
             }
             ArithmeticOp::Inc(reg_or_pointer) => {
