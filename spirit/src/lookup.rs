@@ -599,16 +599,41 @@ static PREFIXED_OP_LOOKUP: [PrefixedInstruction; 0x100] = define_prefixed_op_loo
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashSet;
+
+    use crate::instruction::Instruction;
+
     use super::parse_instruction;
     use super::parse_prefixed_instruction;
+
+    static UNUSED_OP_CODES: &[u8] = &[
+        0xD3,
+        0xDB,
+        0xDD,
+        0xE3,
+        0xE4,
+        0xEB,
+        0xEC,
+        0xED,
+        0xF4,
+        0xFC,
+        0xFD,
+    ];
+
+    #[test]
+    fn unused_op_codes() {
+        for op_code in UNUSED_OP_CODES {
+            println!("Checking 0x{op_code:0>2X}");
+            assert_eq!(parse_instruction(*op_code), Instruction::Unused);
+        }
+    }
 
     #[test]
     fn dedupped_op_lookup_tables() {
         // Test standard ops
-        let mut ops: Vec<_> = (0..=u8::MAX).map(|i| parse_instruction(i)).collect();
         // Ensure (almost) all of the operations are actually returning unique values
-        ops.dedup();
-        assert_eq!((u8::MAX - 9) as usize, ops.len());
+        let ops: HashSet<_> = (0..=u8::MAX).map(|i| parse_instruction(i)).collect();
+        assert_eq!(0x100 - UNUSED_OP_CODES.len() + 1, ops.len());
 
         // Test prefixed ops
         let mut more_ops: Vec<_> = (0..=u8::MAX)
