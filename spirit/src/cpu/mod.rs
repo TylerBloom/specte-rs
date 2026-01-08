@@ -1,6 +1,4 @@
 use std::hash::Hash;
-use std::ops::Index;
-use std::ops::IndexMut;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -159,7 +157,7 @@ impl Flags {
         self.c = c;
     }
 
-    pub fn as_byte(&self) -> u8 {
+    pub const fn as_byte(&self) -> u8 {
         bool_to_mask::<7>(self.z)
             | bool_to_mask::<6>(self.n)
             | bool_to_mask::<5>(self.h)
@@ -326,14 +324,14 @@ impl Cpu {
                     ReadLocation::RegisterZ => self.z = byte,
                     ReadLocation::RegisterW => self.w = byte,
                     ReadLocation::Other(DataLocation::Bus) => self.z = byte,
-                    ReadLocation::Other(DataLocation::Register(reg)) => self[reg] = byte,
+                    ReadLocation::Other(DataLocation::Register(reg)) => self.write_reg(reg, byte),
                     ReadLocation::Other(DataLocation::Literal(_)) => todo!(),
                 }
             }
             AddrAction::Write(loc) => {
                 let byte = match loc {
                     DataLocation::Bus => self.z.0,
-                    DataLocation::Register(reg) => self[reg].0,
+                    DataLocation::Register(reg) => self.read_reg(reg).0,
                     DataLocation::Literal(val) => val,
                 };
                 mem.write_byte(addr, byte);
@@ -364,12 +362,12 @@ impl Cpu {
         } = signal;
         let val_one = match input_one {
             DataLocation::Bus => self.z,
-            DataLocation::Register(reg) => self[reg],
+            DataLocation::Register(reg) => self.read_reg(reg),
             DataLocation::Literal(val) => Wrapping(val),
         };
         let val_two = match input_two {
             DataLocation::Bus => self.z,
-            DataLocation::Register(reg) => self[reg],
+            DataLocation::Register(reg) => self.read_reg(reg),
             DataLocation::Literal(val) => Wrapping(val),
         };
         let byte = match op {
@@ -548,7 +546,7 @@ impl Cpu {
         };
         match output {
             DataLocation::Bus => self.z = byte,
-            DataLocation::Register(reg) => self[reg] = byte,
+            DataLocation::Register(reg) => self.write_reg(reg, byte),
             DataLocation::Literal(_) => todo!(),
         }
     }
@@ -801,7 +799,7 @@ impl Cpu {
 
     pub fn copy_byte(&self, mem: &impl MemoryLikeExt, reg: RegOrPointer) -> u8 {
         match reg {
-            RegOrPointer::Reg(reg) => self[reg].0,
+            RegOrPointer::Reg(reg) => self.read_reg(reg).0,
             RegOrPointer::Pointer => mem.read_byte(self.ptr()),
         }
     }
@@ -815,8 +813,8 @@ impl Cpu {
     ) -> u8 {
         match reg {
             RegOrPointer::Reg(reg) => {
-                update(&mut self[reg].0);
-                self[reg].0
+                update(&mut self.read_reg(reg).0);
+                self.read_reg(reg).0
             }
             RegOrPointer::Pointer => mem.update_byte(self.ptr(), update),
         }
@@ -826,7 +824,7 @@ impl Cpu {
     /// register as an index.
     fn write_byte(&mut self, reg: RegOrPointer, mem: &mut impl MemoryLikeExt, val: u8) {
         match reg {
-            RegOrPointer::Reg(reg) => self[reg].0 = val,
+            RegOrPointer::Reg(reg) => self.write_reg(reg, val),
             RegOrPointer::Pointer => mem.write_byte(self.ptr(), val),
         }
     }
@@ -1210,50 +1208,30 @@ impl Cpu {
         self.l = l;
     }
 
-    /*
-    /// A method similar to `Self::execute`, but is ran during start up, when the ROM that is
-    /// burned-into the CPU is mapped over normal memory.
-    ///
-    /// Returns a the next operation should the start up process not be completed.
-    pub fn start_up_execute(
-        &mut self,
-        instr: Instruction,
-        mem: &mut impl MemoryLikeExt,
-    ) -> Option<Instruction> {
-        self.execute(instr, mem);
-        (mem.read_byte(0xFF50) == 0).then(|| self.read_op(mem))
-    }
-    */
-}
-
-impl Index<HalfRegister> for Cpu {
-    type Output = Wrapping<u8>;
-
-    fn index(&self, index: HalfRegister) -> &Self::Output {
+    const fn read_reg(&self, index: HalfRegister) -> Wrapping<u8> {
         match index {
-            HalfRegister::A => &self.a,
-            HalfRegister::B => &self.b,
-            HalfRegister::C => &self.c,
-            HalfRegister::D => &self.d,
-            HalfRegister::E => &self.e,
-            HalfRegister::H => &self.h,
-            HalfRegister::L => &self.l,
-            HalfRegister::F => todo!(),
+            HalfRegister::A => self.a,
+            HalfRegister::B => self.b,
+            HalfRegister::C => self.c,
+            HalfRegister::D => self.d,
+            HalfRegister::E => self.e,
+            HalfRegister::H => self.h,
+            HalfRegister::L => self.l,
+            HalfRegister::F => Wrapping(self.f.as_byte()),
         }
     }
-}
 
-impl IndexMut<HalfRegister> for Cpu {
-    fn index_mut(&mut self, index: HalfRegister) -> &mut Self::Output {
+    fn write_reg(&mut self, index: HalfRegister, val: impl Into<Wrapping<u8>>) {
+        let val = val.into();
         match index {
-            HalfRegister::A => &mut self.a,
-            HalfRegister::B => &mut self.b,
-            HalfRegister::C => &mut self.c,
-            HalfRegister::D => &mut self.d,
-            HalfRegister::E => &mut self.e,
-            HalfRegister::H => &mut self.h,
-            HalfRegister::L => &mut self.l,
-            HalfRegister::F => todo!(),
+            HalfRegister::A => self.a = val,
+            HalfRegister::B => self.b = val,
+            HalfRegister::C => self.c = val,
+            HalfRegister::D => self.d = val,
+            HalfRegister::E => self.e = val,
+            HalfRegister::H => self.h = val,
+            HalfRegister::L => self.l = val,
+            HalfRegister::F => self.f.set_from_byte(val.0),
         }
     }
 }
