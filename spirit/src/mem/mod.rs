@@ -80,14 +80,14 @@ pub struct MemoryMap {
     #[serde(serialize_with = "crate::utils::serialize_slices_as_one")]
     #[serde(deserialize_with = "crate::utils::deserialize_slices_as_one")]
     wram: [[u8; 0x1000]; 2],
-    io: IoRegisters,
+    pub(crate) io: IoRegisters,
     // High RAM
     #[serde_as(as = "serde_with::Bytes")]
     hr: [u8; 0x7F],
     /// ADDR FF46
     pub oam_dma: OamDma,
     /// ADDR FF51-FF55
-    vram_dma: VramDma,
+    pub(crate) vram_dma: VramDma,
     /// The interrupt enable register. Bits 0-4 flag where or not certain interrupt handlers can be
     /// called.
     ///  - Bit 0 corresponds to the VBlank interrupt
@@ -342,7 +342,7 @@ impl OamDma {
 }
 
 #[derive(Default, Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
-struct VramDma {
+pub(crate) struct VramDma {
     src_hi: u8,
     src_lo: u8,
     curr_src: u16,
@@ -396,7 +396,7 @@ impl VramDma {
         }
     }
 
-    fn get_op(&self, ly: u8, state: PpuMode) -> Option<Instruction> {
+    pub(crate) fn get_op(&self, ly: u8, state: PpuMode) -> Option<Instruction> {
         if check_bit_const::<7>(self.read_trigger()) {
             return None;
         }
@@ -481,7 +481,7 @@ impl MemoryMap {
         todo!()
     }
 
-    fn check_interrupt(&self) -> Option<Instruction> {
+    pub(super) fn check_interrupt(&self) -> Option<Instruction> {
         match self.ie & self.io.read_byte(0xFF0F) {
             0 => None,
             n => {
