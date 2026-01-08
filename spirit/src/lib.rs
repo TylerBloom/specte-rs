@@ -100,6 +100,7 @@ impl Gameboy {
             mem: &mut self.mem,
             ppu: &mut self.ppu,
             cpu: &mut self.cpu,
+            cycle_count: 0,
         };
         op.execute(state);
     }
@@ -198,18 +199,19 @@ where
     pub(crate) mem: &'a mut M,
     pub(crate) ppu: &'a mut Ppu,
     pub(crate) cpu: &'a mut Cpu,
+    #[cfg(debug_assertions)]
+    /// Used during testing to ensure the number of cycles executed per instruction is correct
+    pub(crate) cycle_count: usize,
 }
 
 impl<M: MemoryLikeExt> GameboyState<'_, M> {
     pub(crate) fn tick(&mut self, cycle: MCycle) {
         self.cpu.execute(cycle, self.mem);
-        self.blind_tick();
-    }
-
-    /// This method ticks the memory and PPU and meant to be used when contructing an `MCycle` is
-    /// too unwieldy.
-    pub(crate) fn blind_tick(&mut self) {
         self.mem.tick(self.ppu);
+        #[cfg(debug_assertions)]
+        {
+            self.cycle_count += 1;
+        }
     }
 }
 

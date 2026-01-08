@@ -1,6 +1,8 @@
 use crate::GameboyState;
 use crate::cpu::Cpu;
+use crate::cpu::CpuState;
 use crate::cpu::FullRegister;
+use crate::lookup::parse_prefixed_instruction;
 use crate::mem::MemoryLikeExt;
 
 use derive_more::From;
@@ -395,6 +397,8 @@ pub enum AluOp {
 
 impl Instruction {
     pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
+        #[cfg(debug_assertions)]
+        let length = self.length(&state) as usize / 4;
         match self {
             Instruction::Load(load_op) => load_op.execute(&mut state),
             Instruction::ControlOp(control_op) => control_op.execute(&mut state),
@@ -454,9 +458,20 @@ impl Instruction {
                 idu: None,
                 alu: None,
             }),
-            Instruction::Transfer => todo!(),
+            Instruction::Transfer => {
+                if matches!(state.cpu.state, CpuState::Running) {
+                    state.tick(MCycle::noop());
+                    state.tick(MCycle::noop());
+                    state.tick(MCycle::noop());
+                    state.tick(MCycle::noop());
+                    state.tick(MCycle::noop());
+                    state.tick(MCycle::noop());
+                    state.mem.vram_transfer()
+                }
+            }
             Instruction::Unused => panic!("Attempted to execute an invalid operation code!!"),
         }
+        debug_assert_eq!(state.cycle_count, length);
         state.cpu.ime |= state.cpu.to_set_ime;
         state.cpu.to_set_ime = false;
     }
@@ -464,11 +479,11 @@ impl Instruction {
     /// Returns the number of ticks to will take to complete this instruction.
     /// Takes a reference to the CPU in order to determine if this instruction will pass any
     /// conditions.
-    pub fn length(&self, cpu: &Cpu) -> u8 {
+    fn length<M: MemoryLikeExt>(&self, state: &GameboyState<'_, M>) -> u8 {
         match self {
             Instruction::Load(op) => op.length(),
             Instruction::ControlOp(op) => op.length(),
-            Instruction::Jump(op) => op.length(cpu),
+            Instruction::Jump(op) => op.length(state.cpu),
             Instruction::Arithmetic(op) => op.length(),
             Instruction::Interrupt(_) => 20,
             Instruction::Daa => 4,
@@ -479,13 +494,16 @@ impl Instruction {
             Instruction::Ei => 4,
             Instruction::Transfer => 24,
             Instruction::Unused => 0,
-            Instruction::Prefixed => 8,
-            Instruction::Rla => todo!(),
-            Instruction::Rlca => todo!(),
-            Instruction::Rra => todo!(),
-            Instruction::Rrca => todo!(),
-            Instruction::Stall => todo!(),
-            Instruction::Stopped => todo!(),
+            Instruction::Prefixed => {
+                let pc = state.cpu.pc;
+                parse_prefixed_instruction(state.mem.read_byte(pc.0)).length()
+            }
+            Instruction::Rla => 4,
+            Instruction::Rlca => 4,
+            Instruction::Rra => 4,
+            Instruction::Rrca => 4,
+            Instruction::Stall => 1,
+            Instruction::Stopped => 1,
         }
     }
 
@@ -506,12 +524,12 @@ impl Instruction {
             Instruction::Transfer => 0,
             Instruction::Unused => 0,
             Instruction::Prefixed => 2,
-            Instruction::Rla => todo!(),
-            Instruction::Rlca => todo!(),
-            Instruction::Rra => todo!(),
-            Instruction::Rrca => todo!(),
-            Instruction::Stall => todo!(),
-            Instruction::Stopped => todo!(),
+            Instruction::Rla => 1,
+            Instruction::Rlca => 1,
+            Instruction::Rra => 1,
+            Instruction::Rrca => 1,
+            Instruction::Stall => 1,
+            Instruction::Stopped => 0,
         }
     }
 }

@@ -17,4 +17,20 @@ impl PrefixedInstruction {
             PrefixedInstruction::Bit(op) => op.execute(state),
         }
     }
+
+    /// Returns the number of ticks to will take to complete this instruction.
+    pub fn length(&self) -> u8 {
+        match self {
+            PrefixedInstruction::BitShift(op) => op.length(),
+            PrefixedInstruction::Bit(op) => op.length(),
+        }
+    }
+
+    /// Returns the size of the bytes to took to construct this instruction
+    pub const fn size(&self) -> u8 {
+        match self {
+            PrefixedInstruction::BitShift(op) => op.size(),
+            PrefixedInstruction::Bit(op) => op.size(),
+        }
+    }
 }

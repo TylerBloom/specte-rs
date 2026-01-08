@@ -53,7 +53,10 @@ impl BitOp {
 
     /// Returns the number of ticks to will take to complete this instruction.
     pub fn length(&self) -> u8 {
-        8 + 8 * (self.reg.is_pointer() as u8)
+        match self.reg {
+            RegOrPointer::Reg(_) => 8,
+            RegOrPointer::Pointer => 16,
+        }
     }
 
     /// Returns the size of the bytes to took to construct this instruction
