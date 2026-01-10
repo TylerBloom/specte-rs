@@ -25,6 +25,7 @@ pub use interrupt::*;
 pub use jump::*;
 pub use load::*;
 pub use prefixed::*;
+use tracing::info;
 
 // Refactor plan:
 // Implement the instruction execution via a series of "M Cycle" sub-instructions. This needs to
@@ -397,6 +398,7 @@ pub enum AluOp {
 
 impl Instruction {
     pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
+        info!("Executing {self}");
         #[cfg(debug_assertions)]
         let length = self.length(&state) as usize / 4;
         match self {
