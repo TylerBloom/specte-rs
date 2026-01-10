@@ -134,6 +134,10 @@ impl CommandProcessor {
                 KeyCode::Down => Some(CliEvent::Down),
                 KeyCode::Char(c) => {
                     if key.modifiers.contains(KeyModifiers::CONTROL) {
+                        // FIXME: This causes issues when getting into infinite loops. Because this
+                        // logic and the command processing happen in the same thread, the loop
+                        // can't be exited and the process must be killed from outside. This should
+                        // be avoided.
                         if c == 'c' {
                             return Some(CliEvent::Cancel(self.update_buffer(std::mem::take)));
                         } else if c == 'd' {

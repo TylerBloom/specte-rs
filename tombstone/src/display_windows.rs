@@ -21,7 +21,7 @@ pub fn render_mem(state: &InnerAppState, frame: &mut Frame, area: Rect) {
     (state.mem_start..)
         .zip(buffer.iter_mut())
         .for_each(|(i, byte)| {
-            *byte = std::panic::catch_unwind(|| state.gb.mem.read_byte(i)).unwrap_or_default()
+            *byte = std::panic::catch_unwind(|| state.gb.gb().mem.read_byte(i)).unwrap_or_default()
         });
 
     render_byte_slice(state.mem_start, &buffer, frame, area, block);
@@ -32,7 +32,7 @@ pub fn render_ram(state: &InnerAppState, frame: &mut Frame, area: Rect) {
         .title(" MBC RAM ")
         .title_alignment(ratatui::layout::Alignment::Center);
 
-    let ram = match &state.gb.mem.mbc {
+    let ram = match &state.gb.gb().mem.mbc {
         MemoryBankController::Direct { ram, .. } => ram.0.as_slice(),
         MemoryBankController::MBC1(mbc) => mbc.ram(),
         MemoryBankController::MBC2(_mbc) => todo!(),
@@ -66,7 +66,7 @@ pub fn render_byte_slice(
 }
 
 pub fn render_cpu(state: &InnerAppState, frame: &mut Frame, area: Rect) {
-    let cpu = state.gb.cpu();
+    let cpu = state.gb.gb().cpu();
     let block = Block::bordered()
         .title(" CPU ")
         .title_alignment(ratatui::layout::Alignment::Center);
@@ -92,7 +92,7 @@ pub fn render_oam_dma(state: &InnerAppState, frame: &mut Frame, area: Rect) {
         .title(" OAM DMA ")
         .title_alignment(ratatui::layout::Alignment::Center);
 
-    let dma = &state.gb.mem.oam_dma;
+    let dma = &state.gb.gb().mem.oam_dma;
     frame.render_widget(Paragraph::new(format!("{dma}")).block(block), area);
 }
 
@@ -101,7 +101,7 @@ pub fn render_mbc(state: &InnerAppState, frame: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .title(" Timers ")
         .title_alignment(ratatui::layout::Alignment::Center);
-    let para = match &state.gb.mem.mbc {
+    let para = match &state.gb.gb().mem.mbc {
         MemoryBankController::Direct { .. } => "Just data...".into(),
         MemoryBankController::MBC1(mbc) => format!("{mbc}"),
         MemoryBankController::MBC2(_mbc) => todo!(),
@@ -117,8 +117,8 @@ pub fn render_interrupts(state: &InnerAppState, frame: &mut Frame, area: Rect) {
         .title(" Interrupts ")
         .title_alignment(ratatui::layout::Alignment::Center);
     let para = Paragraph::new(Text::from_iter([
-        format!("Enabled   : 0b{:0>8b}", state.gb.mem.ie), // , mem.ie),
-        format!("Requested : 0b{:0>8b}", state.gb.mem.io().interrupt_flags), // , mem.io.interrupt_flags),
+        format!("Enabled   : 0b{:0>8b}", state.gb.gb().mem.ie), // , mem.ie),
+        format!("Requested : 0b{:0>8b}", state.gb.gb().mem.io().interrupt_flags), // , mem.io.interrupt_flags),
     ]))
     .block(block);
     frame.render_widget(para, area);
@@ -129,7 +129,7 @@ pub fn render_stack(state: &InnerAppState, frame: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .title(" Stack ")
         .title_alignment(ratatui::layout::Alignment::Center);
-    let mem = &state.gb.mem;
+    let mem = &state.gb.gb().mem;
     let text = format!(
         "0x{:0>2X}{:0>2X} 0x{:0>2X}{:0>2X}",
         mem.read_byte(0xFFFE),
