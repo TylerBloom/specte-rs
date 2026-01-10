@@ -504,8 +504,8 @@ impl Instruction {
             Instruction::Rlca => 4,
             Instruction::Rra => 4,
             Instruction::Rrca => 4,
-            Instruction::Stall => 1,
-            Instruction::Stopped => 1,
+            Instruction::Stall => 4,
+            Instruction::Stopped => 4,
         }
     }
 
