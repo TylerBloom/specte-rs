@@ -5,7 +5,7 @@ use ratatui::layout::Rect;
 use ratatui::widgets::Block;
 use ratatui::widgets::Paragraph;
 use spirit::Gameboy;
-use spirit::lookup::Instruction;
+use spirit::instruction::Instruction;
 
 use crate::config::GameConfig;
 use crate::state::InnerAppState;
@@ -29,7 +29,7 @@ impl PcState {
             .title(" PC Area ")
             .title_alignment(ratatui::layout::Alignment::Center);
         let len = block.inner(area).height as usize;
-        let para = Paragraph::new(self.text_body(len, &state.config, &state.gb)).block(block);
+        let para = Paragraph::new(self.text_body(len, &state.config, state.gb.gb())).block(block);
         frame.render_widget(para, area);
     }
 

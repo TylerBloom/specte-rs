@@ -41,6 +41,7 @@ fn main() {
     let state = AppState::new(rom);
 
     // Run the TUI's state until it returns
+    eprintln!("Running...");
     state.run(term);
 
     // Wait for the running thread to close, then reset the terminal and return
