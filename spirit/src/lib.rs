@@ -21,6 +21,9 @@ use mem::MemoryMap;
 use mem::StartUpHeaders;
 use mem::vram::PpuMode;
 use ppu::Ppu;
+use tracing::info;
+
+use crate::lookup::parse_instruction;
 
 pub mod apu;
 pub mod cpu;
@@ -75,20 +78,33 @@ impl Gameboy {
     /// conditional jump will execute. Rather, it is to be used for debugging by providing a window
     /// into region around the PC.
     pub fn op_iter(&self) -> impl Iterator<Item = (u16, Instruction)> {
-        let mut pc = self.cpu.pc.0;
-        std::iter::repeat(()).map_while(move |()| {
-            let op = std::panic::catch_unwind(|| self.mem.read_op(pc, self.cpu.ime)).ok()?;
-            let old_pc = pc;
-            // TODO: Either commit to this all of the way or don't. The core issue here is that
-            // some data might be read and is not meant to be an instruction. Panic catching is
-            // also an option here.
-            if let Instruction::Jump(JumpOp::Absolute) = op {
-                todo!()
-            } else {
-                pc += op.size() as u16;
+        let mut pc = self.cpu.pc.0.saturating_sub(1);
+        let orig_pc = pc;
+        let ime = self.cpu.ime;
+        let op = self.mem.read_op(pc, ime);
+        pc += op.size() as u16;
+        let mut stop = false;
+        std::iter::once((orig_pc, op)).chain(std::iter::from_fn(move || {
+            if stop {
+                return None;
             }
-            Some((old_pc, op))
-        })
+            let op = self.mem.read_op(pc, ime);
+            let ret_pc = pc;
+            match op {
+                // TODO: Either commit to this all of the way or don't. The core issue here is that
+                // some data might be read and is not meant to be an instruction. Panic catching is
+                // also an option here.
+                Instruction::Jump(JumpOp::Absolute) => {
+                    let hi = self.mem.read_byte(pc + 1);
+                    let lo = self.mem.read_byte(pc + 2);
+                    pc = u16::from_be_bytes([hi, lo]);
+                }
+                Instruction::Stopped | Instruction::Unused => stop = true,
+                _ => {}
+            }
+            pc += op.size() as u16;
+            Some((ret_pc, op))
+        }))
     }
 
     /// This returns a state that will track the number of required clock ticks it takes to
