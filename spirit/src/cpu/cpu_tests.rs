@@ -1,6 +1,10 @@
 use std::fmt::Display;
+use std::fmt::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
+
+use crate::GameboyState;
+use crate::ppu::Ppu;
 
 use super::Cpu;
 use super::Flags;
@@ -58,15 +62,15 @@ struct TestBattery<const START: u8> {
 }
 
 impl<const START: u8> TestBattery<START> {
-    fn construct(mut path: PathBuf) -> Self {
+    fn construct(path: PathBuf) -> Self {
         let mut suites = Vec::new();
         let end: u8 = START + 0x3F;
         for i in START..=end {
+            let mut path = path.clone();
             path.push(format!("json_test_{i:0>2x}.json"));
             let Ok(file) = std::fs::read_to_string(&path) else {
                 continue;
             };
-            path.pop();
             let suite: TestSuite = serde_json::from_str(&file).unwrap();
             suites.push((i, suite));
         }
@@ -78,7 +82,9 @@ impl<const START: u8> TestBattery<START> {
         let results = self
             .suites
             .into_iter()
+            // .filter(|(op, _)| *op == 0xFA)
             .map(|(op, suite)| (op, suite.execute(op)))
+            // .inspect(|(_, report)| println!("{report}"))
             .collect();
         BatteryReport { results }
     }
@@ -135,6 +141,8 @@ impl TestSuite {
             .0
             .into_iter()
             .map(|test| test.execute(op_code))
+            // .filter(|report| matches!(report.status, Status::Failed))
+            // .take(1)
             .collect();
         SuiteReport { results }
     }
@@ -203,20 +211,37 @@ impl CpuTest {
             name,
             initial: init,
             end,
-            cycles,
+            cycles: _,
         } = self;
+        // println!("Running test: {name}");
         let result = std::panic::catch_unwind(|| {
             let (mut cpu, mut mem) = init.build();
-            let len = cycles.len() as u8;
-            let mut cycles = len;
-            // println!("{cpu}");
-            while cycles != 0 {
-                let op = cpu.read_op(&mem);
-                // println!("{op}");
-                cycles = cycles.saturating_sub(op.length(&cpu) / 4);
-                cpu.execute(op, &mut mem);
-                // println!("{cpu}");
+            // The PPU isn't actually used but needed for the internal ticking in the operation's
+            // execution.
+            let mut ppu = Ppu::new();
+            let mut ops = 0;
+            // The end state should place the CPUs in (about) the same PC location, but, should
+            // a bug exist, that might not happen. No tests contains more than 100 ops. If that
+            // occurs, we break
+            while cpu.pc != end.pc && ops < 100 {
+                ops += 1;
+                let op = cpu.read_op();
+                // println!("Running instruction: {op}");
+                // println!("Init CPU: {cpu}");
+                let state = GameboyState {
+                    mem: &mut mem,
+                    ppu: &mut ppu,
+                    cpu: &mut cpu,
+                    cycle_count: 0,
+                };
+                op.execute(state);
+                // println!("Post CPU: {cpu}\n");
             }
+            cpu.pc -= 1u16;
+            // We don't care about the "ghost" registers or the instruction regsiter
+            cpu.ir = 0.into();
+            cpu.z = 0.into();
+            cpu.w = 0.into();
             end.validate((cpu, mem))
         });
         let (status, reason) = match result {
@@ -224,7 +249,7 @@ impl CpuTest {
             Err(_err) => {
                 let reason =
                     format!("A panic occured while testing op 0x{op_code:0>2X} in test {name:?}");
-                eprintln!("{reason}");
+                // eprintln!("{reason}");
                 (Status::Failed, reason)
             }
         };
@@ -263,6 +288,8 @@ impl CpuState {
             f: Flags::from(self.f),
             h: self.h.into(),
             l: self.l.into(),
+            // The test cases have the PC already incremented before the instruction is read (or
+            // executed). This corrects that offset.
             pc: (self.pc - 1).into(),
             sp: self.sp.into(),
             ime: self.ime.unwrap_or_default(),
@@ -283,20 +310,31 @@ impl CpuState {
                 format!("CPU Mismatch:\n\tExpected {cpu}\n\tKnown    {}", known.0),
             );
         }
-        known
-            .1
-            .iter()
-            .zip(mem.iter())
-            .enumerate()
-            .find_map(|(addr, (known, expected))| {
-                (known != expected).then(|| {
-                    (
-                        Status::Failed,
-                        format!("Mismatch value @ 0x{addr:0>4X} (aka ({addr})): Expected {expected}, Known {known}"),
-                    )
-                })
-            })
-            .unwrap_or_default()
+        if known.1 == mem {
+            (Status::Passed, String::new())
+        } else {
+            let mismatches: Vec<_> = known
+                .1
+                .iter()
+                .zip(mem.iter())
+                .enumerate()
+                .filter(|(_, (a, b))| **a != 0 || **b != 0)
+                .collect();
+            let mut addrs = String::new();
+            let mut knowns = String::new();
+            let mut expecteds = String::new();
+            for (addr, (known, expected)) in mismatches {
+                _ = write!(addrs, "0x{addr:0>4X} ");
+                _ = write!(knowns, "  0x{known:0>2X} ");
+                _ = write!(expecteds, "  0x{expected:0>2X} ");
+            }
+            (
+                Status::Failed,
+                format!(
+                    "Memory diff (addresses, known, expected):\n{addrs}\n{knowns}\n{expecteds}"
+                ),
+            )
+        }
     }
 }
 

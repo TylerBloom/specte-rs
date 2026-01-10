@@ -178,6 +178,13 @@ impl EmulatorInner {
         }
     }
 
+    pub fn gb_mut(&mut self) -> &mut Gameboy {
+        match self {
+            EmulatorInner::StartUp(seq) => seq.as_mut().unwrap(),
+            EmulatorInner::Ready(gb) => gb,
+        }
+    }
+
     pub fn next_frame(&mut self) {
         match self {
             EmulatorInner::StartUp(seq) => {
@@ -210,8 +217,8 @@ impl Emulator {
     pub fn new(cart: Vec<u8>) -> Self {
         let gb = Gameboy::load_cartridge(cart);
         Self {
-            gb: EmulatorInner::Ready(gb.complete()),
-            // gb: EmulatorInner::StartUp(Some(gb)),
+            // gb: EmulatorInner::Ready(gb.complete()),
+            gb: EmulatorInner::StartUp(Some(gb)),
         }
     }
 
@@ -221,6 +228,10 @@ impl Emulator {
 
     pub fn gb(&self) -> &Gameboy {
         self.gb.gb()
+    }
+
+    pub fn gb_mut(&mut self) -> &mut Gameboy {
+        self.gb.gb_mut()
     }
 
     pub fn next_frame(&mut self) {

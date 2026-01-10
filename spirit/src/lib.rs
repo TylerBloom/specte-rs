@@ -14,17 +14,18 @@ use serde::Serialize;
 
 use cpu::Cpu;
 use cpu::CpuState;
-use lookup::Instruction;
+use instruction::*;
 use mem::MemoryLike;
+use mem::MemoryLikeExt;
 use mem::MemoryMap;
 use mem::StartUpHeaders;
 use mem::vram::PpuMode;
 use ppu::Ppu;
-
-use crate::lookup::JumpOp;
+// use tracing::info;
 
 pub mod apu;
 pub mod cpu;
+pub mod instruction;
 pub mod lookup;
 pub mod mem;
 pub mod ppu;
@@ -38,34 +39,6 @@ pub struct Gameboy {
     pub mem: MemoryMap,
     pub ppu: Ppu,
     cpu: Cpu,
-}
-
-#[must_use = "Start up sequence is lazy and should be ticked. Dropping this object to complete the startup sequence instantly."]
-pub struct StartUpSequence {
-    gb: Gameboy,
-    /// The memory that the ROM contains that get mapped over during the startup process.
-    remap_mem: Option<Box<StartUpHeaders>>,
-}
-
-pub enum ButtonInput {
-    Joypad(JoypadInput),
-    Ssab(SsabInput),
-}
-
-#[repr(u8)]
-pub enum JoypadInput {
-    Right = 0x1,
-    Left = 0x2,
-    Up = 0x4,
-    Down = 0x8,
-}
-
-#[repr(u8)]
-pub enum SsabInput {
-    A = 0x1,
-    B = 0x2,
-    Select = 0x4,
-    Start = 0x8,
 }
 
 impl Gameboy {
@@ -103,20 +76,33 @@ impl Gameboy {
     /// conditional jump will execute. Rather, it is to be used for debugging by providing a window
     /// into region around the PC.
     pub fn op_iter(&self) -> impl Iterator<Item = (u16, Instruction)> {
-        let mut pc = self.cpu.pc.0;
-        std::iter::repeat(()).map_while(move |()| {
-            let op = std::panic::catch_unwind(|| self.mem.read_op(pc, self.cpu.ime)).ok()?;
-            let old_pc = pc;
-            // TODO: Either commit to this all of the way or don't. The core issue here is that
-            // some data might be read and is not meant to be an instruction. Panic catching is
-            // also an option here.
-            if let Instruction::Jump(JumpOp::Absolute(dest)) = op {
-                pc = dest;
-            } else {
-                pc += op.size() as u16;
+        let mut pc = self.cpu.pc.0.saturating_sub(1);
+        let orig_pc = pc;
+        let ime = self.cpu.ime;
+        let op = self.mem.read_op(pc, ime);
+        pc += op.size() as u16;
+        let mut stop = false;
+        std::iter::once((orig_pc, op)).chain(std::iter::from_fn(move || {
+            if stop {
+                return None;
             }
-            Some((old_pc, op))
-        })
+            let op = self.mem.read_op(pc, ime);
+            let ret_pc = pc;
+            match op {
+                // TODO: Either commit to this all of the way or don't. The core issue here is that
+                // some data might be read and is not meant to be an instruction. Panic catching is
+                // also an option here.
+                Instruction::Jump(JumpOp::Absolute) => {
+                    let hi = self.mem.read_byte(pc + 1);
+                    let lo = self.mem.read_byte(pc + 2);
+                    pc = u16::from_be_bytes([hi, lo]);
+                }
+                Instruction::Stopped | Instruction::Unused => stop = true,
+                _ => {}
+            }
+            pc += op.size() as u16;
+            Some((ret_pc, op))
+        }))
     }
 
     /// This returns a state that will track the number of required clock ticks it takes to
@@ -124,30 +110,26 @@ impl Gameboy {
     /// the intruction is automatically ran.
     pub fn step(&mut self) {
         let op = self.read_op();
-        (0..op.length(&self.cpu)).for_each(|_| self.tick());
-        self.apply_op(op);
-    }
-
-    /// This method is only called by the step sequence when it gets ticked. This represents a
-    /// clock cycle (not a machine cycle). This involves ticking the memory and PPU.
-    fn tick(&mut self) {
-        self.mem.tick();
-        /*
-        let mask = {
-            let bit = self.cpu().ime as u8;
-            (bit << 0) | (bit << 1) | (bit << 2) | (bit << 3) | (bit << 4)
+        let state = GameboyState {
+            mem: &mut self.mem,
+            ppu: &mut self.ppu,
+            cpu: &mut self.cpu,
+            cycle_count: 0,
         };
-        self.mem.io_mut().interrupt_flags &= mask;
-        */
-        self.ppu.tick(&mut self.mem);
+        op.execute(state);
     }
 
     pub fn read_op(&self) -> Instruction {
-        self.cpu.read_op(&self.mem)
-    }
-
-    fn apply_op(&mut self, op: Instruction) {
-        self.cpu.execute(op, &mut self.mem)
+        match (
+            self.mem
+                .vram_dma
+                .get_op(self.mem.io.lcd_y, self.mem.vram.status),
+            self.mem.check_interrupt(),
+        ) {
+            (Some(op), _) => op,
+            (None, Some(op)) if self.cpu.ime => op,
+            _ => self.cpu.read_op(),
+        }
     }
 
     pub fn is_running(&self) -> bool {
@@ -163,6 +145,13 @@ impl Gameboy {
     }
 }
 
+#[must_use = "Start up sequence is lazy and should be ticked. Dropping this object to complete the startup sequence instantly."]
+pub struct StartUpSequence {
+    gb: Gameboy,
+    /// The memory that the ROM contains that get mapped over during the startup process.
+    remap_mem: Option<Box<StartUpHeaders>>,
+}
+
 impl StartUpSequence {
     fn new(mut gb: Gameboy) -> Self {
         let remap_mem = Some(Box::new(gb.mem.start_up_remap()));
@@ -172,7 +161,7 @@ impl StartUpSequence {
     /// Consumes the start-up processor, dropping it immediately.
     pub fn complete(mut self) -> Gameboy {
         while !self.is_complete() {
-            self.step()
+            self.step();
         }
         self.unmap();
         self.gb
@@ -215,6 +204,50 @@ impl DerefMut for StartUpSequence {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.gb
     }
+}
+
+pub(crate) struct GameboyState<'a, M = MemoryMap>
+where
+    M: MemoryLikeExt,
+{
+    pub(crate) mem: &'a mut M,
+    pub(crate) ppu: &'a mut Ppu,
+    pub(crate) cpu: &'a mut Cpu,
+    #[cfg(debug_assertions)]
+    /// Used during testing to ensure the number of cycles executed per instruction is correct
+    pub(crate) cycle_count: usize,
+}
+
+impl<M: MemoryLikeExt> GameboyState<'_, M> {
+    pub(crate) fn tick(&mut self, cycle: MCycle) {
+        self.cpu.execute(cycle, self.mem);
+        self.mem.tick(self.ppu);
+        #[cfg(debug_assertions)]
+        {
+            self.cycle_count += 1;
+        }
+    }
+}
+
+pub enum ButtonInput {
+    Joypad(JoypadInput),
+    Ssab(SsabInput),
+}
+
+#[repr(u8)]
+pub enum JoypadInput {
+    Right = 0x1,
+    Left = 0x2,
+    Up = 0x4,
+    Down = 0x8,
+}
+
+#[repr(u8)]
+pub enum SsabInput {
+    A = 0x1,
+    B = 0x2,
+    Select = 0x4,
+    Start = 0x8,
 }
 
 #[cfg(test)]

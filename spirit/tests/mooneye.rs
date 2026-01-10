@@ -1,8 +1,8 @@
 use spirit::Gameboy;
-use spirit::lookup::HalfRegister;
-use spirit::lookup::Instruction;
-use spirit::lookup::LoadOp;
-use spirit::lookup::RegOrPointer;
+use spirit::instruction::HalfRegister;
+use spirit::instruction::Instruction;
+use spirit::instruction::LoadOp;
+use spirit::instruction::RegOrPointer;
 use spirit::utils::Wrapping;
 
 const STOP_OP: Instruction = Instruction::Load(LoadOp::Basic {
