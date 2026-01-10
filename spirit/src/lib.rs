@@ -21,9 +21,7 @@ use mem::MemoryMap;
 use mem::StartUpHeaders;
 use mem::vram::PpuMode;
 use ppu::Ppu;
-use tracing::info;
-
-use crate::lookup::parse_instruction;
+// use tracing::info;
 
 pub mod apu;
 pub mod cpu;
@@ -163,7 +161,7 @@ impl StartUpSequence {
     /// Consumes the start-up processor, dropping it immediately.
     pub fn complete(mut self) -> Gameboy {
         while !self.is_complete() {
-            self.step()
+            self.step();
         }
         self.unmap();
         self.gb
