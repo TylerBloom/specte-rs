@@ -181,13 +181,15 @@ impl MemoryLike for MemoryMap {
     /// This method ticks the memory. The only thing this affects is the divider and timer
     /// registers.
     fn tick(&mut self, ppu: &mut Ppu) {
-        if let Some((r, w)) = self.oam_dma.tick() {
-            let byte = self.dma_read_byte(r);
-            // info!("Transferring byte to OAM @ 0x{r:0>4X}: 0x{byte:0>2X}");
-            self.vram.oam[w as usize] = byte;
+        for _ in 0..4 {
+            if let Some((r, w)) = self.oam_dma.tick() {
+                let byte = self.dma_read_byte(r);
+                // info!("Transferring byte to OAM @ 0x{r:0>4X}: 0x{byte:0>2X}");
+                self.vram.oam[w as usize] = byte;
+            }
+            self.io.tick();
+            ppu.tick(self);
         }
-        self.io.tick();
-        ppu.tick(self);
     }
 }
 
