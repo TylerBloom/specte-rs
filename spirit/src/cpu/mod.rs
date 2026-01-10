@@ -275,7 +275,6 @@ impl Cpu {
     }
 
     pub fn execute(&mut self, cycle: MCycle, mem: &mut impl MemoryLikeExt) {
-        // println!("Executing cycle: {cycle:?}");
         let MCycle {
             addr_bus,
             action,
@@ -420,7 +419,7 @@ impl Cpu {
                 val_one
             }
             AluOp::Bit(bit) => {
-                self.f.z = (val_one.0 & (1 << bit)) == 0;
+                self.f.z = !check_bit(bit, val_one.0);
                 self.f.n = false;
                 self.f.h = true;
                 val_one

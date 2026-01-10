@@ -39,7 +39,12 @@ impl BitOp {
                 // on the next cycle.
                 let mut cycle = MCycle::load_pointer();
                 let signal = match op {
-                    BitOpInner::Bit => AluSignal::bit(bit, DataLocation::Bus),
+                    BitOpInner::Bit => {
+                        cycle.alu = Some(AluSignal::bit(bit, DataLocation::Bus));
+                        state.tick(cycle);
+                        state.tick(MCycle::final_cycle());
+                        return
+                    }
                     BitOpInner::Res => AluSignal::res(bit, DataLocation::Bus),
                     BitOpInner::Set => AluSignal::set(bit, DataLocation::Bus),
                 };
@@ -55,7 +60,10 @@ impl BitOp {
     pub fn length(&self) -> u8 {
         match self.reg {
             RegOrPointer::Reg(_) => 8,
-            RegOrPointer::Pointer => 16,
+            RegOrPointer::Pointer => match self.op {
+                BitOpInner::Bit => 12,
+                BitOpInner::Res | BitOpInner::Set => 16,
+            },
         }
     }
 
