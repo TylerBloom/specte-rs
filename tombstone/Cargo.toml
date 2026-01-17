@@ -12,7 +12,7 @@ spirit = { path = "../spirit" }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 tokio = { version = "1.40.0", features = ["full"] }
-iced = "0.13.1"
+iced = "0.14.0"
 tokio-stream = { version = "0.1.16", features = ["sync"] }
 indexmap = "2.6.0"
 heapless = "0.9.1"
