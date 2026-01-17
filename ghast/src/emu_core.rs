@@ -217,8 +217,8 @@ impl Emulator {
     pub fn new(cart: Vec<u8>) -> Self {
         let gb = Gameboy::load_cartridge(cart);
         Self {
-            // gb: EmulatorInner::Ready(gb.complete()),
-            gb: EmulatorInner::StartUp(Some(gb)),
+            gb: EmulatorInner::Ready(gb.complete()),
+            // gb: EmulatorInner::StartUp(Some(gb)),
         }
     }
 

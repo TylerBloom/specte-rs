@@ -316,8 +316,8 @@ impl Cpu {
         }
         if let Some((signal, reg)) = idu {
             let addr = match signal {
-                IduSignal::Inc => addr + 1,
-                IduSignal::Dec => addr - 1,
+                IduSignal::Inc => addr.wrapping_add(1),
+                IduSignal::Dec => addr.wrapping_sub(1),
                 IduSignal::Noop => addr,
             };
             match reg {
