@@ -35,7 +35,7 @@ use crate::RunFor;
 use crate::RunLength;
 use crate::RunUntil;
 use crate::ViewCommand;
-use crate::cli::Cli;
+use crate::repl::Repl;
 use crate::command::BreakpointCommand;
 use crate::config::Config;
 use crate::config::GameConfig;
@@ -60,7 +60,7 @@ use crate::pc_state::PcState;
 /// Rc<RefCell>).
 pub(crate) struct AppState {
     inner: InnerAppState,
-    cli: Cli,
+    cli: Repl,
     log_buffer: Arc<Mutex<Vec<u8>>>,
     pc_state: PcState,
 }
@@ -94,7 +94,7 @@ impl AppState {
         Self {
             inner,
             log_buffer,
-            cli: Cli::new(),
+            cli: Repl::new(),
             pc_state: PcState::new(),
         }
     }
@@ -224,7 +224,7 @@ fn divide_frame(area: Rect) -> Panes {
 }
 
 impl InnerAppState {
-    fn process(&mut self, cli: &mut Cli, pc: &mut PcState, cmd: Command) {
+    fn process(&mut self, cli: &mut Repl, pc: &mut PcState, cmd: Command) {
         match cmd {
             Command::Read { index } => {
                 let val = self.gb.mem.read_byte(index);

@@ -15,7 +15,7 @@ use ratatui::layout::Position;
 use ratatui::prelude::Backend;
 
 use crate::Command;
-use crate::cli::PROMPT;
+use crate::repl::PROMPT;
 use crate::command::ReplCommand;
 
 /// Create a thread to poll for user inputs and forward them to the main thread.
