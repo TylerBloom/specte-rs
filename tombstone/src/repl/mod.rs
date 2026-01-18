@@ -9,14 +9,14 @@ mod commands;
 mod history;
 
 use crate::Command;
-use crate::cli::commands::CommandProcessor;
-use crate::cli::history::CliHistory;
+use crate::repl::commands::CommandProcessor;
+use crate::repl::history::CliHistory;
 
 /// The text displayed at the start of the shell command input.
 static PROMPT: &str = "> ";
 
 #[derive(Debug, Default)]
-pub struct Cli {
+pub struct Repl {
     processor: CommandProcessor,
     history: CliHistory,
     /// Tracks where in the CLI history the cursor is at. Used for events like Up and Down.
@@ -25,7 +25,7 @@ pub struct Cli {
     history_index: usize,
 }
 
-impl Cli {
+impl Repl {
     pub fn new() -> Self {
         Self {
             processor: CommandProcessor::new(),
