@@ -107,7 +107,7 @@ impl Repl {
 
     pub fn render(&self, frame: &mut Frame, rect: Rect) {
         let block = Block::bordered()
-            .title(" CLI ")
+            .title(" REPL ")
             .title_alignment(ratatui::layout::Alignment::Center);
         let inner_rect = block.inner(rect);
         let y = inner_rect.y;
