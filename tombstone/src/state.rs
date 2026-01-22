@@ -7,6 +7,8 @@ use std::sync::Mutex;
 
 use crossterm::execute;
 use crossterm::terminal::LeaveAlternateScreen;
+use ghast::emu_core::create_image;
+use iced::Task;
 use indexmap::IndexSet;
 use ratatui::Frame;
 use ratatui::Terminal;
@@ -15,6 +17,8 @@ use ratatui::layout::Constraint;
 use ratatui::layout::Direction;
 use ratatui::layout::Layout;
 use ratatui::layout::Rect;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -35,7 +39,6 @@ use crate::RunFor;
 use crate::RunLength;
 use crate::RunUntil;
 use crate::ViewCommand;
-use crate::repl::Repl;
 use crate::command::BreakpointCommand;
 use crate::config::Config;
 use crate::config::GameConfig;
@@ -44,7 +47,10 @@ use crate::display_windows::render_interrupts;
 use crate::display_windows::render_mem;
 use crate::display_windows::render_oam_dma;
 use crate::display_windows::render_ram;
+use crate::gui::GuiMessage;
+use crate::gui::GuiState;
 use crate::pc_state::PcState;
+use crate::repl::Repl;
 
 /// This is the app's state which holds all of the CLI data. This includes all previous commands
 /// that were ran and all data to be displayed in the TUI (prompts, inputs, command outputs).
@@ -99,7 +105,20 @@ impl AppState {
         }
     }
 
-    pub fn run<B: Backend>(mut self, mut term: Terminal<B>) {
+    pub fn run<B: 'static + Send + Backend>(self, term: Terminal<B>) {
+        let (send, recv) = tokio::sync::mpsc::unbounded_channel();
+        let stream = Box::pin(UnboundedReceiverStream::new(recv));
+        std::thread::spawn(move || self.run_inner(term, send));
+        iced::application("Specte-rs - Tombstone GBC", GuiState::update, GuiState::view)
+            .run_with(move || (GuiState::new(), Task::stream(stream)))
+            .unwrap()
+    }
+
+    pub fn run_inner<B: Backend>(
+        mut self,
+        mut term: Terminal<B>,
+        send: UnboundedSender<GuiMessage>,
+    ) {
         self.draw(&mut term);
         self.cli.draw_input_line(&mut term);
         loop {
@@ -112,6 +131,9 @@ impl AppState {
                 lock.drain(0..);
                 drop(lock);
                 self.draw(&mut term);
+                let screen = &self.inner.gb.ppu.screen;
+                let image = create_image(screen);
+                send.send(GuiMessage::Render(image)).unwrap();
             }
             self.cli.draw_input_line(&mut term);
         }
