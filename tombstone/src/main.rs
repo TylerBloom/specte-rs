@@ -10,11 +10,12 @@ use crossterm::terminal::enable_raw_mode;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
-pub mod repl;
 pub mod command;
 pub mod config;
 pub mod display_windows;
+pub mod gui;
 pub mod pc_state;
+pub mod repl;
 pub mod state;
 
 use command::*;
