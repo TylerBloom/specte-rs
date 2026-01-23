@@ -1,5 +1,6 @@
+use iced::Element;
 use iced::widget::Image;
-use iced::{Element, widget::image::Handle};
+use iced::widget::image::Handle;
 
 pub struct GuiState {
     image: Handle,

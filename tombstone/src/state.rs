@@ -109,9 +109,13 @@ impl AppState {
         let (send, recv) = tokio::sync::mpsc::unbounded_channel();
         let stream = Box::pin(UnboundedReceiverStream::new(recv));
         std::thread::spawn(move || self.run_inner(term, send));
-        iced::application("Specte-rs - Tombstone GBC", GuiState::update, GuiState::view)
-            .run_with(move || (GuiState::new(), Task::stream(stream)))
-            .unwrap()
+        iced::application(
+            "Specte-rs - Tombstone GBC",
+            GuiState::update,
+            GuiState::view,
+        )
+        .run_with(move || (GuiState::new(), Task::stream(stream)))
+        .unwrap()
     }
 
     pub fn run_inner<B: Backend>(

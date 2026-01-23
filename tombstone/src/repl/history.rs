@@ -1,5 +1,7 @@
 use ratatui::layout::Rect;
-use ratatui::text::{Line, Span, Text};
+use ratatui::text::Line;
+use ratatui::text::Span;
+use ratatui::text::Text;
 use ratatui::widgets::Paragraph;
 
 use super::PROMPT;
