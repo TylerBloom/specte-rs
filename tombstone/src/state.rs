@@ -1,11 +1,14 @@
 use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::io;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use crossterm::execute;
 use crossterm::terminal::LeaveAlternateScreen;
+use ghast::emu_core::create_image;
+use iced::Task;
 use indexmap::IndexSet;
 use ratatui::Frame;
 use ratatui::Terminal;
@@ -13,13 +16,12 @@ use ratatui::backend::Backend;
 use ratatui::layout::Constraint;
 use ratatui::layout::Direction;
 use ratatui::layout::Layout;
+use ratatui::layout::Rect;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::FmtSubscriber;
 use tracing_subscriber::fmt::MakeWriter;
-use tracing_subscriber::fmt::format::Compact;
-use tracing_subscriber::fmt::format::DefaultFields;
 use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::fmt::format::Format;
 
 use spirit::Gameboy;
 use spirit::lookup::HalfRegister;
@@ -37,7 +39,6 @@ use crate::RunFor;
 use crate::RunLength;
 use crate::RunUntil;
 use crate::ViewCommand;
-use crate::cli::Cli;
 use crate::command::BreakpointCommand;
 use crate::config::Config;
 use crate::config::GameConfig;
@@ -46,7 +47,10 @@ use crate::display_windows::render_interrupts;
 use crate::display_windows::render_mem;
 use crate::display_windows::render_oam_dma;
 use crate::display_windows::render_ram;
+use crate::gui::GuiMessage;
+use crate::gui::GuiState;
 use crate::pc_state::PcState;
+use crate::repl::Repl;
 
 /// This is the app's state which holds all of the CLI data. This includes all previous commands
 /// that were ran and all data to be displayed in the TUI (prompts, inputs, command outputs).
@@ -62,7 +66,7 @@ use crate::pc_state::PcState;
 /// Rc<RefCell>).
 pub(crate) struct AppState {
     inner: InnerAppState,
-    cli: Cli,
+    cli: Repl,
     log_buffer: Arc<Mutex<Vec<u8>>>,
     pc_state: PcState,
 }
@@ -96,12 +100,29 @@ impl AppState {
         Self {
             inner,
             log_buffer,
-            cli: Cli::new(),
+            cli: Repl::new(),
             pc_state: PcState::new(),
         }
     }
 
-    pub fn run<B: Backend>(mut self, mut term: Terminal<B>) {
+    pub fn run<B: 'static + Send + Backend>(self, term: Terminal<B>) {
+        let (send, recv) = tokio::sync::mpsc::unbounded_channel();
+        let stream = Box::pin(UnboundedReceiverStream::new(recv));
+        std::thread::spawn(move || self.run_inner(term, send));
+        iced::application(
+            "Specte-rs - Tombstone GBC",
+            GuiState::update,
+            GuiState::view,
+        )
+        .run_with(move || (GuiState::new(), Task::stream(stream)))
+        .unwrap()
+    }
+
+    pub fn run_inner<B: Backend>(
+        mut self,
+        mut term: Terminal<B>,
+        send: UnboundedSender<GuiMessage>,
+    ) {
         self.draw(&mut term);
         self.cli.draw_input_line(&mut term);
         loop {
@@ -114,6 +135,9 @@ impl AppState {
                 lock.drain(0..);
                 drop(lock);
                 self.draw(&mut term);
+                let screen = &self.inner.gb.ppu.screen;
+                let image = create_image(screen);
+                send.send(GuiMessage::Render(image)).unwrap();
             }
             self.cli.draw_input_line(&mut term);
         }
@@ -130,41 +154,103 @@ impl AppState {
     }
 
     fn render_frame(&mut self, frame: &mut Frame) {
-        let sections = Layout::default()
+        let Panes {
+            repl,
+            cpu,
+            mem,
+            ram,
+            oam_dma,
+            interrupts,
+            pc_state,
+        } = divide_frame(frame.area());
+        self.cli.render(frame, repl);
+        render_mem(&self.inner, frame, mem);
+        render_ram(&self.inner, frame, ram);
+        render_cpu(&self.inner, frame, cpu);
+        render_oam_dma(&self.inner, frame, oam_dma);
+        render_interrupts(&self.inner, frame, interrupts);
+        self.pc_state.render(&self.inner, frame, pc_state);
+    }
+}
+
+struct Panes {
+    repl: Rect,
+    cpu: Rect,
+    mem: Rect,
+    ram: Rect,
+    oam_dma: Rect,
+    interrupts: Rect,
+    pc_state: Rect,
+}
+
+impl Panes {
+    // NOTE: All of these add two to account for the border
+    const CPU_HEIGHT: u16 = 10;
+    const OAM_DMA_HEIGHT: u16 = 9;
+    const INTERRUPTS_HEIGHT: u16 = 4;
+    const RIGHT_COL_WIDTH: u16 = 35;
+    const MEM_WIDTH: u16 = 60;
+    const REPL_MIN_WIDTH: u16 = 60;
+}
+
+fn divide_frame(area: Rect) -> Panes {
+    let area = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(Panes::RIGHT_COL_WIDTH),
+        ])
+        .split(area);
+    let [left, right] = *Rc::<[_; 2]>::try_from(area).unwrap();
+    let area = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(Panes::CPU_HEIGHT),
+            Constraint::Length(Panes::OAM_DMA_HEIGHT),
+            Constraint::Length(Panes::INTERRUPTS_HEIGHT),
+            Constraint::Fill(1),
+        ])
+        .split(right);
+    let [cpu, oam_dma, interrupts, pc_state] = *Rc::<[_; 4]>::try_from(area).unwrap();
+    let (repl, [mem, ram]) = if left.width.saturating_sub(Panes::MEM_WIDTH) >= Panes::REPL_MIN_WIDTH
+    {
+        let area = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Fill(1), Constraint::Length(40)])
-            .split(frame.area());
-        let left = sections[0];
-        let right = sections[1];
-        let left = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Fill(1), Constraint::Fill(1)])
+            .constraints([Constraint::Length(Panes::MEM_WIDTH), Constraint::Fill(1)])
             .split(left);
-        let mem = Layout::default()
+        let [mem, repl] = *Rc::<[_; 2]>::try_from(area).unwrap();
+        let area = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Fill(1), Constraint::Fill(1)])
+            .split(mem);
+        let mem = *Rc::<[_; 2]>::try_from(area).unwrap();
+        (repl, mem)
+    } else {
+        let area = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Fill(1), Constraint::Fill(2)])
+            .split(left);
+        let [mem, repl] = *Rc::<[_; 2]>::try_from(area).unwrap();
+        let area = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Fill(1), Constraint::Fill(1)])
-            .split(left[1]);
-        let right = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(10),
-                Constraint::Length(20),
-                Constraint::Length(4),
-                Constraint::Fill(1),
-            ])
-            .split(right);
-        self.cli.render(frame, left[0]);
-        render_mem(&self.inner, frame, mem[0]);
-        render_ram(&self.inner, frame, mem[1]);
-        render_cpu(&self.inner, frame, right[0]);
-        render_oam_dma(&self.inner, frame, right[1]);
-        render_interrupts(&self.inner, frame, right[2]);
-        self.pc_state.render(&self.inner, frame, right[3]);
+            .split(mem);
+        let mem = *Rc::<[_; 2]>::try_from(area).unwrap();
+        (repl, mem)
+    };
+    Panes {
+        repl,
+        cpu,
+        mem,
+        ram,
+        oam_dma,
+        interrupts,
+        pc_state,
     }
 }
 
 impl InnerAppState {
-    fn process(&mut self, cli: &mut Cli, pc: &mut PcState, cmd: Command) {
+    fn process(&mut self, cli: &mut Repl, pc: &mut PcState, cmd: Command) {
         match cmd {
             Command::Read { index } => {
                 let val = self.gb.mem.read_byte(index);
