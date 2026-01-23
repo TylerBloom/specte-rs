@@ -35,7 +35,7 @@ impl Repl {
     }
 
     pub fn display(&mut self, data: String) {
-        self.history.push_visual_history(data);
+        self.history.push_visual_history(data.lines().map(ToOwned::to_owned).map(Into::into));
     }
 
     pub fn push_to_history(&mut self, data: String) {
@@ -91,7 +91,7 @@ impl Repl {
                 if !s.is_empty() {
                     self.history.push_command(s);
                 } else {
-                    self.history.push_visual_history(PROMPT.into());
+                    self.history.push_visual_history(std::iter::once(PROMPT.into()));
                 }
                 self.history_index = 0;
                 match command {
