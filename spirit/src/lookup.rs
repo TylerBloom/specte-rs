@@ -594,8 +594,8 @@ macro_rules! transpose {
     }};
 }
 
-static OP_LOOKUP: [Instruction; 0x100] = define_op_lookup_table!();
-static PREFIXED_OP_LOOKUP: [PrefixedInstruction; 0x100] = define_prefixed_op_lookup_table!();
+pub static OP_LOOKUP: [Instruction; 0x100] = define_op_lookup_table!();
+pub static PREFIXED_OP_LOOKUP: [PrefixedInstruction; 0x100] = define_prefixed_op_lookup_table!();
 
 #[cfg(test)]
 mod test {
