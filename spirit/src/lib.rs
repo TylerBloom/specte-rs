@@ -38,7 +38,7 @@ pub mod utils;
 pub struct Gameboy {
     pub mem: MemoryMap,
     pub ppu: Ppu,
-    cpu: Cpu,
+    pub cpu: Cpu,
 }
 
 impl Gameboy {
@@ -163,6 +163,11 @@ impl StartUpSequence {
         while !self.is_complete() {
             self.step();
         }
+        self.cpu.b.0 = 0;
+        let boot = self.mem.io.boot_status;
+        self.mem.io = Default::default();
+        self.mem.io.boot_status = boot;
+        self.ppu = Ppu::new();
         self.unmap();
         self.gb
     }

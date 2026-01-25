@@ -43,7 +43,7 @@ enum ClockIndex {
 #[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MBC3 {
     ram_and_reg_enabled: u8,
-    rom: Box<[RomBank]>,
+    pub rom: Box<[RomBank]>,
     rom_bank: u8,
     ram_clock_index: RamAndClockIndex,
     ram: [RamBank; 4],

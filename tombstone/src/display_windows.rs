@@ -1,11 +1,16 @@
 use std::fmt::Write;
 
 use ratatui::Frame;
+use ratatui::layout::Alignment;
+use ratatui::layout::Constraint;
+use ratatui::layout::Direction;
+use ratatui::layout::Layout;
 use ratatui::layout::Rect;
 use ratatui::text::Text;
 use ratatui::widgets::Block;
 use ratatui::widgets::Paragraph;
 
+use rboy::device::Device;
 use spirit::mem::MemoryBankController;
 use spirit::mem::MemoryLike;
 
@@ -20,9 +25,7 @@ pub fn render_mem(state: &InnerAppState, frame: &mut Frame, area: Rect) {
     let mut buffer = vec![0; 16 * lines as usize];
     (state.mem_start..)
         .zip(buffer.iter_mut())
-        .for_each(|(i, byte)| {
-            *byte = std::panic::catch_unwind(|| state.gb.gb().mem.read_byte(i)).unwrap_or_default()
-        });
+        .for_each(|(i, byte)| *byte = state.gb.gb().mem.read_byte(i));
 
     render_byte_slice(state.mem_start, &buffer, frame, area, block);
 }
@@ -36,7 +39,7 @@ pub fn render_ram(state: &InnerAppState, frame: &mut Frame, area: Rect) {
         MemoryBankController::Direct { ram, .. } => ram.0.as_slice(),
         MemoryBankController::MBC1(mbc) => mbc.ram(),
         MemoryBankController::MBC2(_mbc) => todo!(),
-        MemoryBankController::MBC3(_mbc) => todo!(),
+        MemoryBankController::MBC3(mbc) => mbc.rom[0].0.as_slice(),
         MemoryBankController::MBC5(_mbc) => todo!(),
     };
 
@@ -118,7 +121,10 @@ pub fn render_interrupts(state: &InnerAppState, frame: &mut Frame, area: Rect) {
         .title_alignment(ratatui::layout::Alignment::Center);
     let para = Paragraph::new(Text::from_iter([
         format!("Enabled   : 0b{:0>8b}", state.gb.gb().mem.ie), // , mem.ie),
-        format!("Requested : 0b{:0>8b}", state.gb.gb().mem.io().interrupt_flags), // , mem.io.interrupt_flags),
+        format!(
+            "Requested : 0b{:0>8b}",
+            state.gb.gb().mem.io().interrupt_flags
+        ), // , mem.io.interrupt_flags),
     ]))
     .block(block);
     frame.render_widget(para, area);
@@ -139,4 +145,32 @@ pub fn render_stack(state: &InnerAppState, frame: &mut Frame, area: Rect) {
     );
     let para = Paragraph::new(Text::from(text)).block(block);
     frame.render_widget(para, area);
+}
+
+pub fn render_rboy(frame: &mut Frame, area: Rect, device: &Device) {
+    let right = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(10),
+            Constraint::Length(20),
+            Constraint::Length(4),
+            Constraint::Fill(1),
+        ])
+        .split(area);
+    let block = Block::bordered()
+        .title(" RBoy CPU ")
+        .title_alignment(Alignment::Center);
+
+    let cpu = device.cpu.reg;
+    let para = Paragraph::new(Text::from_iter([
+        format!("A : 0x{:0>2X}", cpu.a),
+        format!("F : 0b{:0>4b}", cpu.f >> 4,),
+        format!("BC: 0x{:0>2X} 0x{:0>2X}", cpu.b, cpu.c),
+        format!("DE: 0x{:0>2X} 0x{:0>2X}", cpu.d, cpu.e),
+        format!("HL: 0x{:0>2X} 0x{:0>2X}", cpu.h, cpu.l),
+        format!("PC: 0x{:0>4X}", cpu.pc),
+        format!("SP: 0x{:0>4X}", cpu.sp),
+        format!("IME: {}", device.cpu.ime),
+    ]));
+    frame.render_widget(para.block(block), area);
 }

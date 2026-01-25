@@ -14,6 +14,9 @@ use ratatui::backend::Backend;
 use ratatui::layout::Constraint;
 use ratatui::layout::Direction;
 use ratatui::layout::Layout;
+use rboy::cpu::Action;
+use rboy::device::Device;
+use spirit::lookup;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -43,6 +46,7 @@ use crate::display_windows::render_interrupts;
 use crate::display_windows::render_mem;
 use crate::display_windows::render_oam_dma;
 use crate::display_windows::render_ram;
+use crate::display_windows::render_rboy;
 use crate::pc_state::PcState;
 
 /// This is the app's state which holds all of the CLI data. This includes all previous commands
@@ -66,6 +70,7 @@ pub(crate) struct AppState {
 
 pub struct InnerAppState {
     pub gb: Emulator,
+    pub device: Device,
     pub config: GameConfig,
     pub skipped_breakpoints: HashSet<u16>,
     pub mem_start: u16,
@@ -84,8 +89,11 @@ impl AppState {
             .with_writer(writer.clone())
             .init();
 
+        let device = Device::new_cgb_from_buffer(cart.clone(), false, None).unwrap();
+
         let inner = InnerAppState {
             config,
+            device,
             gb: Emulator::new(cart),
             mem_start: 0x8000,
             skipped_breakpoints: HashSet::new(),
@@ -129,10 +137,15 @@ impl AppState {
     fn render_frame(&mut self, frame: &mut Frame) {
         let sections = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Fill(1), Constraint::Length(40)])
+            .constraints([
+                Constraint::Fill(1),
+                Constraint::Length(40),
+                Constraint::Length(40),
+            ])
             .split(frame.area());
         let left = sections[0];
-        let right = sections[1];
+        let middle = sections[1];
+        let right = sections[2];
         let left = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Fill(1), Constraint::Fill(1)])
@@ -151,6 +164,7 @@ impl AppState {
             ])
             .split(right);
         self.cli.render(frame, left[0]);
+        render_rboy(frame, middle, &self.inner.device);
         render_mem(&self.inner, frame, mem[0]);
         render_ram(&self.inner, frame, mem[1]);
         render_cpu(&self.inner, frame, right[0]);
@@ -173,7 +187,21 @@ impl InnerAppState {
                 std::process::exit(0)
             }
             Command::Step { count } => {
-                (0..count).for_each(|_| self.gb.gb_mut().step());
+                (0..count).for_each(|_| {
+                    self.gb.gb_mut().step();
+                    let (_, action) = self.device.do_cycle();
+                    match action {
+                        Action::ExecutedOp(op_code) => {
+                            let op = lookup::parse_instruction(op_code);
+                            tracing::info!("[rboy] Executed prefixed op (0x{op_code:0>2X}): {op}");
+                        }
+                        Action::ExecutedPrefixedOp(op_code) => {
+                            let op = lookup::parse_prefixed_instruction(op_code);
+                            tracing::info!("[rboy] Executed prefixed op (0x{op_code:0>2X}): {op}");
+                        }
+                        action => tracing::info!("{action:?}"),
+                    }
+                });
             }
             Command::Info => todo!(),
             Command::Index(options) => match options {
@@ -332,7 +360,7 @@ impl InnerAppState {
         let mut state = HashSet::new();
         loop {
             if !state.insert((self.gb.gb().cpu().clone(), self.gb.gb().mem.clone())) {
-                break
+                break;
             } else {
                 self.gb.gb_mut().step();
             }
