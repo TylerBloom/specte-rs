@@ -75,6 +75,17 @@ pub struct VRam {
     dead_byte: u8,
 }
 
+impl Default for VRam {
+    fn default() -> Self {
+        Self {
+            vram: [[0; 0x2000]; 2],
+            oam: [0; 0xA0],
+            status: Default::default(),
+            dead_byte: Default::default(),
+        }
+    }
+}
+
 impl VRam {
     pub(super) fn new() -> Self {
         Self {
@@ -128,23 +139,14 @@ impl Index<CpuOamIndex> for VRam {
 
     fn index(&self, CpuOamIndex(index): CpuOamIndex) -> &Self::Output {
         trace!("Indexing into OAM @ 0x{index:0>4X}");
-        if matches!(self.status, PpuMode::OamScan | PpuMode::Drawing) {
-            &DEAD_READ_ONLY_BYTE
-        } else {
-            &self.oam[index as usize - 0xFE00]
-        }
+        &self.oam[index as usize - 0xFE00]
     }
 }
 
 impl IndexMut<CpuOamIndex> for VRam {
     fn index_mut(&mut self, CpuOamIndex(index): CpuOamIndex) -> &mut Self::Output {
         trace!("Mutably indexing into OAM @ 0x{index:0>4X}");
-        if matches!(self.status, PpuMode::OamScan | PpuMode::Drawing) {
-            self.dead_byte = 0xFF;
-            &mut self.dead_byte
-        } else {
-            &mut self.oam[index as usize - 0xFE00]
-        }
+        &mut self.oam[index as usize - 0xFE00]
     }
 }
 

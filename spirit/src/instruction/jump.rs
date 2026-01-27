@@ -63,8 +63,8 @@ pub enum JumpOp {
 }
 
 impl JumpOp {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, state: &mut GameboyState<'_, M>) {
-        fn vector_jump<const ADDR: u16, M: MemoryLikeExt>(state: &mut GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLike>(self, state: &mut GameboyState<'_, M>) {
+        fn vector_jump<const ADDR: u16, M: MemoryLike>(state: &mut GameboyState<'_, M>) {
             let cycle = MCycle {
                 addr_bus: PointerReg::SP,
                 action: AddrAction::Noop,

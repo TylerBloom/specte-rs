@@ -2,7 +2,8 @@ use crate::GameboyState;
 use crate::cpu::Cpu;
 use crate::cpu::CpuState;
 use crate::cpu::FullRegister;
-use crate::mem::MemoryLikeExt;
+use crate::lookup::parse_prefixed_instruction;
+use crate::mem::MemoryLike;
 
 use derive_more::From;
 use derive_more::IsVariant;
@@ -398,7 +399,7 @@ pub enum AluOp {
 }
 
 impl Instruction {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLike>(self, mut state: GameboyState<'_, M>) {
         info!("Executing {self}");
         match self {
             Instruction::Load(load_op) => load_op.execute(&mut state),
@@ -484,7 +485,7 @@ impl Instruction {
     /// Takes a reference to the CPU in order to determine if this instruction will pass any
     /// conditions.
     #[allow(dead_code)]
-    fn length<M: MemoryLikeExt>(&self, state: &GameboyState<'_, M>) -> u8 {
+    fn length<M: MemoryLike>(&self, state: &GameboyState<'_, M>) -> u8 {
         match self {
             Instruction::Load(op) => op.length(),
             Instruction::ControlOp(op) => op.length(),
