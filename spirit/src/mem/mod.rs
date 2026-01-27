@@ -58,6 +58,7 @@ pub trait MemoryLike {
     fn tick(&mut self, ppu: &mut Ppu);
 }
 
+/*
 /// The `impl FnOnce` in `update_byte` would make `MemoryLike` non-object safe, which is needs for
 /// instrution parsing.
 pub trait MemoryLikeExt: MemoryLike {
@@ -68,6 +69,7 @@ pub trait MemoryLikeExt: MemoryLike {
         val
     }
 }
+*/
 
 #[serde_as]
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,13 +79,11 @@ pub struct MemoryMap {
     // The video RAM and Object attribute map
     pub vram: VRam,
     // The working RAM
-    #[serde(serialize_with = "crate::utils::serialize_slices_as_one")]
-    #[serde(deserialize_with = "crate::utils::deserialize_slices_as_one")]
-    wram: [[u8; 0x1000]; 2],
+    wram: WRam,
     pub(crate) io: IoRegisters,
     // High RAM
     #[serde_as(as = "serde_with::Bytes")]
-    hr: [u8; 0x7F],
+    pub(crate) hr: [u8; 0x7F],
     /// ADDR FF46
     pub oam_dma: OamDma,
     /// ADDR FF51-FF55
@@ -105,6 +105,7 @@ impl MemoryLike for MemoryMap {
     fn read_byte(&self, addr: u16) -> u8 {
         if self.oam_dma.in_conflict(addr) {
             info!("DMA Bus read conflict @ 0x{addr:0>4X}");
+            println!("DMA Bus read conflict @ 0x{addr:0>4X}");
             return 0xFF;
         }
         self.dma_read_byte(addr)
@@ -130,11 +131,9 @@ impl MemoryLike for MemoryMap {
                 self.vram[CpuVramIndex(self.io.vram_select == 1, n)] = val
             }
             n @ 0xA000..=0xBFFF => self.mbc.write_byte(n, val),
-            n @ 0xC000..=0xCFFF => self.wram[0][n as usize - 0xC000] = val,
-            n @ 0xD000..=0xDFFF => self.wram[1][n as usize - 0xD000] = val,
-            // Echo RAM
-            n @ 0xE000..=0xEFFF => self.wram[0][n as usize - 0xE000] = val,
-            n @ 0xF000..=0xFDFF => self.wram[1][n as usize - 0xF000] = val,
+            0xC000..=0xCFFF | 0xD000..=0xDFFF | 0xFF70 | 0xE000..=0xEFFF | 0xF000..=0xFDFF => {
+                self.wram.write_byte(addr, val)
+            }
             n @ 0xFE00..=0xFE9F => self.vram[CpuOamIndex(n)] = val,
             // NOTE: This region *should not* actually be accessed
             0xFEA0..=0xFEFF => {}
@@ -193,6 +192,7 @@ impl MemoryLike for MemoryMap {
     }
 }
 
+/*
 impl MemoryLikeExt for MemoryMap {
     #[track_caller]
     fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
@@ -207,9 +207,7 @@ impl MemoryLikeExt for MemoryMap {
             n @ 0xF000..=0xFDFF => &mut self.wram[1][n as usize - 0xF000],
             n @ 0xFE00..=0xFE9F => &mut self.vram[CpuOamIndex(n)],
             // NOTE: This region *should not* actually be accessed
-            0xFEA0..=0xFEFF => {
-                return 0;
-            }
+            0xFEA0..=0xFEFF => return 0xFF,
             0xFF51 => &mut self.vram_dma.src_hi,
             0xFF52 => &mut self.vram_dma.src_lo,
             0xFF53 => &mut self.vram_dma.dest_hi,
@@ -234,6 +232,7 @@ impl MemoryLikeExt for MemoryMap {
         *ptr
     }
 }
+*/
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OamDma {
@@ -343,6 +342,12 @@ impl OamDma {
     }
 }
 
+impl Default for OamDma {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Default, Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct VramDma {
     src_hi: u8,
@@ -419,7 +424,7 @@ impl MemoryMap {
         Self {
             mbc: MemoryBankController::new(cart),
             vram: VRam::new(),
-            wram: [[0; 0x1000]; 2],
+            wram: WRam::default(),
             io: IoRegisters::default(),
             hr: [0; 0x7F],
             ie: 0,
@@ -457,20 +462,23 @@ impl MemoryMap {
     /// This method only exists to sidestep the "DMA contains" check and should only be called by
     /// the `read_byte` method and during the DMA transfer.
     fn dma_read_byte(&self, index: u16) -> u8 {
-        static DEAD_BYTE: u8 = 0;
+        static DEAD_BYTE: u8 = 0xFF;
         match index {
             0x0000..=0x7FFF => self.mbc.read_byte(index),
             n @ 0x8000..=0x9FFF => self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
             n @ 0xA000..=0xBFFF => self.mbc.read_byte(n),
-            n @ 0xC000..=0xCFFF => self.wram[0][n as usize - 0xC000],
-            n @ 0xD000..=0xDFFF => self.wram[1][n as usize - 0xD000],
+            0xC000..=0xCFFF | 0xD000..=0xDFFF | 0xE000..=0xEFFF | 0xF000..=0xFDFF | 0xFF70 => {
+                self.wram.read_byte(index)
+            }
             // Echo RAM
-            n @ 0xE000..=0xEFFF => self.wram[0][n as usize - 0xE000],
-            n @ 0xF000..=0xFDFF => self.wram[1][n as usize - 0xF000],
             n @ 0xFE00..=0xFE9F => self.vram[CpuOamIndex(n)],
             // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
             // dead byte will be returned instead.
-            0xFEA0..=0xFEFF | 0xFF51..0xFF54 => DEAD_BYTE,
+            0xFEA0..=0xFEFF => DEAD_BYTE,
+            0xFF51 => self.vram_dma.src_hi,
+            0xFF52 => self.vram_dma.src_lo,
+            0xFF53 => self.vram_dma.dest_hi,
+            0xFF54 => self.vram_dma.dest_lo,
             0xFF55 => self.vram_dma.read_trigger(),
             0xFF46 => self.oam_dma.register,
             n @ 0xFF00..=0xFF7F => self.io.read_byte(n),
@@ -563,7 +571,7 @@ impl MemoryMap {
         Self {
             mbc,
             vram: VRam::new(),
-            wram: [[0; 0x1000]; 2],
+            wram: WRam::default(),
             io: IoRegisters::default(),
             hr: [0; 0x7F],
             ie: 0,
@@ -578,6 +586,52 @@ impl MemoryMap {
 
     pub fn io_mut(&mut self) -> &mut IoRegisters {
         &mut self.io
+    }
+}
+
+#[derive(Debug, Default, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WRam {
+    /// Selects which of the seven RAM banks that get rotated between is in use. Only the bottom 3
+    /// bits are used, both 0 and 1 correspond to bank 1.
+    bank_selection: u8,
+    static_bank: MemoryBank<0x1000>,
+    rotation_bank: [MemoryBank<0x1000>; 7],
+}
+
+impl WRam {
+    fn read_byte(&self, addr: u16) -> u8 {
+        match addr {
+            0xFF70 => std::cmp::max(self.bank_selection, 1),
+            0xC000..0xD000 | 0xE000..0xF000 => self.static_bank[(addr & 0x0FFF) as usize],
+            0xD000..0xE000 | 0xF000..0xFE00 => {
+                let addr = addr & 0x0FFF;
+                // ROM Banks 1-7 are mapped to an array whose indices are 0-6. This performs that
+                // mapping while keeping the selection value of 0 as 0.
+                // NOTE: `bank_selection` is less than 8 as only the bottom three bits are written
+                // to.
+                let bank = self.bank_selection.saturating_sub(1);
+                self.rotation_bank[bank as usize][addr as usize]
+            }
+            _ => unreachable!(
+                "The WRAM should only be index with 0xFF70, a WRAM address, or an Echo RAM address, not 0x{addr:0>4X}"
+            ),
+        }
+    }
+
+    fn write_byte(&mut self, addr: u16, value: u8) {
+        match addr {
+            0xFF70 => self.bank_selection = value & 0x07,
+            0xC000..0xD000 | 0xE000..0xF000 => self.static_bank[(addr & 0x0FFF) as usize] = value,
+            0xD000..0xE000 | 0xF000..0xFE00 => {
+                let addr = addr & 0x0FFF;
+                // See indexing logic in write
+                let bank = self.bank_selection.saturating_sub(1);
+                self.rotation_bank[bank as usize][addr as usize] = value
+            }
+            _ => unreachable!(
+                "The WRAM should only be index with 0xFF70, a WRAM address, or an Echo RAM address, not 0x{addr:0>4X}"
+            ),
+        }
     }
 }
 
@@ -779,5 +833,5 @@ impl MemoryLike for Vec<u8> {
     fn tick(&mut self, _ppu: &mut Ppu) {}
 }
 
-#[cfg(test)]
-impl MemoryLikeExt for Vec<u8> {}
+// #[cfg(test)]
+// impl MemoryLikeExt for Vec<u8> {}

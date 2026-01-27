@@ -5,9 +5,11 @@ use std::{collections::HashMap, path::PathBuf};
 use clap::Parser;
 use rboy::cpu::Action;
 use rboy::device::Device;
+use rboy::mmu::MMU;
 use rboy::register::Registers;
 use spirit::cpu::Cpu;
 use spirit::lookup::{parse_instruction, parse_prefixed_instruction};
+use spirit::mem::MemoryMap;
 use spirit::{
     instruction::{Instruction, InterruptOp},
     lookup,
@@ -45,7 +47,11 @@ fn main() {
     gb.cpu.b.0 = 0;
     println!("[spirit] Constructed GB");
     let mut other_gb = Device::new_cgb_from_buffer(rom, false, None).unwrap();
+    other_gb.cpu.mmu.wram = [0; 0x8000];
     println!("[  rboy] Constructed GB");
+    if !sweep_mem(&gb.mem, &mut other_gb.cpu.mmu) {
+        panic!("Memory maps did not match");
+    }
     let mut counter = 0;
     let mut program = HashMap::new();
     while !gb.is_stopped() {
@@ -168,4 +174,21 @@ fn print_reg(reg: &Registers) {
     print!(" SP=0x{:0>4X}", reg.sp);
     print!(" PC=0x{:0>4X} }}", reg.pc);
     println!();
+}
+
+fn sweep_mem(mem: &MemoryMap, mmu: &mut MMU) -> bool {
+    let mut digest = 0;
+    for i in 0u16..=u16::MAX {
+        if (0xFF10..=0xFF3F).contains(&i) {
+            continue
+        }
+        let a = mem.read_byte(i);
+        let b = mmu.rb(i);
+        if a != b {
+            digest += 1;
+            println!("Memory mismatch @ 0x{i:0>4X}, spirit=0x{a:0>2X}, rboy=0x{b:0>2X}");
+        }
+    }
+    println!("Total memory mismatches: {digest}");
+    digest == 0
 }

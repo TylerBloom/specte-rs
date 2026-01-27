@@ -34,8 +34,8 @@ pub enum ArithmeticOp {
 }
 
 impl ArithmeticOp {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, state: &mut GameboyState<'_, M>) {
-        fn load_byte<M: MemoryLikeExt>(
+    pub(crate) fn execute<M: MemoryLike>(self, state: &mut GameboyState<'_, M>) {
+        fn load_byte<M:MemoryLike>(
             state: &mut GameboyState<'_, M>,
             byte: SomeByte,
         ) -> DataLocation {

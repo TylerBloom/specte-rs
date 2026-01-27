@@ -3,7 +3,7 @@ use crate::cpu::Cpu;
 use crate::cpu::CpuState;
 use crate::cpu::FullRegister;
 use crate::lookup::parse_prefixed_instruction;
-use crate::mem::MemoryLikeExt;
+use crate::mem::MemoryLike;
 
 use derive_more::From;
 use derive_more::IsVariant;
@@ -397,7 +397,7 @@ pub enum AluOp {
 }
 
 impl Instruction {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLike>(self, mut state: GameboyState<'_, M>) {
         info!("Executing {self}");
         #[cfg(debug_assertions)]
         let length = self.length(&state) as usize / 4;
@@ -481,7 +481,7 @@ impl Instruction {
     /// Returns the number of ticks to will take to complete this instruction.
     /// Takes a reference to the CPU in order to determine if this instruction will pass any
     /// conditions.
-    fn length<M: MemoryLikeExt>(&self, state: &GameboyState<'_, M>) -> u8 {
+    fn length<M: MemoryLike>(&self, state: &GameboyState<'_, M>) -> u8 {
         match self {
             Instruction::Load(op) => op.length(),
             Instruction::ControlOp(op) => op.length(),

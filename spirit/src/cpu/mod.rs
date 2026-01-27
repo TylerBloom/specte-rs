@@ -19,7 +19,8 @@ use crate::instruction::WideReg;
 use crate::instruction::WideRegWithoutSP;
 use crate::lookup::parse_instruction;
 use crate::lookup::parse_prefixed_instruction;
-use crate::mem::MemoryLikeExt;
+use crate::mem::MemoryLike;
+// use crate::mem::MemoryLikeExt;
 use crate::utils::Wrapping;
 
 #[cfg(test)]
@@ -108,7 +109,8 @@ pub enum RegisterFlags {
     Debug, Clone, Copy, PartialEq, Eq, Default, Hash, derive_more::Display, Serialize, Deserialize,
 )]
 #[display(
-    "Flags(Z={} N={} H={} C={})",
+    "Flags(Self=0x{:0>2X}, Z={} N={} H={} C={})",
+    self.as_byte(),
     *z as u8,
     *n as u8,
     *h as u8,
@@ -274,7 +276,7 @@ impl Cpu {
         self.pc += 1u16;
     }
 
-    pub fn execute(&mut self, cycle: MCycle, mem: &mut impl MemoryLikeExt) {
+    pub fn execute(&mut self, cycle: MCycle, mem: &mut impl MemoryLike) {
         let MCycle {
             addr_bus,
             action,
@@ -289,12 +291,13 @@ impl Cpu {
             PointerReg::DE => self.de(),
             PointerReg::Ghost => self.ghost_addr(),
         };
+        let addr = Wrapping(addr);
         // TODO: There might be a better way to sequence this. For reads (and noops), we want to
         // perform the action then execute the IDU and ALU signals. For writes, we want the
         // reverse. Verify this...
         match action {
             AddrAction::Read(loc) => {
-                let byte = Wrapping(mem.read_byte(addr));
+                let byte = Wrapping(mem.read_byte(addr.0));
                 match loc {
                     ReadLocation::InstrRegister => self.ir = byte,
                     ReadLocation::RegisterZ => self.z = byte,
@@ -310,23 +313,23 @@ impl Cpu {
                     DataLocation::Register(reg) => self.read_reg(reg).0,
                     DataLocation::Literal(val) => val,
                 };
-                mem.write_byte(addr, byte);
+                mem.write_byte(addr.0, byte);
             }
             AddrAction::Noop => {}
         }
         if let Some((signal, reg)) = idu {
             let addr = match signal {
-                IduSignal::Inc => addr + 1,
-                IduSignal::Dec => addr - 1,
+                IduSignal::Inc => addr + 1u16,
+                IduSignal::Dec => addr - 1u16,
                 IduSignal::Noop => addr,
             };
             match reg {
-                FullRegister::AF => self.write_af(addr),
-                FullRegister::BC => self.write_bc(addr),
-                FullRegister::DE => self.write_de(addr),
-                FullRegister::HL => self.write_hl(addr),
-                FullRegister::SP => self.sp = Wrapping(addr),
-                FullRegister::PC => self.pc = Wrapping(addr),
+                FullRegister::AF => self.write_af(addr.0),
+                FullRegister::BC => self.write_bc(addr.0),
+                FullRegister::DE => self.write_de(addr.0),
+                FullRegister::HL => self.write_hl(addr.0),
+                FullRegister::SP => self.sp = addr,
+                FullRegister::PC => self.pc = addr,
             }
         }
         let Some(signal) = alu else { return };
@@ -557,7 +560,7 @@ impl Cpu {
         u16::from_be_bytes([self.h.0, self.l.0])
     }
 
-    pub fn copy_byte(&self, mem: &impl MemoryLikeExt, reg: RegOrPointer) -> u8 {
+    pub fn copy_byte(&self, mem: &impl MemoryLike, reg: RegOrPointer) -> u8 {
         match reg {
             RegOrPointer::Reg(reg) => self.read_reg(reg).0,
             RegOrPointer::Pointer => mem.read_byte(self.ptr()),

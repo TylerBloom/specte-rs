@@ -16,7 +16,6 @@ use cpu::Cpu;
 use cpu::CpuState;
 use instruction::*;
 use mem::MemoryLike;
-use mem::MemoryLikeExt;
 use mem::MemoryMap;
 use mem::StartUpHeaders;
 use mem::vram::PpuMode;
@@ -164,10 +163,15 @@ impl StartUpSequence {
             self.step();
         }
         self.cpu.b.0 = 0;
-        let boot = self.mem.io.boot_status;
-        self.mem.io = Default::default();
-        self.mem.io.boot_status = boot;
-        self.ppu = Ppu::new();
+        self.mem.vram = Default::default();
+        self.mem.oam_dma = Default::default();
+        self.mem.io.tac = Default::default();
+        self.mem.hr = [0; 0x7F];
+        self.mem.vram_dma = Default::default();
+        // let boot = self.mem.io.boot_status;
+        // self.mem.io = Default::default();
+        // self.mem.io.boot_status = boot;
+        // self.ppu = Ppu::new();
         self.unmap();
         self.gb
     }
@@ -213,7 +217,7 @@ impl DerefMut for StartUpSequence {
 
 pub(crate) struct GameboyState<'a, M = MemoryMap>
 where
-    M: MemoryLikeExt,
+    M: MemoryLike,
 {
     pub(crate) mem: &'a mut M,
     pub(crate) ppu: &'a mut Ppu,
@@ -223,7 +227,7 @@ where
     pub(crate) cycle_count: usize,
 }
 
-impl<M: MemoryLikeExt> GameboyState<'_, M> {
+impl<M: MemoryLike> GameboyState<'_, M> {
     pub(crate) fn tick(&mut self, cycle: MCycle) {
         self.cpu.execute(cycle, self.mem);
         self.mem.tick(self.ppu);

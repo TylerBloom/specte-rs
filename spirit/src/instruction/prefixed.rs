@@ -1,7 +1,7 @@
 use crate::GameboyState;
 use crate::instruction::BitOp;
 use crate::instruction::BitShiftOp;
-use crate::mem::MemoryLikeExt;
+use crate::mem::MemoryLike;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
 #[display("{_variant}")]
@@ -11,7 +11,7 @@ pub enum PrefixedInstruction {
 }
 
 impl PrefixedInstruction {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, state: &mut GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLike>(self, state: &mut GameboyState<'_, M>) {
         tracing::info!("Executing prefixed {self}");
         match self {
             PrefixedInstruction::BitShift(op) => op.execute(state),

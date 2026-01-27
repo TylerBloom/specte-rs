@@ -5,7 +5,7 @@ use crate::instruction::DataLocation;
 use crate::instruction::IduSignal;
 use crate::instruction::MCycle;
 use crate::instruction::PointerReg;
-use crate::mem::MemoryLikeExt;
+use crate::mem::MemoryLike;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, derive_more::Display)]
 #[display("{_variant}")]
@@ -24,7 +24,7 @@ pub enum InterruptOp {
 }
 
 impl InterruptOp {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, state: &mut GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLike>(self, state: &mut GameboyState<'_, M>) {
         state.tick(MCycle::noop());
         state.tick(MCycle::noop());
         let [hi, lo] = state.cpu.pc.0.to_be_bytes();

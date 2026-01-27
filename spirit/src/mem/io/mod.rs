@@ -25,6 +25,7 @@ pub struct IoRegisters {
     /// ADDR FF00
     pub(super) joypad: Joypad,
     /// ADDR FF01, FF02
+    // FIXME: Not impl-ed at all
     serial: (u8, u8),
     /// ADDR FF04, FF05, FF06, FF07
     /// There are the (divider, timer, timer modulo, tac)
@@ -66,8 +67,6 @@ pub struct IoRegisters {
     pub background_palettes: ColorPalettes,
     /// ADDR FF6A and FF6B
     pub(crate) object_palettes: ColorPalettes,
-    /// ADDR FF70
-    wram_select: u8,
     undoc_registers: [u8; 4],
     /// There are gaps amount the memory mapped IO registers. Any index into this that hits one of
     /// these gaps resets the value. Notably, this is also used when mutably indexing to the
@@ -79,9 +78,9 @@ pub struct IoRegisters {
 impl Default for IoRegisters {
     fn default() -> Self {
         Self {
-            undoc_registers: [0, 0, 0, 0b1000_1111],
+            undoc_registers: [0, 0, 0xFF, 0b1000_1111],
             joypad: Default::default(),
-            serial: Default::default(),
+            serial: (0x00, 0x7E),
             tac: TimerRegisters::new(),
             interrupt_flags: Default::default(),
             audio: Default::default(),
@@ -91,13 +90,12 @@ impl Default for IoRegisters {
             lcd_y: Default::default(),
             lcd_cmp: Default::default(),
             monochrome_bg_palette: Default::default(),
-            monochrome_obj_palettes: Default::default(),
+            monochrome_obj_palettes: [0xFF; 2],
             window_position: Default::default(),
             vram_select: Default::default(),
             boot_status: Default::default(),
             background_palettes: Default::default(),
             object_palettes: Default::default(),
-            wram_select: Default::default(),
             dead_byte: Default::default(),
             boot_status_disabled: false,
         }
@@ -214,6 +212,7 @@ struct AudioRegisters {
 }
 
 impl AudioRegisters {
+    #[track_caller]
     fn read_byte(&self, index: u16) -> u8 {
         match index {
             /* Controls */
@@ -256,7 +255,7 @@ impl AudioRegisters {
             // NOTE: Only bit 6 is readable
             0xFF23 => self.ch4_control & 0b0100_0000,
             /* Oops... */
-            idx => unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4x}"),
+            idx => unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4X}"),
         }
     }
 
@@ -409,7 +408,7 @@ impl IoRegisters {
             0xFF01 => self.serial.0,
             0xFF02 => self.serial.1,
             0xFF04..=0xFF07 => self.tac.read_byte(index),
-            0xFF0F => self.interrupt_flags,
+            0xFF0F => 0xE0 | self.interrupt_flags,
             0xFF10..=0xFF3F => self.audio.read_byte(index),
             0xFF40 => self.lcd_control,
             0xFF41 => self.lcd_status,
@@ -433,7 +432,6 @@ impl IoRegisters {
             }
             n @ 0xFF68..=0xFF69 => self.background_palettes[n - 0xFF68],
             n @ 0xFF6A..=0xFF6B => self.object_palettes[n - 0xFF6A],
-            0xFF70 => self.wram_select,
             0xFF72 => self.undoc_registers[0],
             0xFF73 => self.undoc_registers[1],
             0xFF74 => self.undoc_registers[2],
@@ -446,7 +444,7 @@ impl IoRegisters {
             | 0xFF6C..=0xFF6F
             | 0xFF71
             | 0xFF76.. => 0xFF,
-            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF46 => unreachable!(
+            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF70 | 0xFF46 => unreachable!(
                 "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF80! Got index 0x{index:0>4x}"
             ),
         }
@@ -465,7 +463,13 @@ impl IoRegisters {
             // Top three bits are ignored because there are only 5 types of interrupts
             0xFF0F => self.interrupt_flags = 0x1F & value,
             0xFF10..=0xFF3F => self.audio.write_byte(index, value),
-            0xFF40 => self.lcd_control = value,
+            0xFF40 => {
+                println!(
+                    "Changing LCD Control register from 0x{:0>2X} to 0x{value:0>2X}",
+                    self.lcd_control
+                );
+                self.lcd_control = value
+            }
             // TODO: Only part of this register can be written to. Only bits 3-6 can be written to.
             // This register needs to be reset when ticked.
             0xFF41 => self.lcd_status = 0b0111_1000 & value,
@@ -486,7 +490,6 @@ impl IoRegisters {
             }
             n @ 0xFF68..=0xFF69 => self.background_palettes[n - 0xFF68] = value,
             n @ 0xFF6A..=0xFF6B => self.object_palettes[n - 0xFF6A] = value,
-            0xFF70 => self.wram_select = value,
             0xFF72 => self.undoc_registers[0] = value,
             0xFF73 => self.undoc_registers[1] = value,
             0xFF74 => self.undoc_registers[2] = value,
@@ -501,7 +504,7 @@ impl IoRegisters {
             | 0xFF6C..=0xFF6F
             | 0xFF71
             | 0xFF76.. => {}
-            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF46 | 0xFF80.. => unreachable!(
+            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF70 | 0xFF46 | 0xFF80.. => unreachable!(
                 "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
             ),
         }
@@ -689,10 +692,20 @@ impl IndexMut<u8> for PaletteColor {
 /// The solution: Both registers will be synchronized when a tick is processed. Currently, this
 /// happens immediately before the instruction is actually processed, but this would also work if
 /// it happened immediately after too. As long as the tick is applied in the same order everywhere.
-#[derive(Debug, Default, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
+// TODO: Overhaul indexing and data model
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub(super) struct Joypad {
     main: u8,
     dup: u8,
+}
+
+impl Default for Joypad {
+    fn default() -> Self {
+        Self {
+            main: 0xFF,
+            dup: 0xFF,
+        }
+    }
 }
 
 impl Joypad {

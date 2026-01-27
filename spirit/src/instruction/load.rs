@@ -1,5 +1,4 @@
 use crate::cpu::CpuState;
-use crate::mem::MemoryLikeExt;
 use crate::utils::Wrapping;
 
 use super::*;
@@ -65,7 +64,7 @@ pub enum LoadOp {
 }
 
 impl LoadOp {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, state: &mut GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLike>(self, state: &mut GameboyState<'_, M>) {
         match self {
             LoadOp::Basic { dest, src } => match (dest, src) {
                 (RegOrPointer::Reg(dest), RegOrPointer::Reg(src)) => {
