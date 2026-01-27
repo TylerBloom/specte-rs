@@ -83,7 +83,7 @@ impl TimerRegisters {
             divider_counter: Wrapping(0),
             timer_counter: TimerCounter::Ready(Wrapping(0)),
             timer_modulo: Wrapping(0),
-            timer_control: TimerControl::Disabled(0),
+            timer_control: TimerControl::Disabled(0xF8),
         }
     }
 
@@ -420,4 +420,10 @@ mod test {
         assert_eq!(regs.timer_control, TimerControl::Fastest);
     }
     */
+}
+
+impl Default for TimerRegisters {
+    fn default() -> Self {
+        Self::new()
+    }
 }
