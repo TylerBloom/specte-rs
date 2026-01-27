@@ -25,6 +25,7 @@ pub struct IoRegisters {
     /// ADDR FF00
     pub(super) joypad: u8,
     /// ADDR FF01, FF02
+    // FIXME: Not impl-ed at all
     serial: (u8, u8),
     /// ADDR FF04, FF05, FF06, FF07
     /// There are the (divider, timer, timer modulo, tac)
@@ -66,8 +67,6 @@ pub struct IoRegisters {
     pub background_palettes: ColorPalettes,
     /// ADDR FF6A and FF6B
     pub(crate) object_palettes: ColorPalettes,
-    /// ADDR FF70
-    wram_select: u8,
     undoc_registers: [u8; 4],
     /// There are gaps amount the memory mapped IO registers. Any index into this that hits one of
     /// these gaps resets the value. Notably, this is also used when mutably indexing to the
@@ -79,9 +78,9 @@ pub struct IoRegisters {
 impl Default for IoRegisters {
     fn default() -> Self {
         Self {
-            undoc_registers: [0, 0, 0, 0b1000_1111],
+            undoc_registers: [0, 0, 0xFF, 0b1000_1111],
             joypad: Default::default(),
-            serial: Default::default(),
+            serial: (0x00, 0x7E),
             tac: TimerRegisters::new(),
             interrupt_flags: 0b1110_0000,
             audio: Default::default(),
@@ -91,13 +90,12 @@ impl Default for IoRegisters {
             lcd_y: Default::default(),
             lcd_cmp: Default::default(),
             monochrome_bg_palette: Default::default(),
-            monochrome_obj_palettes: Default::default(),
+            monochrome_obj_palettes: [0xFF; 2],
             window_position: Default::default(),
             vram_select: Default::default(),
             boot_status: Default::default(),
             background_palettes: Default::default(),
             object_palettes: Default::default(),
-            wram_select: Default::default(),
             dead_byte: Default::default(),
             boot_status_disabled: false,
         }
@@ -214,6 +212,7 @@ struct AudioRegisters {
 }
 
 impl AudioRegisters {
+    #[track_caller]
     fn read_byte(&self, index: u16) -> u8 {
         match index {
             /* Controls */
@@ -256,7 +255,7 @@ impl AudioRegisters {
             // NOTE: Only bit 6 is readable
             0xFF23 => self.ch4_control & 0b0100_0000,
             /* Oops... */
-            idx => unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4x}"),
+            idx => unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4X}"),
         }
     }
 
@@ -456,7 +455,7 @@ impl IoRegisters {
             0xFF01 => self.serial.0,
             0xFF02 => self.serial.1,
             0xFF04..=0xFF07 => self.tac.read_byte(index),
-            0xFF0F => self.interrupt_flags,
+            0xFF0F => 0xE0 | self.interrupt_flags,
             0xFF10..=0xFF3F => self.audio.read_byte(index),
             0xFF40 => self.lcd_control,
             0xFF41 => self.lcd_status,
@@ -495,7 +494,7 @@ impl IoRegisters {
             | 0xFF6C..=0xFF6F
             | 0xFF71
             | 0xFF76.. => 0xFF,
-            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF46 => unreachable!(
+            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF70 | 0xFF46 => unreachable!(
                 "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF80! Got index 0x{index:0>4x}"
             ),
         }
@@ -516,7 +515,6 @@ impl IoRegisters {
             0xFF0F => self.interrupt_flags = 0b1110_0000 | (0x1F & value),
             0xFF10..=0xFF3F => self.audio.write_byte(index, value),
             0xFF40 => {
-                self.lcd_control = value;
                 let was_on = check_bit_const::<7>(self.lcd_control);
                 self.lcd_control = value;
                 let is_on = check_bit_const::<7>(self.lcd_control);
@@ -569,7 +567,7 @@ impl IoRegisters {
             | 0xFF6C..=0xFF6F
             | 0xFF71
             | 0xFF76.. => {}
-            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF46 | 0xFF80.. => unreachable!(
+            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF70 | 0xFF46 | 0xFF80.. => unreachable!(
                 "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
             ),
         }
