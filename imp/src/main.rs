@@ -52,6 +52,25 @@ fn main() {
     if !sweep_mem(&gb.mem, &mut other_gb.cpu.mmu) {
         panic!("Memory maps did not match");
     }
+
+    let init_gb = gb.clone();
+    let init_other = other_gb.clone();
+    const STEP_SIZE: usize = 10_000;
+    let mut counter = 0;
+    'outer: loop {
+        for i in 0..STEP_SIZE {
+            if !step_and_compare(&mut gb, &mut other_gb) {
+                counter += bisect_failure(init_gb, init_other, i);
+                break 'outer;
+            }
+        }
+        if !extensive_compare(&gb, &mut other_gb) {
+            counter += bisect_failure(init_gb, init_other, STEP_SIZE);
+            break 'outer;
+        }
+        counter += STEP_SIZE;
+    }
+    println!("Error occurred after {counter} steps");
     let mut counter = 0;
     let mut program = HashMap::new();
     while !gb.is_stopped() {
@@ -148,6 +167,47 @@ fn main() {
     println!("Spirit stopped after {counter} instructions");
 }
 
+/// Takes two emulators that are in states known to be matching (i.e. pass an extensive compare),
+/// but that are misaligned after the given number of steps, `steps`. Returns the number of steps
+/// needed for the first point in time for the misalignment to occur and returns that number.
+fn bisect_failure(mut gb: Gameboy, mut other_gb: Device, steps: usize) -> usize {
+    let gb_copy = gb.clone();
+    let other_gb_copy = other_gb.clone();
+    let to = steps / 2;
+    for i in 0..to {
+        // If step_and_compare fails, the light compare has failed. This indicates an earlier,
+        // deeper failure happened. We can take the number of steps that have occurred thus far as
+        // the upper bound and bisect from here.
+        if !step_and_compare(&mut gb, &mut other_gb) {
+            return bisect_failure(gb_copy, other_gb_copy, i);
+        }
+    }
+
+    if extensive_compare(&gb, &mut other_gb) {
+        // They match
+        // FIXME: Consider case where steps was odd
+        bisect_failure(gb, other_gb, steps / 2)
+    } else {
+        // They mismatch
+        bisect_failure(gb_copy, other_gb_copy, steps / 2)
+    }
+}
+
+/// Steps both emulators forward a single tick then does a light comparision between the two.
+fn step_and_compare(gb: &mut Gameboy, other_gb: &mut Device) -> bool {
+    light_compare(gb, other_gb)
+}
+
+/// Compares CPU, PPU, and key memory registers. Meant to be used after every step.
+fn light_compare(gb: &Gameboy, other_gb: &mut Device) -> bool {
+    todo!()
+}
+
+/// Compares performs the light compare and a full memory sweep.
+fn extensive_compare(gb: &Gameboy, other_gb: &mut Device) -> bool {
+    light_compare(gb, other_gb) && sweep_mem(&gb.mem, &mut other_gb.cpu.mmu)
+}
+
 fn check_cpu(cpu: &Cpu, reg: &Registers) -> bool {
     cpu.a.0 == reg.a
         && cpu.f.as_byte() == reg.f
@@ -180,7 +240,7 @@ fn sweep_mem(mem: &MemoryMap, mmu: &mut MMU) -> bool {
     let mut digest = 0;
     for i in 0u16..=u16::MAX {
         if (0xFF10..=0xFF3F).contains(&i) {
-            continue
+            continue;
         }
         let a = mem.read_byte(i);
         let b = mmu.rb(i);
