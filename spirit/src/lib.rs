@@ -171,7 +171,17 @@ impl StartUpSequence {
         // let boot = self.mem.io.boot_status;
         // self.mem.io = Default::default();
         // self.mem.io.boot_status = boot;
-        // self.ppu = Ppu::new();
+        self.mem.io.lcd_y = 0;
+        self.mem.io.lcd_status = 0x86;
+        self.mem.write_byte(0xFF4D, 0x7E);
+        self.mem.io.background_palettes = Default::default();
+        self.mem.io.object_palettes = Default::default();
+        self.mem.write_byte(0xFF68, 0x40);
+        self.mem.write_byte(0xFF6A, 0x40);
+        self.mem.io.lcd_status = 0x86;
+        self.mem.io.lcd_status = 0x86;
+        self.ppu = Ppu::new();
+        self.ppu.inner = ppu::PpuInner::OamScan { dots: 4 };
         self.unmap();
         self.gb
     }

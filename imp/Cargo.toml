@@ -7,4 +7,7 @@ edition = "2021"
 spirit = { path = "../spirit" }
 clap = { version = "4.5.18", features = ["derive"] }
 postcard = { version = "1.0.10", features = ["alloc"] }
-rboy = { git = "http://github.com/TylerBloom/rboy", branch = "debug-spirit" }
+# rboy = { git = "http://github.com/TylerBloom/rboy", branch = "debug-spirit" }
+rboy = { path = "../../rboy" }
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"

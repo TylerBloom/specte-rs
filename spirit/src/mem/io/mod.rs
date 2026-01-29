@@ -38,7 +38,7 @@ pub struct IoRegisters {
     /// ADDR FF40
     pub lcd_control: u8,
     /// ADDR FF41
-    lcd_status: u8,
+    pub lcd_status: u8,
     /// ADDR FF42 & FF43
     pub(crate) bg_position: (u8, u8),
     /// ADDR FF44 (set by the PPU)
@@ -51,6 +51,12 @@ pub struct IoRegisters {
     monochrome_obj_palettes: [u8; 2],
     /// ADDR FF4A & FF4B
     pub(crate) window_position: [u8; 2],
+    /// ADDR FF4C
+    /// CPU mode selection. Only bit 2 is used. If that bit is set, the system is ran in DMG comp
+    /// mode. Locked after boot.
+    pub cpu_mode: u8,
+    /// ADDR FF4D
+    pub speed_switch: u8,
     /// ADDR FF4F
     // TODO: Only the 0th bit is used. From the docs:
     // """
@@ -71,7 +77,7 @@ pub struct IoRegisters {
     /// There are gaps amount the memory mapped IO registers. Any index into this that hits one of
     /// these gaps resets the value. Notably, this is also used when mutably indexing to the
     /// divider register but not while immutably indexing.
-    /// ADDR FF03, FF08-FF0E, FF27-FF29, FF4C-FF4E, FF56-FF67, FF6C-FF6F
+    /// ADDR FF03, FF08-FF0E, FF27-FF29, FF4E, FF56-FF67, FF6C-FF6F
     dead_byte: u8,
 }
 
@@ -98,6 +104,8 @@ impl Default for IoRegisters {
             object_palettes: Default::default(),
             dead_byte: Default::default(),
             boot_status_disabled: false,
+            cpu_mode: Default::default(),
+            speed_switch: Default::default(),
         }
     }
 }
@@ -347,10 +355,24 @@ impl IoRegisters {
     }
 
     pub(crate) fn set_ppu_status(&mut self, state: PpuMode) {
+        let old_state = match self.lcd_status & 0b11 {
+            2 => PpuMode::OamScan,
+            3 => PpuMode::Drawing,
+            0 => PpuMode::HBlank,
+            1 => PpuMode::VBlank,
+            _ => panic!(),
+        };
+        tracing::warn!(
+            "Updating PPU status from {old_state:?} ({}) to {state:?} ({})",
+            old_state as u8,
+            state as u8
+        );
+        tracing::warn!("Inital status register value: 0x{:0>2X}", self.lcd_status);
         // Clear the bottom two bits
         self.lcd_status &= 0b1111_1100;
         // Update the bottom two bits to be the state
         self.lcd_status |= state as u8;
+        tracing::warn!("Updated status register value: 0x{:0>2X}", self.lcd_status);
     }
 
     /// Called by the PPU when it finishes a scan line
@@ -358,6 +380,7 @@ impl IoRegisters {
         self.lcd_y = (self.lcd_y + 1) % 154;
         if self.lcd_y == self.lcd_cmp {
             self.request_lcd_int();
+        } else {
         }
     }
 
@@ -421,6 +444,9 @@ impl IoRegisters {
             0xFF49 => self.monochrome_obj_palettes[1],
             0xFF4A => self.window_position[0],
             0xFF4B => self.window_position[1],
+            // This can not be directly accessed
+            0xFF4C => 0xFF,
+            0xFF4D => self.speed_switch,
             // When reading from this register, all bits expect the first are 1
             0xFF4F => 0xFE | self.vram_select,
             0xFF50 => {
@@ -439,7 +465,7 @@ impl IoRegisters {
             0xFF03
             | 0xFF08..=0xFF0E
             | 0xFF27..=0xFF2F
-            | 0xFF4C..=0xFF4E
+            | 0xFF4E
             | 0xFF56..=0xFF67
             | 0xFF6C..=0xFF6F
             | 0xFF71
@@ -482,6 +508,8 @@ impl IoRegisters {
             0xFF49 => self.monochrome_obj_palettes[1] = value,
             0xFF4A => self.window_position[0] = value,
             0xFF4B => self.window_position[1] = value,
+            0xFF4C => self.cpu_mode = value,
+            0xFF4D => self.speed_switch = value,
             // Ignore all but the first bit of the value
             0xFF4F => self.vram_select = 1 & value,
             0xFF50 => {
@@ -499,7 +527,7 @@ impl IoRegisters {
             0xFF03
             | 0xFF08..=0xFF0E
             | 0xFF27..=0xFF2F
-            | 0xFF4C..=0xFF4E
+            | 0xFF4E
             | 0xFF56..=0xFF67
             | 0xFF6C..=0xFF6F
             | 0xFF71

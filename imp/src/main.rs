@@ -1,10 +1,12 @@
+#![allow(dead_code, unused_variables)]
 use std::fmt::Display;
+use std::path::PathBuf;
 use std::str::FromStr;
-use std::{collections::HashMap, path::PathBuf};
 
 use clap::Parser;
 use rboy::cpu::Action;
 use rboy::device::Device;
+use rboy::gpu::GPU;
 use rboy::mmu::MMU;
 use rboy::register::Registers;
 use spirit::cpu::Cpu;
@@ -16,6 +18,8 @@ use spirit::{
     mem::MemoryLike,
     Gameboy,
 };
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::fmt::format::FmtSpan;
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -45,19 +49,22 @@ fn main() {
     let rom = std::fs::read(&path).unwrap();
     let mut gb = Gameboy::load_cartridge(rom.clone()).complete();
     gb.cpu.b.0 = 0;
-    println!("[spirit] Constructed GB");
+    tracing::warn!("[spirit] Constructed GB");
     let mut other_gb = Device::new_cgb_from_buffer(rom, false, None).unwrap();
     other_gb.cpu.mmu.wram = [0; 0x8000];
-    println!("[  rboy] Constructed GB");
+    tracing::warn!("[  rboy] Constructed GB");
     if !sweep_mem(&gb.mem, &mut other_gb.cpu.mmu) {
         panic!("Memory maps did not match");
     }
 
-    let init_gb = gb.clone();
-    let init_other = other_gb.clone();
+    let mut init_gb = gb.clone();
+    let mut init_other_gb = other_gb.clone();
+
     const STEP_SIZE: usize = 10_000;
     let mut counter = 0;
     'outer: loop {
+        let init_gb = gb.clone();
+        let init_other = other_gb.clone();
         for i in 0..STEP_SIZE {
             if !step_and_compare(&mut gb, &mut other_gb) {
                 counter += bisect_failure(init_gb, init_other, i);
@@ -65,99 +72,38 @@ fn main() {
             }
         }
         if !extensive_compare(&gb, &mut other_gb) {
+            tracing::warn!(
+                "Failed extensive compare after {} steps",
+                counter + STEP_SIZE
+            );
             counter += bisect_failure(init_gb, init_other, STEP_SIZE);
             break 'outer;
         }
+        tracing::warn!("Passed extensive compare after {counter} steps");
         counter += STEP_SIZE;
     }
-    println!("Error occurred after {counter} steps");
-    let mut counter = 0;
-    let mut program = HashMap::new();
-    while !gb.is_stopped() {
-        counter += 1;
-        let i = other_gb.cpu.reg.pc;
-        // for _ in 0..10 {
-        let op = gb.read_op();
-        print!("[spirit] 0x{i:0>4X} ");
-        let action = match op {
-            Instruction::Stall => {
-                println!("Halted");
-                Action::Halted
-            }
-            Instruction::Stopped => {
-                println!("Stopped");
-                Action::Stopped
-            }
-            Instruction::Prefixed => {
-                let pc = gb.cpu().pc.0;
-                println!("Looking for prefixed op code @ 0x{pc:0>4X}");
-                let op_code = gb.mem.read_byte(pc);
-                println!("Executed prefixed op: 0x{op_code:0>2X}");
-                Action::ExecutedPrefixedOp(op_code)
-            }
-            Instruction::Unused => todo!(),
-            Instruction::Transfer => todo!(),
-            Instruction::Interrupt(InterruptOp::LCD) => {
-                println!("VBLank interrupt");
-                Action::VBlank
-            }
-            Instruction::Interrupt(InterruptOp::VBlank) => {
-                println!("LDC interrupt");
-                Action::VBlank
-            }
-            Instruction::Interrupt(InterruptOp::Timer) => {
-                println!("Timer interrupt");
-                Action::Timer
-            }
-            Instruction::Interrupt(InterruptOp::Serial) => {
-                println!("Serial interrupt");
-                Action::Serial
-            }
-            Instruction::Interrupt(InterruptOp::Joypad) => {
-                println!("Joypad interrupt");
-                Action::Joypad
-            }
 
-            op => {
-                let opcode = lookup::OP_LOOKUP
-                    .iter()
-                    .enumerate()
-                    .find_map(|(i, o)| (&op == o).then_some(i))
-                    .unwrap();
-                println!("Executing op: 0x{opcode:0>2X}",);
-                Action::ExecutedOp(opcode as u8)
-            }
-        };
-        gb.step();
-        let (_, rboy_action) = other_gb.do_cycle();
-        print!("[  rboy] 0x{i:0>4X} ");
-        match rboy_action {
-            Action::ExecutedOp(op_code) => {
-                program.insert(i, Either::Left(parse_instruction(op_code)));
-                println!("Executed op: 0x{op_code:0>2X}")
-            }
-            Action::ExecutedPrefixedOp(op_code) => {
-                program.insert(i, Either::Right(parse_prefixed_instruction(op_code)));
-                println!("Executed prefixed op: 0x{op_code:0>2X}")
-            }
-            Action::VBlank => println!("VBLank interrupt"),
-            Action::Lcd => println!("LDC interrupt"),
-            Action::Timer => println!("Timer interrupt"),
-            Action::Serial => println!("Serial interrupt"),
-            Action::Joypad => println!("Joypad interrupt"),
-            Action::Halted => println!("Halted"),
-            Action::Stopped => println!("Stopped"),
-        }
-        if rboy_action != action {
-            break;
-        }
-        if !check_cpu(gb.cpu(), &other_gb.cpu.reg) {
-            println!("Cpu mismatch");
-            println!("[spirit] {}", gb.cpu());
-            print_reg(&other_gb.cpu.reg);
-            break;
-        }
+    tracing_subscriber::fmt()
+        .without_time()
+        .compact()
+        .with_max_level(LevelFilter::WARN)
+        .init();
+
+    tracing::warn!("[spirit] {:?}", init_gb.ppu.inner);
+    print_gpu(&init_other_gb.cpu.mmu.gpu);
+    for _ in 0..(counter) {
+        step_and_compare(&mut init_gb, &mut init_other_gb);
+        tracing::warn!("[spirit] {:?}", init_gb.ppu.inner);
+        print_gpu(&init_other_gb.cpu.mmu.gpu);
     }
+    step_and_compare(&mut init_gb, &mut init_other_gb);
+    extensive_compare(&init_gb, &mut init_other_gb);
+    tracing::warn!("[spirit] {:?}", init_gb.ppu.inner);
+    print_gpu(&init_other_gb.cpu.mmu.gpu);
+
+    tracing::warn!("Error occurred after {counter} steps");
+
+    /*
     let mut program: Vec<_> = program.into_iter().collect();
     program.sort_by_key(|(i, _)| *i);
     program.reverse();
@@ -165,12 +111,16 @@ fn main() {
         println!("0x{i:0>4X} @ {op}");
     }
     println!("Spirit stopped after {counter} instructions");
+    */
 }
 
 /// Takes two emulators that are in states known to be matching (i.e. pass an extensive compare),
 /// but that are misaligned after the given number of steps, `steps`. Returns the number of steps
 /// needed for the first point in time for the misalignment to occur and returns that number.
 fn bisect_failure(mut gb: Gameboy, mut other_gb: Device, steps: usize) -> usize {
+    if steps == 0 {
+        return 0;
+    }
     let gb_copy = gb.clone();
     let other_gb_copy = other_gb.clone();
     let to = steps / 2;
@@ -179,15 +129,18 @@ fn bisect_failure(mut gb: Gameboy, mut other_gb: Device, steps: usize) -> usize 
         // deeper failure happened. We can take the number of steps that have occurred thus far as
         // the upper bound and bisect from here.
         if !step_and_compare(&mut gb, &mut other_gb) {
+            tracing::warn!("Step and compare failed after {i} steps");
             return bisect_failure(gb_copy, other_gb_copy, i);
         }
     }
 
     if extensive_compare(&gb, &mut other_gb) {
+        tracing::warn!("Passed extensive compare after {to} steps");
         // They match
         // FIXME: Consider case where steps was odd
-        bisect_failure(gb, other_gb, steps / 2)
+        to + bisect_failure(gb, other_gb, steps / 2)
     } else {
+        tracing::warn!("Failed extensive compare after {to} steps");
         // They mismatch
         bisect_failure(gb_copy, other_gb_copy, steps / 2)
     }
@@ -195,12 +148,115 @@ fn bisect_failure(mut gb: Gameboy, mut other_gb: Device, steps: usize) -> usize 
 
 /// Steps both emulators forward a single tick then does a light comparision between the two.
 fn step_and_compare(gb: &mut Gameboy, other_gb: &mut Device) -> bool {
+    let i = gb.cpu.pc.0;
+    let op = gb.read_op();
+    let span = tracing::warn_span!("[spirit]");
+    let guard = span.enter();
+    let action = match op {
+        Instruction::Stall => {
+            tracing::warn!("Halted");
+            Action::Halted
+        }
+        Instruction::Stopped => {
+            tracing::warn!("Stopped");
+            Action::Stopped
+        }
+        Instruction::Prefixed => {
+            let pc = gb.cpu().pc.0;
+            tracing::warn!("Looking for prefixed op code @ 0x{pc:0>4X}");
+            let op_code = gb.mem.read_byte(pc);
+            tracing::warn!(
+                "Executed prefixed op: {} (0x{op_code:0>2X})",
+                parse_prefixed_instruction(op_code)
+            );
+            Action::ExecutedPrefixedOp(op_code)
+        }
+        Instruction::Unused => todo!(),
+        Instruction::Transfer => todo!(),
+        Instruction::Interrupt(InterruptOp::LCD) => {
+            tracing::warn!("VBLank interrupt");
+            Action::Lcd
+        }
+        Instruction::Interrupt(InterruptOp::VBlank) => {
+            tracing::warn!("LDC interrupt");
+            Action::VBlank
+        }
+        Instruction::Interrupt(InterruptOp::Timer) => {
+            tracing::warn!("Timer interrupt");
+            Action::Timer
+        }
+        Instruction::Interrupt(InterruptOp::Serial) => {
+            tracing::warn!("Serial interrupt");
+            Action::Serial
+        }
+        Instruction::Interrupt(InterruptOp::Joypad) => {
+            tracing::warn!("Joypad interrupt");
+            Action::Joypad
+        }
+
+        op => {
+            let opcode = lookup::OP_LOOKUP
+                .iter()
+                .enumerate()
+                .find_map(|(i, o)| (&op == o).then_some(i))
+                .unwrap();
+            tracing::warn!("Executing op: {op} (0x{opcode:0>2X})",);
+            Action::ExecutedOp(opcode as u8)
+        }
+    };
+    drop(guard);
+    let i = other_gb.cpu.reg.pc;
+    gb.step();
+    let (_, rboy_action) = other_gb.do_cycle();
+    let span = tracing::warn_span!("[  rboy]");
+    let guard = span.enter();
+    match rboy_action {
+        Action::ExecutedOp(op_code) => {
+            // program.insert(i, Either::Left(parse_instruction(op_code)));
+            tracing::warn!(
+                "Executed op: {} (0x{op_code:0>2X})",
+                parse_instruction(op_code)
+            )
+        }
+        Action::ExecutedPrefixedOp(op_code) => {
+            // program.insert(i, Either::Right(parse_prefixed_instruction(op_code)));
+            tracing::warn!(
+                "Executed prefixed op: {} (0x{op_code:0>2X})",
+                parse_prefixed_instruction(op_code)
+            )
+        }
+        Action::VBlank => tracing::warn!("VBLank interrupt"),
+        Action::Lcd => tracing::warn!("LDC interrupt"),
+        Action::Timer => tracing::warn!("Timer interrupt"),
+        Action::Serial => tracing::warn!("Serial interrupt"),
+        Action::Joypad => tracing::warn!("Joypad interrupt"),
+        Action::Halted => tracing::warn!("Halted"),
+        Action::Stopped => tracing::warn!("Stopped"),
+    }
+    drop(guard);
+    if rboy_action != action {
+        tracing::warn!("Mismatched actions");
+    }
     light_compare(gb, other_gb)
 }
 
 /// Compares CPU, PPU, and key memory registers. Meant to be used after every step.
 fn light_compare(gb: &Gameboy, other_gb: &mut Device) -> bool {
-    todo!()
+    let cpu_check = check_cpu(gb.cpu(), &other_gb.cpu.reg);
+    if !cpu_check {
+        tracing::warn!("CPU mismatch");
+        tracing::warn!("[spirit] {cpu}", cpu = gb.cpu());
+        print_reg(&other_gb.cpu.reg);
+    }
+    let ppu_check = check_ppu(gb, other_gb);
+    if !ppu_check {
+        tracing::warn!("PPU mismatch");
+    }
+    let keys_check = check_key_registers(gb, other_gb);
+    if !keys_check {
+        tracing::warn!("Key register mismatch");
+    }
+    cpu_check && ppu_check && keys_check
 }
 
 /// Compares performs the light compare and a full memory sweep.
@@ -221,19 +277,12 @@ fn check_cpu(cpu: &Cpu, reg: &Registers) -> bool {
         && cpu.pc.0 == reg.pc + 1
 }
 
-fn print_reg(reg: &Registers) {
-    print!("[ rboy] Reg {{");
-    print!(" A=0x{:0>2X}", reg.a);
-    print!(" F=0x{:0>2X}", reg.f);
-    print!(" B=0x{:0>2X}", reg.b);
-    print!(" C=0x{:0>2X}", reg.c);
-    print!(" D=0x{:0>2X}", reg.d);
-    print!(" E=0x{:0>2X}", reg.e);
-    print!(" H=0x{:0>2X}", reg.h);
-    print!(" L=0x{:0>2X}", reg.l);
-    print!(" SP=0x{:0>4X}", reg.sp);
-    print!(" PC=0x{:0>4X} }}", reg.pc);
-    println!();
+fn check_ppu(gb: &Gameboy, other_gb: &mut Device) -> bool {
+    true
+}
+
+fn check_key_registers(gb: &Gameboy, other_gb: &mut Device) -> bool {
+    true
 }
 
 fn sweep_mem(mem: &MemoryMap, mmu: &mut MMU) -> bool {
@@ -246,9 +295,31 @@ fn sweep_mem(mem: &MemoryMap, mmu: &mut MMU) -> bool {
         let b = mmu.rb(i);
         if a != b {
             digest += 1;
-            println!("Memory mismatch @ 0x{i:0>4X}, spirit=0x{a:0>2X}, rboy=0x{b:0>2X}");
+            tracing::warn!("Memory mismatch @ 0x{i:0>4X}, spirit=0x{a:0>2X}, rboy=0x{b:0>2X}");
         }
     }
-    println!("Total memory mismatches: {digest}");
+    tracing::warn!("Total memory mismatches: {digest}");
     digest == 0
+}
+
+fn print_reg(reg: &Registers) {
+    tracing::warn!("[ rboy] Reg {{ A=0x{:0>2X}, F=0x{:0>2X}, B=0x{:0>2X} , C=0x{:0>2X} , D=0x{:0>2X} , E=0x{:0>2X} , H=0x{:0>2X} , L=0x{:0>2X} , SP=0x{:0>4X}, PC=0x{:0>4X} }}"
+        , reg.a
+, reg.f
+, reg.b
+, reg.c
+, reg.d
+, reg.e
+, reg.h
+, reg.l
+, reg.sp
+, reg.pc);
+}
+
+fn print_gpu(gpu: &GPU) {
+    tracing::warn!(
+        "[  rboy] GPU {{ mode: {}, modeclock: {} }}",
+        gpu.mode,
+        gpu.modeclock
+    )
 }

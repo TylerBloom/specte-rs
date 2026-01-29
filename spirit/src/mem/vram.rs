@@ -48,13 +48,13 @@ pub(super) struct CpuOamIndex(pub u16);
 pub enum PpuMode {
     /// Also refered to as "Mode 2" in the pandocs.
     #[default]
-    OamScan = 0,
+    OamScan = 2,
     /// Also refered to as "Mode 3" in the pandocs.
-    Drawing = 1,
+    Drawing = 3,
     /// Also refered to as "Mode 0" in the pandocs.
-    HBlank = 2,
+    HBlank = 0,
     /// Also refered to as "Mode 1" in the pandocs.
-    VBlank = 3,
+    VBlank = 1,
 }
 
 #[serde_as]
@@ -109,10 +109,11 @@ impl Index<CpuVramIndex> for VRam {
     type Output = u8;
 
     fn index(&self, CpuVramIndex(bank, index): CpuVramIndex) -> &Self::Output {
-        if self.status.is_drawing() {
-            info!("Attempting to read from VRAM while locked!!!");
-            &DEAD_READ_ONLY_BYTE
-        } else if bank {
+        // if self.status.is_drawing() {
+        //     info!("Attempting to read from VRAM while locked!!!");
+        //     &DEAD_READ_ONLY_BYTE
+        // } else if bank {
+        if bank {
             &self.vram[1][index as usize - 0x8000]
         } else {
             &self.vram[0][index as usize - 0x8000]
@@ -122,11 +123,11 @@ impl Index<CpuVramIndex> for VRam {
 
 impl IndexMut<CpuVramIndex> for VRam {
     fn index_mut(&mut self, CpuVramIndex(bank, index): CpuVramIndex) -> &mut Self::Output {
-        if self.status.is_drawing() {
-            info!("Attempting to write to VRAM while locked!!!");
-            self.dead_byte = 0xFF;
-            &mut self.dead_byte
-        } else if bank {
+        // if self.status.is_drawing() {
+        //     info!("Attempting to write to VRAM while locked!!!");
+        //     &DEAD_READ_ONLY_BYTE
+        // } else if bank {
+        if bank {
             &mut self.vram[1][index as usize - 0x8000]
         } else {
             &mut self.vram[0][index as usize - 0x8000]
