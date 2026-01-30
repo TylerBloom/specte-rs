@@ -225,7 +225,10 @@ fn tile_data_to_pixels(gb: &Gameboy, palette: u8, data: [u8; 16]) -> [[Pixel; 8]
 }
 
 fn bytes_to_pixels(gb: &Gameboy, palette: u8, lo: u8, hi: u8) -> [Pixel; 8] {
+    /*
     let palette = gb.mem.io().background_palettes[palette].clone();
     let mut iter = zip_bits(hi, lo).map(|c| palette.get_color(c).into());
     std::array::from_fn(|_| iter.next().unwrap())
+    */
+    todo!()
 }

@@ -2,6 +2,7 @@
 use std::fmt::Display;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
 
 use clap::Parser;
 use rboy::cpu::Action;
@@ -12,6 +13,7 @@ use rboy::register::Registers;
 use spirit::cpu::Cpu;
 use spirit::lookup::{parse_instruction, parse_prefixed_instruction};
 use spirit::mem::MemoryMap;
+use spirit::ppu::{Ppu, PpuInner};
 use spirit::{
     instruction::{Instruction, InterruptOp},
     lookup,
@@ -19,7 +21,6 @@ use spirit::{
     Gameboy,
 };
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::fmt::format::FmtSpan;
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -60,46 +61,64 @@ fn main() {
     let mut init_gb = gb.clone();
     let mut init_other_gb = other_gb.clone();
 
-    const STEP_SIZE: usize = 10_000;
+    const STEP_SIZE: usize = 16_384;
     let mut counter = 0;
     'outer: loop {
         let init_gb = gb.clone();
         let init_other = other_gb.clone();
         for i in 0..STEP_SIZE {
             if !step_and_compare(&mut gb, &mut other_gb) {
+                println!("Failed inner loop after {i} steps");
                 counter += bisect_failure(init_gb, init_other, i);
                 break 'outer;
             }
         }
         if !extensive_compare(&gb, &mut other_gb) {
-            tracing::warn!(
+            println!(
                 "Failed extensive compare after {} steps",
                 counter + STEP_SIZE
             );
             counter += bisect_failure(init_gb, init_other, STEP_SIZE);
             break 'outer;
         }
-        tracing::warn!("Passed extensive compare after {counter} steps");
+        println!("Passed extensive compare after {counter} steps");
         counter += STEP_SIZE;
     }
+    println!();
+    println!();
+    println!();
+    println!("Out of main loop after {counter} steps...");
 
+    // std::thread::sleep(Duration::from_secs(10));
     tracing_subscriber::fmt()
         .without_time()
         .compact()
         .with_max_level(LevelFilter::WARN)
         .init();
 
-    tracing::warn!("[spirit] {:?}", init_gb.ppu.inner);
+    print_ppu(&gb.ppu);
     print_gpu(&init_other_gb.cpu.mmu.gpu);
     for _ in 0..(counter) {
         step_and_compare(&mut init_gb, &mut init_other_gb);
-        tracing::warn!("[spirit] {:?}", init_gb.ppu.inner);
+        print_ppu(&gb.ppu);
         print_gpu(&init_other_gb.cpu.mmu.gpu);
     }
+    println!();
+    println!();
     step_and_compare(&mut init_gb, &mut init_other_gb);
+    println!();
+    println!();
+    step_and_compare(&mut init_gb, &mut init_other_gb);
+    println!();
+    println!();
+    step_and_compare(&mut init_gb, &mut init_other_gb);
+    println!();
+    println!();
     extensive_compare(&init_gb, &mut init_other_gb);
-    tracing::warn!("[spirit] {:?}", init_gb.ppu.inner);
+    print_ppu(&gb.ppu);
     print_gpu(&init_other_gb.cpu.mmu.gpu);
+    tracing::warn!("[spirit] {cpu}", cpu = gb.cpu());
+    print_reg(&other_gb.cpu.reg);
 
     tracing::warn!("Error occurred after {counter} steps");
 
@@ -251,6 +270,8 @@ fn light_compare(gb: &Gameboy, other_gb: &mut Device) -> bool {
     let ppu_check = check_ppu(gb, other_gb);
     if !ppu_check {
         tracing::warn!("PPU mismatch");
+        print_ppu(&gb.ppu);
+        print_gpu(&other_gb.cpu.mmu.gpu);
     }
     let keys_check = check_key_registers(gb, other_gb);
     if !keys_check {
@@ -278,7 +299,40 @@ fn check_cpu(cpu: &Cpu, reg: &Registers) -> bool {
 }
 
 fn check_ppu(gb: &Gameboy, other_gb: &mut Device) -> bool {
-    true
+    let gpu = &other_gb.cpu.mmu.gpu;
+    let disc = gb.ppu.inner.state() as u8;
+    // RBoy does not fully model the BG fifo process. Instead, they always stop drawing after 252
+    // dots. This will lead to misalignments
+    // TODO: We can catch and model these misalignments...
+    let state_check = true; // disc == gpu.mode;
+    /*
+    tracing::warn!("Do states match? {state_check}");
+    println!("Do states match? {state_check}");
+    if !state_check {
+        tracing::warn!(
+            "[  rboy] GPU {{ mode: {}, modeclock: {} }}",
+            gpu.mode,
+            gpu.modeclock
+        );
+        print_ppu(&gb.ppu);
+    }
+    assert!(state_check);
+    // */
+    let dots_check = match &gb.ppu.inner {
+        PpuInner::OamScan { dots } => *dots as u32 == gpu.modeclock,
+        PpuInner::Drawing { dots } => (*dots as u32 + 80) == gpu.modeclock,
+        PpuInner::HBlank { dots } => (*dots as u32 + 80) == gpu.modeclock,
+        PpuInner::VBlank { dots } => *dots as u32 == gpu.modeclock,
+    };
+    tracing::warn!("Do dots match? {dots_check}");
+    if !dots_check {
+        println!(
+            "[  rboy] GPU {{ mode: {}, modeclock: {} }}",
+            gpu.mode, gpu.modeclock
+        );
+        print_ppu(&gb.ppu);
+    }
+    state_check && dots_check
 }
 
 fn check_key_registers(gb: &Gameboy, other_gb: &mut Device) -> bool {
@@ -295,7 +349,7 @@ fn sweep_mem(mem: &MemoryMap, mmu: &mut MMU) -> bool {
         let b = mmu.rb(i);
         if a != b {
             digest += 1;
-            tracing::warn!("Memory mismatch @ 0x{i:0>4X}, spirit=0x{a:0>2X}, rboy=0x{b:0>2X}");
+            tracing::warn!("Memory mismatch @ 0x{i:0>4X}, spirit=0b{a:0>8b}, rboy=0b{b:0>8b}");
         }
     }
     tracing::warn!("Total memory mismatches: {digest}");
@@ -321,5 +375,15 @@ fn print_gpu(gpu: &GPU) {
         "[  rboy] GPU {{ mode: {}, modeclock: {} }}",
         gpu.mode,
         gpu.modeclock
+    )
+}
+
+fn print_ppu(ppu: &Ppu) {
+    tracing::warn!(
+        "[spirit] PPU {{ mode: {:?} ({}), dots: {}, bg_fifo_x: {} }}",
+        ppu.inner.state(),
+        ppu.inner.state() as u8,
+        ppu.inner.dots(),
+        ppu.bg_fifo.x
     )
 }

@@ -42,10 +42,10 @@ pub enum LoadOp {
     #[display("PUSH {_0}")]
     Push(WideRegWithoutSP),
     /// Used for opcode 0xE0
-    #[display("LDH A")]
+    #[display("LDH [u8], A")]
     LoadHigh,
     /// Used for opcode 0xF0
-    #[display("LDH A")]
+    #[display("LDH A, [u8]")]
     StoreHigh,
     /// Used for opcode 0xE2
     #[display("LDHCA")]
@@ -310,6 +310,11 @@ impl LoadOp {
                 };
                 state.tick(cycle);
                 state.cpu.w = Wrapping(0xFF);
+                tracing::warn!(
+                    "In `{self}`, writing 0x{:0>2X} @ 0x{:0>4X}",
+                    state.cpu.a.0,
+                    state.cpu.ghost_addr()
+                );
                 let cycle = MCycle {
                     addr_bus: PointerReg::Ghost,
                     action: AddrAction::Write(HalfRegister::A.into()),

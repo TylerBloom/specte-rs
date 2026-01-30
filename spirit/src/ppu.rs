@@ -39,10 +39,10 @@ pub struct Ppu {
     pub screen: Vec<Vec<Pixel>>,
     /// This FIFO pulls data from the memory map to construct the objects used in a scanline. This
     /// process is controlled by the `PpuInner` state machine.
-    obj_fifo: ObjectFiFo,
+    pub obj_fifo: ObjectFiFo,
     /// This FIFO pulls data from the memory map to construct the background and window pixels.
     /// Like the other FIFO, this is controlled by the `PpuInner`.
-    bg_fifo: BackgroundFiFo,
+    pub bg_fifo: BackgroundFiFo,
     /// The state machine that controls the timings of when memory is locked, data is pulled from
     /// it, and pixels are mixed and written to the screen.
     pub inner: PpuInner,
@@ -169,12 +169,21 @@ impl PpuInner {
         false
     }
 
-    fn state(&self) -> PpuMode {
+    pub fn state(&self) -> PpuMode {
         match self {
             PpuInner::OamScan { .. } => PpuMode::OamScan,
             PpuInner::Drawing { .. } => PpuMode::Drawing,
             PpuInner::HBlank { .. } => PpuMode::HBlank,
             PpuInner::VBlank { .. } => PpuMode::VBlank,
+        }
+    }
+
+    pub fn dots(&self) -> u16 {
+        match self {
+            PpuInner::OamScan { dots } => *dots as u16,
+            PpuInner::Drawing { dots } => *dots,
+            PpuInner::HBlank { dots } => *dots,
+            PpuInner::VBlank { dots } => *dots,
         }
     }
 }
@@ -242,8 +251,8 @@ impl ObjectFiFo {
 }
 
 #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
-struct BackgroundFiFo {
-    x: u8,
+pub struct BackgroundFiFo {
+    pub x: u8,
     y: u8,
     fetcher: PixelFetcher,
     /// Starts as `false` each frame. Once triggered, every scanline will use the window data while

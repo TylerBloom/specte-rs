@@ -220,7 +220,6 @@ struct AudioRegisters {
 }
 
 impl AudioRegisters {
-    #[track_caller]
     fn read_byte(&self, index: u16) -> u8 {
         match index {
             /* Controls */
@@ -263,7 +262,10 @@ impl AudioRegisters {
             // NOTE: Only bit 6 is readable
             0xFF23 => self.ch4_control & 0b0100_0000,
             /* Oops... */
-            idx => unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4X}"),
+            idx => {
+                tracing::error!("There was an attemped read from an unused byte 0x{idx:0>4X}");
+                0xFF
+            }
         }
     }
 
@@ -306,7 +308,9 @@ impl AudioRegisters {
             // NOTE: Only the top 2 bits are used
             0xFF23 => self.ch4_control = val & 0b1100_0000,
             /* Oops... */
-            idx => unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4x}"),
+            idx => {
+                tracing::error!("There was an attemped write to an unused byte @ 0x{idx:0>4x}");
+            }
         }
     }
 }
@@ -354,6 +358,23 @@ impl IoRegisters {
         }
     }
 
+    pub(crate) fn disable_lcd(&mut self) {
+        println!("Disabling LCD");
+        self.lcd_status &= 0b1111_1100;
+        self.lcd_y = 0;
+        if self.lcd_y == self.lcd_cmp {
+            self.lcd_status |= 0b100;
+        } else {
+            // Reset the LYC = LY bit
+            self.lcd_status &= 0b1111_1011;
+        }
+    }
+
+    pub(crate) fn enable_lcd(&mut self) {
+        println!("Enabling LCD");
+        self.set_ppu_status(PpuMode::OamScan);
+    }
+
     pub(crate) fn set_ppu_status(&mut self, state: PpuMode) {
         let old_state = match self.lcd_status & 0b11 {
             2 => PpuMode::OamScan,
@@ -379,13 +400,12 @@ impl IoRegisters {
     pub(crate) fn inc_lcd_y(&mut self) {
         self.lcd_y = (self.lcd_y + 1) % 154;
         if self.lcd_y == self.lcd_cmp {
+            self.lcd_status |= 0b100;
             self.request_lcd_int();
         } else {
+            // Reset the LYC = LY bit
+            self.lcd_status &= 0b1111_1011;
         }
-    }
-
-    pub(crate) fn reset_lcd_y(&mut self) {
-        self.lcd_y = 0;
     }
 
     pub fn request_vblank_int(&mut self) {
@@ -425,6 +445,15 @@ impl IoRegisters {
         self.interrupt_flags &= !mask;
     }
 
+    /// Updates the LYC == LY bit in the LCD Stat register
+    fn check_y_cmp(&mut self) {
+        if self.lcd_cmp == self.lcd_y {
+            self.lcd_status |= 0b100;
+        } else {
+            self.lcd_status &= 0b1111_1011;
+        }
+    }
+
     pub(crate) fn read_byte(&self, index: u16) -> u8 {
         match index {
             0xFF00 => self.joypad[()],
@@ -456,8 +485,10 @@ impl IoRegisters {
                     self.boot_status
                 }
             }
-            n @ 0xFF68..=0xFF69 => self.background_palettes[n - 0xFF68],
-            n @ 0xFF6A..=0xFF6B => self.object_palettes[n - 0xFF6A],
+            0xFF68 => self.background_palettes.read_index(),
+            0xFF69 => self.background_palettes.read_palette_byte(),
+            0xFF6A => self.object_palettes.read_index(),
+            0xFF6B => self.object_palettes.read_palette_byte(),
             0xFF72 => self.undoc_registers[0],
             0xFF73 => self.undoc_registers[1],
             0xFF74 => self.undoc_registers[2],
@@ -494,15 +525,32 @@ impl IoRegisters {
                     "Changing LCD Control register from 0x{:0>2X} to 0x{value:0>2X}",
                     self.lcd_control
                 );
-                self.lcd_control = value
+                let was_on = check_bit_const::<7>(self.lcd_control);
+                self.lcd_control = value;
+                let is_on = check_bit_const::<7>(self.lcd_control);
+                match (was_on, is_on) {
+                    (true, false) => self.disable_lcd(),
+                    (false, true) => self.enable_lcd(),
+                    _ => {}
+                }
             }
             // TODO: Only part of this register can be written to. Only bits 3-6 can be written to.
             // This register needs to be reset when ticked.
-            0xFF41 => self.lcd_status = 0b0111_1000 & value,
+            0xFF41 => {
+                println!(
+                    "Changing LCD Stat register from 0x{:0>2X} to 0x{value:0>2X}",
+                    self.lcd_status
+                );
+                self.lcd_status = 0b1000_0000 | (0b0111_1000 & value);
+                self.check_y_cmp();
+            }
             0xFF42 => self.bg_position.0 = value,
             0xFF43 => self.bg_position.1 = value,
             0xFF44 => {}
-            0xFF45 => self.lcd_cmp = value,
+            0xFF45 => {
+                self.lcd_cmp = value;
+                self.check_y_cmp();
+            }
             0xFF47 => self.monochrome_bg_palette = value,
             0xFF48 => self.monochrome_obj_palettes[0] = value,
             0xFF49 => self.monochrome_obj_palettes[1] = value,
@@ -516,8 +564,22 @@ impl IoRegisters {
                 self.boot_status_disabled = true;
                 self.boot_status = value
             }
-            n @ 0xFF68..=0xFF69 => self.background_palettes[n - 0xFF68] = value,
-            n @ 0xFF6A..=0xFF6B => self.object_palettes[n - 0xFF6A] = value,
+            0xFF68 => {
+                tracing::warn!("Writing to background palettes index: 0x{value:0>2X}");
+                self.background_palettes.write_index(value);
+            }
+            0xFF69 => {
+                tracing::warn!("Writing to background palettes: 0x{value:0>2X}");
+                self.background_palettes.write_palette_byte(value);
+            }
+            0xFF6A => {
+                tracing::warn!("Writing to object palettes index: 0x{value:0>2X}");
+                self.object_palettes.write_index(value);
+            }
+            0xFF6B => {
+                tracing::warn!("Writing to object palettes: 0x{value:0>2X}");
+                self.object_palettes.write_palette_byte(value);
+            }
             0xFF72 => self.undoc_registers[0] = value,
             0xFF73 => self.undoc_registers[1] = value,
             0xFF74 => self.undoc_registers[2] = value,
@@ -551,7 +613,7 @@ impl Index<BgPaletteIndex> for IoRegisters {
     type Output = Palette;
 
     fn index(&self, BgPaletteIndex(index): BgPaletteIndex) -> &Self::Output {
-        &self.background_palettes[index]
+        &self.background_palettes.data[index as usize]
     }
 }
 
@@ -559,9 +621,12 @@ impl Index<ObjPaletteIndex> for IoRegisters {
     type Output = Palette;
 
     fn index(&self, ObjPaletteIndex(index): ObjPaletteIndex) -> &Self::Output {
-        &self.object_palettes[index]
+        &self.object_palettes.data[index as usize]
     }
 }
+
+// Notes:
+// FF69 — BCPD/BGPD can not be accessed during OAM Scan and Drawing
 
 /// In GBC mode, there are extra palettes for the colors
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -572,53 +637,36 @@ pub struct ColorPalettes {
 }
 
 impl ColorPalettes {
-    fn tick(&mut self) {
-        self.index &= 0b1011_1111;
-        let (a, b) = self.indices();
-        self.data[a as usize].tick(b);
-    }
-
-    fn indices(&self) -> (u8, u8) {
+    /// Palette data is stored as an array of 4-color arrays where each color is 2 bytes.
+    /// This method returns the index into the top array and middle array
+    pub(crate) fn indices(&self) -> (u8, u8) {
         let index = self.index.0 & 0b0011_1111;
         ((index & 0b0011_1000) >> 3, index & 0b111)
     }
-}
 
-impl Index<u8> for ColorPalettes {
-    type Output = Palette;
-
-    fn index(&self, index: u8) -> &Self::Output {
-        &self.data[index as usize]
+    /// Reads from the "index" (aka "address") register
+    pub(crate) fn read_index(&self) -> u8 {
+        self.index.0
     }
-}
 
-impl Index<u16> for ColorPalettes {
-    type Output = u8;
-
-    fn index(&self, index: u16) -> &Self::Output {
-        match index {
-            0 => &self.index.0,
-            1 => {
-                let (a, b) = self.indices();
-                &self.data[a as usize][b]
-            }
-            _ => unreachable!(),
-        }
+    /// Writes to the "index" (aka "address") register
+    pub(crate) fn write_index(&mut self, value: u8) {
+        self.index.0 = value | 0x40
     }
-}
 
-impl IndexMut<u16> for ColorPalettes {
-    fn index_mut(&mut self, index: u16) -> &mut Self::Output {
-        match index {
-            0 => &mut self.index.0,
-            1 => {
-                let (a, b) = self.indices();
-                let inc = check_bit_const::<7>(self.index.0) as u8;
-                self.index += inc;
-                // TODO: If the PPU is in mode 3, this should return a dead byte.
-                &mut self.data[a as usize][b]
-            }
-            _ => unreachable!(),
+    /// Using the address register, indexes into the palette data and returns the indexed byte
+    pub(crate) fn read_palette_byte(&self) -> u8 {
+        let (a, b) = self.indices();
+        self.data[a as usize].read_byte(b)
+    }
+
+    /// Using the address register, indexes into the palette data writes over that byte
+    pub(crate) fn write_palette_byte(&mut self, value: u8) {
+        let (a, b) = self.indices();
+        self.data[a as usize].write_byte(b, value);
+        if check_bit_const::<7>(self.index.0) {
+            let index = (self.index.0 & 0b0011_1111) + 1;
+            self.index.0 = (self.index.0 & 0b1100_0000) | index;
         }
     }
 }
@@ -630,28 +678,25 @@ pub struct Palette {
 }
 
 impl Palette {
-    fn tick(&mut self, index: u8) {
-        self.colors[index as usize].tick();
+    /// A palette contains an array of 4 two-byte arrays. The give index should be between 0-7 and
+    /// acts as the index for both the inner and outer arrays.
+    pub(crate) fn read_byte(&self, index: u8) -> u8 {
+        let outer = (index > 1) as usize;
+        let inner = (index & 1) as usize;
+        self.colors[outer].0[inner]
+    }
+
+    pub(crate) fn write_byte(&mut self, index: u8, mut value: u8) {
+        let outer = (index > 1) as usize;
+        let inner = (index & 1) as usize;
+        if inner == 1 {
+            value |= 0x80;
+        }
+        self.colors[outer].0[inner] = value;
     }
 
     pub fn get_color(&self, index: u8) -> PaletteColor {
         self.colors[index as usize]
-    }
-}
-
-impl Index<u8> for Palette {
-    type Output = u8;
-
-    fn index(&self, index: u8) -> &Self::Output {
-        debug_assert!(index < 8);
-        &self.colors[(index & 0b110) as usize >> 1][index & 0b1]
-    }
-}
-
-impl IndexMut<u8> for Palette {
-    fn index_mut(&mut self, index: u8) -> &mut Self::Output {
-        debug_assert!(index < 8);
-        &mut self.colors[(index & 0b110) as usize >> 1][index & 0b1]
     }
 }
 
@@ -661,10 +706,6 @@ impl IndexMut<u8> for Palette {
 pub struct PaletteColor(pub [u8; 2]);
 
 impl PaletteColor {
-    fn tick(&mut self) {
-        self.0[1] &= 0xEF;
-    }
-
     pub fn r(&self) -> u8 {
         self.0[0] & 0b0001_1111
     }
@@ -685,22 +726,6 @@ impl From<PaletteColor> for Pixel {
             g: value.g(),
             b: value.b(),
         }
-    }
-}
-
-impl Index<u8> for PaletteColor {
-    type Output = u8;
-
-    fn index(&self, index: u8) -> &Self::Output {
-        debug_assert!(index < 2);
-        &self.0[index as usize]
-    }
-}
-
-impl IndexMut<u8> for PaletteColor {
-    fn index_mut(&mut self, index: u8) -> &mut Self::Output {
-        debug_assert!(index < 2);
-        &mut self.0[index as usize]
     }
 }
 
@@ -811,9 +836,11 @@ mod tests {
                 }),
             }),
         };
+        println!("{palettes:?}");
         for i in 0..64u16 {
-            let data = &mut palettes[1];
-            assert_eq!(i as u8, *data);
+            // let data = palettes;
+            todo!();
+            // assert_eq!(i as u8, data);
         }
     }
 }
