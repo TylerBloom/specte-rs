@@ -23,7 +23,7 @@ use timers::TimerRegisters;
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IoRegisters {
     /// ADDR FF00
-    pub(super) joypad: Joypad,
+    pub(super) joypad: u8,
     /// ADDR FF01, FF02
     // FIXME: Not impl-ed at all
     serial: (u8, u8),
@@ -352,7 +352,6 @@ impl Index<ObjPaletteIndex> for MemoryMap {
 
 impl IoRegisters {
     pub(super) fn tick(&mut self) {
-        self.joypad.tick();
         if self.tac.tick() {
             self.request_timer_int();
         }
@@ -429,7 +428,22 @@ impl IoRegisters {
     }
 
     pub fn request_button_int(&mut self, input: ButtonInput) {
-        self.joypad.register_input(input);
+        let byte = match input {
+            ButtonInput::Joypad(button)
+                if check_bit_const::<4>(self.joypad) && !check_bit_const::<5>(self.joypad) =>
+            {
+                button as u8
+            }
+            ButtonInput::Ssab(button)
+                if !check_bit_const::<4>(self.joypad) && check_bit_const::<5>(self.joypad) =>
+            {
+                button as u8
+            }
+            _ => return,
+        };
+        debug_assert_eq!(byte.count_ones(), 1);
+        debug_assert!(byte < 0xF0);
+        self.joypad &= byte;
         // self.io.interrupt_flags |= self.ie & 0b1_0000;
         self.interrupt_flags |= 0b1_0000;
     }
@@ -456,7 +470,7 @@ impl IoRegisters {
 
     pub(crate) fn read_byte(&self, index: u16) -> u8 {
         match index {
-            0xFF00 => self.joypad[()],
+            0xFF00 => self.joypad,
             0xFF01 => self.serial.0,
             0xFF02 => self.serial.1,
             0xFF04..=0xFF07 => self.tac.read_byte(index),
@@ -509,7 +523,8 @@ impl IoRegisters {
 
     pub(crate) fn write_byte(&mut self, index: u16, value: u8) {
         match index {
-            0xFF00 => self.joypad[()] = value,
+            // TODO: Some bits aren't used. Mask those bits.
+            0xFF00 => self.joypad = value,
             0xFF01 => self.serial.0 = value,
             0xFF02 => self.serial.1 = value,
             0xFF04..=0xFF07 => {
@@ -726,94 +741,6 @@ impl From<PaletteColor> for Pixel {
             g: value.g(),
             b: value.b(),
         }
-    }
-}
-
-/// This is a bit messy... The bottom half of this register is read-only via instruction and is
-/// set at the same time the joypad interrupt is called. We can't expose this byte when mutably
-/// indexing into, so we have to store two bytes. How do we keep them synchronized?
-/// Let's say they are in sync and have the state 0b01_0000.
-/// Then, the right button is press. An interrupt is fired and can write to both bytes.
-/// Great, the current state is 0b010_0001 for both bytes.
-/// Then, the CPU indexs to change the select-mode bytes.
-/// Now, they are out of sync (because we only expose the byte that contains the select-mode bits,
-/// so only the gets mutated). This causes a problem when you next read from this register. We
-/// can't expose the byte that holds the read-only nibble, its out of date. But, we can't expose
-/// the byte with the select-mode bits because the lower half could have been written to. Moreover,
-/// neither byte can be mutated (safely) and we need an actual byte to return a reference to.
-///
-/// The solution: Both registers will be synchronized when a tick is processed. Currently, this
-/// happens immediately before the instruction is actually processed, but this would also work if
-/// it happened immediately after too. As long as the tick is applied in the same order everywhere.
-// TODO: Overhaul indexing and data model
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
-pub(super) struct Joypad {
-    main: u8,
-    dup: u8,
-}
-
-impl Default for Joypad {
-    fn default() -> Self {
-        Self {
-            main: 0xFF,
-            dup: 0xFF,
-        }
-    }
-}
-
-impl Joypad {
-    /// Method is called when the memory is ticked. Because we have to virtualize the read-only
-    /// nibble, we have to ensure the main and duplicate bits are synced. Additionally, there is
-    /// this bit from the pandocs:
-    /// > If neither buttons nor d-pad is selected ($30 was written), then the low nibble reads $F (all buttons released).
-    /// > Accounting for this is done here.
-    fn tick(&mut self) {
-        // The main byte is the byte that gets referenced when indexing. This means that any
-        // changes to its lower half (the read-only nibble) must be ignored. These bits are stored
-        // in the dup nibble. This method brings them in sync by overwriting the lower nibble of
-        // the main byte with the lower nibble of the dup byte. At the same time, it is calculated
-        // if both or neither of the select-mode bits are set (see the quote above). In this case,
-        // the main bit is ORed with 0x0F.
-        // NOTE: dup is never updated except when input is registered.
-        self.main &= 0x30; // Take away everything but the select-mode bits
-        let mut mask = self.main;
-        mask = 0x10 & !(((mask & 0x20) >> 1) ^ (mask & 0x10)); // tmp is now either 0x10 or 0x00
-        mask = mask.saturating_sub(1); // tmp is now either 0x0F or 0x00
-        self.main |= mask | self.dup;
-    }
-
-    pub(super) fn register_input(&mut self, input: ButtonInput) {
-        let byte = match input {
-            ButtonInput::Joypad(button)
-                if check_bit_const::<4>(self.main) && !check_bit_const::<5>(self.main) =>
-            {
-                button as u8
-            }
-            ButtonInput::Ssab(button)
-                if !check_bit_const::<4>(self.main) && check_bit_const::<5>(self.main) =>
-            {
-                button as u8
-            }
-            _ => return,
-        };
-        debug_assert_eq!(byte.count_ones(), 1);
-        debug_assert!(byte < 0xF0);
-        self.dup &= byte;
-        self.main &= byte;
-    }
-}
-
-impl Index<()> for Joypad {
-    type Output = u8;
-
-    fn index(&self, index: ()) -> &Self::Output {
-        &self.main
-    }
-}
-
-impl IndexMut<()> for Joypad {
-    fn index_mut(&mut self, index: ()) -> &mut Self::Output {
-        &mut self.main
     }
 }
 
