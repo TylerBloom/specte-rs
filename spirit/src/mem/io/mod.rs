@@ -666,12 +666,13 @@ impl ColorPalettes {
 
     /// Writes to the "index" (aka "address") register
     pub(crate) fn write_index(&mut self, value: u8) {
-        self.index.0 = value | 0x40
+        self.index.0 = value & 0b1011_1111;
     }
 
     /// Using the address register, indexes into the palette data and returns the indexed byte
     pub(crate) fn read_palette_byte(&self) -> u8 {
         let (a, b) = self.indices();
+        println!("A = 0x{a:0>X}, B = 0x{b:0>X}");
         self.data[a as usize].read_byte(b)
     }
 
@@ -680,8 +681,7 @@ impl ColorPalettes {
         let (a, b) = self.indices();
         self.data[a as usize].write_byte(b, value);
         if check_bit_const::<7>(self.index.0) {
-            let index = (self.index.0 & 0b0011_1111) + 1;
-            self.index.0 = (self.index.0 & 0b1100_0000) | index;
+            self.index.0 = (self.index.0 + 1) & 0b1011_1111;
         }
     }
 }
@@ -696,14 +696,16 @@ impl Palette {
     /// A palette contains an array of 4 two-byte arrays. The give index should be between 0-7 and
     /// acts as the index for both the inner and outer arrays.
     pub(crate) fn read_byte(&self, index: u8) -> u8 {
-        let outer = (index > 1) as usize;
+        let outer = (index >> 1) as usize;
         let inner = (index & 1) as usize;
+        println!("index = 0b{index:0>3b}, Outer = 0b{outer:0>3b}, Inner = 0b{inner:0>3b}");
         self.colors[outer].0[inner]
     }
 
     pub(crate) fn write_byte(&mut self, index: u8, mut value: u8) {
-        let outer = (index > 1) as usize;
+        let outer = (index >> 1) as usize;
         let inner = (index & 1) as usize;
+        // The top bit of the set byte is ignored. If read, that bit should be read as set.
         if inner == 1 {
             value |= 0x80;
         }
@@ -750,24 +752,90 @@ mod tests {
     use super::Palette;
     use super::PaletteColor;
 
+    /// Tests that the internal indexing logic for reading and writing palette data works as
+    /// expected. Since this logic is only used by the CPU (via read/write_byte), only byte-level
+    /// (not color-level) indexing is tested.
+    ///  - Indexes into the expected palette byte
+    ///  - When the top bit of the index is set, writing to a byte increments the index
+    ///  - Indexes wrap around
     #[test]
     fn indexing_into_palettes() {
-        let mut palettes = ColorPalettes {
-            index: crate::utils::Wrapping(0x80),
-            data: std::array::from_fn(|i| Palette {
-                colors: std::array::from_fn(|j| {
-                    PaletteColor([
-                        8 * (i as u8) + 2 * (j as u8),
-                        8 * (i as u8) + 2 * (j as u8) + 1,
-                    ])
+        // Palette data will be values 0..64, in order.
+        let mut iter = 0..64u8;
+        // 8, 4, 2
+        let mut incrementing_palettes = ColorPalettes {
+            index: 0x80.into(),
+            data: std::array::from_fn(|_| Palette {
+                colors: std::array::from_fn(|_| {
+                    PaletteColor([iter.next().unwrap(), iter.next().unwrap()])
                 }),
             }),
         };
-        println!("{palettes:?}");
-        for i in 0..64u16 {
-            // let data = palettes;
-            todo!();
-            // assert_eq!(i as u8, data);
+        println!("{incrementing_palettes:#?}");
+        let mut non_incrementing_palettes = incrementing_palettes.clone();
+        non_incrementing_palettes.index = 0.into();
+        // Indexing tests
+        for i in 0..64u8 {
+            {
+                let byte = incrementing_palettes.read_palette_byte();
+                println!("Inc    :  byte = 0x{byte:0>2X}, i = 0x{i:0>2X}");
+                assert_eq!(byte, i);
+                incrementing_palettes.write_palette_byte(0x08 + i);
+                let index = incrementing_palettes.read_index();
+                println!("Inc    : index = 0x{index:0>2X}, i = 0x{i:0>2X}");
+                // If the index was the 64th byte, it will wrap around
+                let expected = 0x80 + (i + 1) % 64;
+                assert_eq!(index, expected);
+            }
+
+            {
+                let byte = non_incrementing_palettes.read_palette_byte();
+                println!("Non-inc:  byte = 0x{byte:0>2X}, i = 0x{i:0>2X}");
+                assert_eq!(byte, i);
+                non_incrementing_palettes.write_palette_byte(0x08 + i);
+                let index = non_incrementing_palettes.read_index();
+                println!("Non-inc: index = 0x{index:0>2X}, i = 0x{i:0>2X}");
+                assert_eq!(index, i);
+                non_incrementing_palettes.write_index(i + 1);
+                let index = non_incrementing_palettes.read_index();
+                let expected = (i + 1) % 64;
+                assert_eq!(index, expected);
+            }
+            println!();
+        }
+        incrementing_palettes.index = 0x80.into();
+        non_incrementing_palettes.index = 0.into();
+        println!("{incrementing_palettes:#?}");
+        // Test that writes in prior loop worked
+        for i in 0..64u8 {
+            {
+                let byte = incrementing_palettes.read_palette_byte();
+                println!("Inc    :  byte = 0x{byte:0>2X}, i = 0x{i:0>2X}");
+                let expected = if i % 2 == 0 { i }  else { 0x80 | i };
+                assert_eq!(byte, 0x08 + expected);
+                incrementing_palettes.write_palette_byte(i);
+                let index = incrementing_palettes.read_index();
+                println!("Inc    : index = 0x{index:0>2X}, i = 0x{i:0>2X}");
+                // If the index was the 64th byte, it will wrap around
+                let expected = 0x80 + (i + 1) % 64;
+                assert_eq!(index, expected);
+            }
+
+            {
+                let byte = non_incrementing_palettes.read_palette_byte();
+                println!("Non-inc:  byte = 0x{byte:0>2X}, i = 0x{i:0>2X}");
+                let expected = if i % 2 == 0 { i }  else { 0x80 | i };
+                assert_eq!(byte, 0x08 + expected);
+                non_incrementing_palettes.write_palette_byte(i + 1);
+                let index = non_incrementing_palettes.read_index();
+                println!("Non-inc: index = 0x{index:0>2X}, i = 0x{i:0>2X}");
+                assert_eq!(index, i);
+                non_incrementing_palettes.write_index(i + 1);
+                let index = non_incrementing_palettes.read_index();
+                let expected = (i + 1) % 64;
+                assert_eq!(index, expected);
+            }
+            println!();
         }
     }
 }
