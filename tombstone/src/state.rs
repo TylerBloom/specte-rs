@@ -6,6 +6,7 @@ use std::sync::Mutex;
 
 use crossterm::execute;
 use crossterm::terminal::LeaveAlternateScreen;
+use ghast::emu_core::Emulator;
 use indexmap::IndexSet;
 use ratatui::Frame;
 use ratatui::Terminal;
@@ -14,19 +15,15 @@ use ratatui::layout::Constraint;
 use ratatui::layout::Direction;
 use ratatui::layout::Layout;
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::FmtSubscriber;
 use tracing_subscriber::fmt::MakeWriter;
-use tracing_subscriber::fmt::format::Compact;
-use tracing_subscriber::fmt::format::DefaultFields;
 use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::fmt::format::Format;
 
 use spirit::Gameboy;
-use spirit::lookup::HalfRegister;
-use spirit::lookup::Instruction;
-use spirit::lookup::JumpOp;
-use spirit::lookup::LoadOp;
-use spirit::lookup::RegOrPointer;
+use spirit::instruction::HalfRegister;
+use spirit::instruction::Instruction;
+use spirit::instruction::JumpOp;
+use spirit::instruction::LoadOp;
+use spirit::instruction::RegOrPointer;
 use spirit::mem::MemoryLike;
 use spirit::mem::vram::PpuMode;
 
@@ -68,7 +65,7 @@ pub(crate) struct AppState {
 }
 
 pub struct InnerAppState {
-    pub gb: Gameboy,
+    pub gb: Emulator,
     pub config: GameConfig,
     pub skipped_breakpoints: HashSet<u16>,
     pub mem_start: u16,
@@ -89,7 +86,7 @@ impl AppState {
 
         let inner = InnerAppState {
             config,
-            gb: Gameboy::load_cartridge(cart).complete(),
+            gb: Emulator::new(cart),
             mem_start: 0x8000,
             skipped_breakpoints: HashSet::new(),
         };
@@ -167,7 +164,7 @@ impl InnerAppState {
     fn process(&mut self, cli: &mut Cli, pc: &mut PcState, cmd: Command) {
         match cmd {
             Command::Read { index } => {
-                let val = self.gb.mem.read_byte(index);
+                let val = self.gb.gb().mem.read_byte(index);
                 cli.push_to_history(format!("0x{index:0>4X} -> 0b{val:0>8b}"));
             }
             Command::Redraw => {}
@@ -176,7 +173,7 @@ impl InnerAppState {
                 std::process::exit(0)
             }
             Command::Step { count } => {
-                (0..count).for_each(|_| self.gb.step());
+                (0..count).for_each(|_| self.gb.gb_mut().step());
             }
             Command::Info => todo!(),
             Command::Index(options) => match options {
@@ -207,11 +204,11 @@ impl InnerAppState {
                     cli.display(digest);
                 }
                 BreakpointCommand::Add { pc } => {
-                    let bp = pc.unwrap_or(self.gb.cpu().pc.0);
+                    let bp = pc.unwrap_or(self.gb.gb().cpu().pc.0);
                     self.config.add_breakpoint(bp);
                 }
                 BreakpointCommand::Remove { pc } => {
-                    let bp = pc.unwrap_or(self.gb.cpu().pc.0);
+                    let bp = pc.unwrap_or(self.gb.gb().cpu().pc.0);
                     self.config.remove_breakpoint(bp);
                 }
                 BreakpointCommand::Skip { pc } => {
@@ -231,7 +228,7 @@ impl InnerAppState {
             },
             RunLength::Until(until) => match until {
                 RunUntil::Loop(kind) => match kind {
-                    LoopKind::CpuAndMem => todo!(),
+                    LoopKind::CpuAndMem => self.loop_cpu_mem(),
                     LoopKind::Screen => self.loop_screen(),
                 },
                 RunUntil::Return => {
@@ -249,10 +246,10 @@ impl InnerAppState {
                             Instruction::Jump(JumpOp::ConditionalReturn(cond)) => {
                                 seen_returns += cond.passed(gb.cpu()) as usize
                             }
-                            Instruction::Jump(JumpOp::Call(_)) => {
+                            Instruction::Jump(JumpOp::Call) => {
                                 seen_calls += 1;
                             }
-                            Instruction::Jump(JumpOp::ConditionalCall(cond, _)) => {
+                            Instruction::Jump(JumpOp::ConditionalCall(cond)) => {
                                 seen_calls += cond.passed(gb.cpu()) as usize;
                             }
                             _ => {}
@@ -268,7 +265,7 @@ impl InnerAppState {
                     })
                 }
                 RunUntil::Frame => {
-                    let mut mode = self.gb.ppu.state();
+                    let mut mode = self.gb.gb().ppu.state();
                     self.run_until(move |gb| {
                         let digest =
                             !matches!((mode, gb.ppu.state()), (PpuMode::VBlank, PpuMode::OamScan));
@@ -281,18 +278,18 @@ impl InnerAppState {
                     todo!()
                 }
                 RunUntil::Interupt => {
-                    let ints = self.gb.mem.io().interrupt_flags;
+                    let ints = self.gb.gb().mem.io().interrupt_flags;
                     self.run_until(|gb| gb.mem.io().interrupt_flags != ints)
                 }
                 RunUntil::Custom => {
-                    let mut cond = custom_until_condition(&self.gb);
-                    while cond(&self.gb) {
-                        self.gb.step();
+                    let mut cond = custom_until_condition(self.gb.gb());
+                    while cond(self.gb.gb()) {
+                        self.gb.gb_mut().step();
                     }
                 }
                 RunUntil::PassedLoop { count } => {
                     let mut count = count.unwrap_or(1);
-                    let mut pc = self.gb.cpu().pc;
+                    let mut pc = self.gb.gb().cpu().pc;
                     // FIXME: Even for the very loose definition of "loop" and "end", this is a
                     // rough implementation. This does not account for interrupt. Even worse, this
                     // does not account for loops with calls that also have loops. In such a case
@@ -301,8 +298,7 @@ impl InnerAppState {
                     self.run_until(|gb| {
                         if count > 0
                             && let Instruction::Jump(
-                                JumpOp::Relative(i8::MIN..0)
-                                | JumpOp::ConditionalRelative(_, i8::MIN..0),
+                                JumpOp::Relative | JumpOp::ConditionalRelative(_),
                             ) = gb.read_op()
                             && pc < gb.cpu().pc
                         {
@@ -318,8 +314,10 @@ impl InnerAppState {
 
     fn run_until(&mut self, mut predicate: impl FnMut(&Gameboy) -> bool) {
         loop {
-            self.gb.step();
-            if self.gb.is_stopped() || self.at_breakpoint(self.gb.cpu().pc.0) || predicate(&self.gb)
+            self.gb.gb_mut().step();
+            if self.gb.gb().is_stopped()
+                || self.at_breakpoint(self.gb.gb().cpu().pc.0)
+                || predicate(self.gb.gb())
             {
                 break;
             }
@@ -330,12 +328,23 @@ impl InnerAppState {
         !self.skipped_breakpoints.contains(&pc) && self.config.is_breakpoint(pc)
     }
 
+    fn loop_cpu_mem(&mut self) {
+        let mut state = HashSet::new();
+        loop {
+            if !state.insert((self.gb.gb().cpu().clone(), self.gb.gb().mem.clone())) {
+                break
+            } else {
+                self.gb.gb_mut().step();
+            }
+        }
+    }
+
     /// Runs the emulator screen by screen collecting them until a duplicate is seen. The
     /// collection is sent to the UI state to be rendered.
     fn loop_screen(&mut self) {
         let mut screens = IndexSet::new();
         loop {
-            if !screens.insert(self.gb.ppu.screen.clone()) {
+            if !screens.insert(self.gb.gb().ppu.screen.clone()) {
                 break;
             }
             self.gb.next_frame();
@@ -348,7 +357,7 @@ fn custom_until_condition(_gb: &Gameboy) -> impl 'static + FnMut(&Gameboy) -> bo
     |gb| {
         !matches!(
             gb.read_op(),
-            Instruction::Load(LoadOp::Direct(RegOrPointer::Reg(HalfRegister::A), _))
+            Instruction::Load(LoadOp::Direct(RegOrPointer::Reg(HalfRegister::A)))
         )
     }
 }

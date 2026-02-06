@@ -19,9 +19,10 @@ use crate::ButtonInput;
 use crate::JoypadInput;
 use crate::SsabInput;
 use crate::cpu::check_bit_const;
-use crate::lookup::Instruction;
-use crate::lookup::InterruptOp;
+use crate::instruction::Instruction;
+use crate::instruction::InterruptOp;
 use crate::lookup::parse_instruction;
+use crate::ppu::Ppu;
 
 pub mod io;
 mod mbc;
@@ -47,6 +48,14 @@ pub trait MemoryLike {
     fn clear_interrupt_req(&mut self, op: InterruptOp) {}
 
     fn vram_transfer(&mut self);
+
+    /// Makes necessary changes in memory that occur during a instruction that aren't just reads
+    /// and writes and then ticks the PPU to make its necessary changes.
+    // FIXME: It generally makes more sense to just have the PPU just take a reference to the
+    // memory (that's the PPU's tick is implemented) and have the tick be done by the Gameboy
+    // directly. Unfortunately, the `MemoryLike` abstraction makes that much more difficult. When
+    // `MemoryLike` is removed, `MemoryMap::tick` does not need to take this reference.
+    fn tick(&mut self, ppu: &mut Ppu);
 }
 
 /// The `impl FnOnce` in `update_byte` would make `MemoryLike` non-object safe, which is needs for
@@ -71,14 +80,14 @@ pub struct MemoryMap {
     #[serde(serialize_with = "crate::utils::serialize_slices_as_one")]
     #[serde(deserialize_with = "crate::utils::deserialize_slices_as_one")]
     wram: [[u8; 0x1000]; 2],
-    io: IoRegisters,
+    pub(crate) io: IoRegisters,
     // High RAM
     #[serde_as(as = "serde_with::Bytes")]
     hr: [u8; 0x7F],
     /// ADDR FF46
     pub oam_dma: OamDma,
     /// ADDR FF51-FF55
-    vram_dma: VramDma,
+    pub(crate) vram_dma: VramDma,
     /// The interrupt enable register. Bits 0-4 flag where or not certain interrupt handlers can be
     /// called.
     ///  - Bit 0 corresponds to the VBlank interrupt
@@ -151,7 +160,7 @@ impl MemoryLike for MemoryMap {
         ) {
             (Some(op), _) => op,
             (None, Some(op)) if ime => op,
-            _ => parse_instruction(self, addr),
+            _ => parse_instruction(self.read_byte(addr)),
         }
     }
 
@@ -166,6 +175,20 @@ impl MemoryLike for MemoryMap {
         for i in 0..16 {
             let byte = self.read_byte(src + i);
             self.write_byte(dest + i, byte);
+        }
+    }
+
+    /// This method ticks the memory. The only thing this affects is the divider and timer
+    /// registers.
+    fn tick(&mut self, ppu: &mut Ppu) {
+        for _ in 0..4 {
+            if let Some((r, w)) = self.oam_dma.tick() {
+                let byte = self.dma_read_byte(r);
+                // info!("Transferring byte to OAM @ 0x{r:0>4X}: 0x{byte:0>2X}");
+                self.vram.oam[w as usize] = byte;
+            }
+            self.io.tick();
+            ppu.tick(self);
         }
     }
 }
@@ -321,7 +344,7 @@ impl OamDma {
 }
 
 #[derive(Default, Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
-struct VramDma {
+pub(crate) struct VramDma {
     src_hi: u8,
     src_lo: u8,
     curr_src: u16,
@@ -375,7 +398,7 @@ impl VramDma {
         }
     }
 
-    fn get_op(&self, ly: u8, state: PpuMode) -> Option<Instruction> {
+    pub(crate) fn get_op(&self, ly: u8, state: PpuMode) -> Option<Instruction> {
         if check_bit_const::<7>(self.read_trigger()) {
             return None;
         }
@@ -460,7 +483,7 @@ impl MemoryMap {
         todo!()
     }
 
-    fn check_interrupt(&self) -> Option<Instruction> {
+    pub(super) fn check_interrupt(&self) -> Option<Instruction> {
         match self.ie & self.io.read_byte(0xFF0F) {
             0 => None,
             n => {
@@ -480,17 +503,6 @@ impl MemoryMap {
                 }
             }
         }
-    }
-
-    /// This method ticks the memory. The only thing this affects is the divider and timer
-    /// registers.
-    pub fn tick(&mut self) {
-        if let Some((r, w)) = self.oam_dma.tick() {
-            let byte = self.dma_read_byte(r);
-            // info!("Transferring byte to OAM @ 0x{r:0>4X}: 0x{byte:0>2X}");
-            self.vram.oam[w as usize] = byte;
-        }
-        self.io.tick();
     }
 
     pub(crate) fn reset_ppu_status(&mut self) {
@@ -759,10 +771,12 @@ impl MemoryLike for Vec<u8> {
     }
 
     fn read_op(&self, addr: u16, _ime: bool) -> Instruction {
-        parse_instruction(self, addr)
+        parse_instruction(self.read_byte(addr))
     }
 
     fn vram_transfer(&mut self) {}
+
+    fn tick(&mut self, _ppu: &mut Ppu) {}
 }
 
 #[cfg(test)]
