@@ -20,6 +20,15 @@ pub mod timers;
 
 use timers::TimerRegisters;
 
+/// Used to write a new byte into an existing byte where one or more of the bits are read-only.
+/// The `mask` should have writable bits set and read-only bits unset. E.g. if the bottom input is
+/// read-only, the mask should be 0xF0.
+pub fn selective_write(existing: &mut u8, mask: u8, new: u8) {
+    let masked_existing = *existing & (!mask);
+    let masked_new = new & mask;
+    *existing = masked_existing | masked_new;
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IoRegisters {
     /// ADDR FF00
@@ -85,7 +94,7 @@ impl Default for IoRegisters {
     fn default() -> Self {
         Self {
             undoc_registers: [0, 0, 0xFF, 0b1000_1111],
-            joypad: Default::default(),
+            joypad: 0xFF,
             serial: (0x00, 0x7E),
             tac: TimerRegisters::new(),
             interrupt_flags: 0b1110_0000,
@@ -425,24 +434,24 @@ impl IoRegisters {
         self.interrupt_flags |= 0b1000;
     }
 
-    pub fn request_button_int(&mut self, input: ButtonInput) {
+    pub fn register_button_input(&mut self, input: ButtonInput) {
         let byte = match input {
-            ButtonInput::Joypad(button)
-                if check_bit_const::<4>(self.joypad) && !check_bit_const::<5>(self.joypad) =>
-            {
-                button as u8
-            }
-            ButtonInput::Ssab(button)
-                if !check_bit_const::<4>(self.joypad) && check_bit_const::<5>(self.joypad) =>
-            {
-                button as u8
-            }
+            ButtonInput::Joypad(button) if !check_bit_const::<4>(self.joypad) => button as u8,
+            ButtonInput::Ssab(button) if !check_bit_const::<5>(self.joypad) => button as u8,
             _ => return,
         };
-        debug_assert_eq!(byte.count_ones(), 1);
-        debug_assert!(byte < 0xF0);
-        self.joypad &= byte;
+        self.joypad &= !byte;
+        // self.io.interrupt_flags |= self.ie & 0b1_0000;
         self.interrupt_flags |= 0b1_0000;
+    }
+
+    pub fn register_button_release(&mut self, input: ButtonInput) {
+        let byte = match input {
+            ButtonInput::Joypad(button) if !check_bit_const::<4>(self.joypad) => button as u8,
+            ButtonInput::Ssab(button) if !check_bit_const::<5>(self.joypad) => button as u8,
+            _ => return,
+        };
+        self.joypad |= byte;
     }
 
     pub(crate) fn clear_interrupt_req(&mut self, op: InterruptOp) {
@@ -512,8 +521,7 @@ impl IoRegisters {
 
     pub(crate) fn write_byte(&mut self, index: u16, value: u8) {
         match index {
-            // TODO: Some bits aren't used. Mask those them.
-            0xFF00 => self.joypad = value,
+            0xFF00 => selective_write(&mut self.joypad, 0b0011_0000, value),
             0xFF01 => self.serial.0 = value,
             0xFF02 => self.serial.1 = value,
             0xFF04..=0xFF07 => {
@@ -525,6 +533,7 @@ impl IoRegisters {
             0xFF0F => self.interrupt_flags = 0b1110_0000 | (0x1F & value),
             0xFF10..=0xFF3F => self.audio.write_byte(index, value),
             0xFF40 => {
+                let was_on = check_bit_const::<7>(self.lcd_control);
                 self.lcd_control = value;
                 let is_on = check_bit_const::<7>(self.lcd_control);
                 match (was_on, is_on) {
@@ -709,5 +718,128 @@ impl From<PaletteColor> for Pixel {
             g: value.g(),
             b: value.b(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use strum::IntoEnumIterator;
+
+    use crate::ButtonInput;
+    use crate::JoypadInput;
+    use crate::SsabInput;
+
+    use super::ColorPalettes;
+    use super::IoRegisters;
+    use super::Palette;
+    use super::PaletteColor;
+
+    // Tests the various traits of the joypad.
+    //  - The bottom nibble is read only
+    //  - The default position of the bottom 4 bits is 1
+    //  - Pressing an allowed button should switch the cooresponding bit to 0
+    //  - "mode" selection (for bits 4 and 5) works similarly, 0 == selected
+    //   - If no mode is selected, the bottom nibble is read as 0xF
+    //  - The top two bits are ignored.
+    #[test]
+    fn joypad_tests() {
+        fn button_iter() -> impl Iterator<Item = ButtonInput> {
+            JoypadInput::iter()
+                .map(ButtonInput::Joypad)
+                .chain(SsabInput::iter().map(ButtonInput::Ssab))
+        }
+
+        let mut io = IoRegisters::default();
+        // Initially, no input mode should be selected
+        assert_eq!(io.read_byte(0xFF00), 0xFF);
+        // Top two bits should be unaffected, both modes should be on, bottom nibble should be
+        // unaffected
+        io.write_byte(0xFF00, 0);
+        assert_eq!(io.read_byte(0xFF00), 0xCF);
+
+        // Select no modes and ensure that no button press is registered
+        io.write_byte(0xFF00, 0xFF);
+        assert_eq!(io.read_byte(0xFF00), 0xFF);
+        for input in button_iter() {
+            io.register_button_input(input);
+            assert_eq!(io.read_byte(0xFF00), 0xFF);
+            io.register_button_release(input);
+        }
+        println!();
+
+        // Select only Joypad modes and ensure that only those button presses are registered
+        println!("Testing joypad only...");
+        io.write_byte(0xFF00, 0xEF);
+        assert_eq!(io.read_byte(0xFF00), 0xEF);
+        for input in button_iter() {
+            println!("Testing input: {input:?}");
+            io.register_button_input(input);
+            let expected = match input {
+                ButtonInput::Joypad(input) => 0x0F & !(input as u8),
+                ButtonInput::Ssab(_) => 0x0F,
+            };
+            assert_eq!(io.read_byte(0xFF00), 0xE0 | expected,);
+            // Ensure that, when other buttons are pressed, it leaves this button unaffected
+            for other in button_iter().filter(|other| *other != input) {
+                io.register_button_input(other);
+                let inner_expected = match other {
+                    ButtonInput::Joypad(input) => 0x0F & !(input as u8),
+                    ButtonInput::Ssab(_) => 0x0F,
+                };
+                assert_eq!(io.read_byte(0xFF00), 0xE0 | (inner_expected & expected));
+                io.register_button_release(other);
+                assert_eq!(io.read_byte(0xFF00), 0xE0 | expected);
+            }
+            io.register_button_release(input);
+        }
+        println!();
+
+        // Select only SSAB modes and ensure that only those button presses are registered
+        println!("Testing SSAB only...");
+        io.write_byte(0xFF00, 0xDF);
+        assert_eq!(io.read_byte(0xFF00), 0xDF);
+        for input in button_iter() {
+            println!("Testing input: {input:?}");
+            io.register_button_input(input);
+            let expected = match input {
+                ButtonInput::Ssab(input) => 0x0F & !(input as u8),
+                ButtonInput::Joypad(_) => 0x0F,
+            };
+            assert_eq!(io.read_byte(0xFF00), 0xD0 | expected);
+            for other in button_iter().filter(|other| *other != input) {
+                io.register_button_input(other);
+                let inner_expected = match other {
+                    ButtonInput::Ssab(input) => 0x0F & !(input as u8),
+                    ButtonInput::Joypad(_) => 0x0F,
+                };
+                assert_eq!(
+                    io.read_byte(0xFF00),
+                    0xD0 | (inner_expected & expected),
+                    "Actual: 0x{:0>2X}, Expected: 0x{:0>2X}",
+                    io.read_byte(0xFF00),
+                    0xD0 | (inner_expected & expected)
+                );
+                io.register_button_release(other);
+                assert_eq!(io.read_byte(0xFF00), 0xD0 | expected);
+            }
+            io.register_button_release(input);
+        }
+        println!();
+
+        // Select both modes and ensure that all button presses are registered
+        println!("Testing both modes...");
+        io.write_byte(0xFF00, 0xCF);
+        assert_eq!(io.read_byte(0xFF00), 0xCF);
+        for input in button_iter() {
+            println!("Testing input: {input:?}");
+            io.register_button_input(input);
+            let expected = match input {
+                ButtonInput::Ssab(input) => 0x0F & !(input as u8),
+                ButtonInput::Joypad(input) => 0x0F & !(input as u8),
+            };
+            assert_eq!(io.read_byte(0xFF00), 0xC0 | expected);
+            io.register_button_release(input);
+        }
+        println!();
     }
 }
