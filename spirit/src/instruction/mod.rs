@@ -2,7 +2,6 @@ use crate::GameboyState;
 use crate::cpu::Cpu;
 use crate::cpu::CpuState;
 use crate::cpu::FullRegister;
-use crate::lookup::parse_prefixed_instruction;
 use crate::mem::MemoryLike;
 
 use derive_more::From;
