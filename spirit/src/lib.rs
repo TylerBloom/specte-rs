@@ -248,11 +248,14 @@ impl<M: MemoryLike> GameboyState<'_, M> {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ButtonInput {
     Joypad(JoypadInput),
     Ssab(SsabInput),
 }
 
+#[cfg_attr(test, derive(strum_macros::EnumIter))]
+#[derive(Debug, PartialEq, Clone, Copy)]
 #[repr(u8)]
 pub enum JoypadInput {
     Right = 0x1,
@@ -261,6 +264,8 @@ pub enum JoypadInput {
     Down = 0x8,
 }
 
+#[cfg_attr(test, derive(strum_macros::EnumIter))]
+#[derive(Debug, PartialEq, Clone, Copy)]
 #[repr(u8)]
 pub enum SsabInput {
     A = 0x1,
