@@ -544,7 +544,7 @@ impl MemoryMap {
     }
 
     pub fn request_button_int(&mut self, input: ButtonInput) {
-        self.io.request_button_int(input)
+        self.io.register_button_input(input)
     }
 }
 
