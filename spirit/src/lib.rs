@@ -256,6 +256,9 @@ pub enum SsabInput {
     Start = 0x8,
 }
 
+// TODO: Write tests for
+//  - Double speed mode
+
 #[cfg(test)]
 mod tests {
     use crate::Gameboy;
