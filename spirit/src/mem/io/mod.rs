@@ -107,14 +107,14 @@ impl Default for IoRegisters {
             monochrome_bg_palette: Default::default(),
             monochrome_obj_palettes: [0xFF; 2],
             window_position: Default::default(),
-            vram_select: Default::default(),
+            vram_select: 0xFE,
             boot_status: Default::default(),
             background_palettes: Default::default(),
             object_palettes: Default::default(),
             dead_byte: Default::default(),
             boot_status_disabled: false,
             cpu_mode: Default::default(),
-            speed_switch: Default::default(),
+            speed_switch: 0b0111_1110,
         }
     }
 }
@@ -499,7 +499,10 @@ impl IoRegisters {
             0xFF4C => 0xFF,
             0xFF4D => self.speed_switch,
             // When reading from this register, all bits expect the first are 1
-            0xFF4F => 0xFE | self.vram_select,
+            0xFF4F => {
+                tracing::error!("Reading from VRAM select: 0x{:0>2X}", self.vram_select);
+                self.vram_select
+            }
             0xFF50 => {
                 if self.boot_status_disabled {
                     0xFF
@@ -579,9 +582,16 @@ impl IoRegisters {
             0xFF4A => self.window_position[0] = value,
             0xFF4B => self.window_position[1] = value,
             0xFF4C => self.cpu_mode = value,
-            0xFF4D => self.speed_switch = value,
+            0xFF4D => selective_write(&mut self.speed_switch, 1, value),
             // Ignore all but the first bit of the value
-            0xFF4F => self.vram_select = 1 & value,
+            0xFF4F => {
+                let old = self.vram_select;
+                selective_write(&mut self.vram_select, 1, value);
+                tracing::error!(
+                    "Writing to VRAM select: old: 0x{old:0>2X}, value: 0x{value:0>2X}, new: 0x{:0>2X}",
+                    self.vram_select
+                );
+            }
             0xFF50 => {
                 self.boot_status_disabled = true;
                 self.boot_status = value
@@ -853,7 +863,7 @@ mod tests {
         }
     }
 
-    // Tests the various traits of the joypad.
+    // Tests the various properties of the joypad.
     //  - The bottom nibble is read only
     //  - The default position of the bottom 4 bits is 1
     //  - Pressing an allowed button should switch the cooresponding bit to 0
@@ -960,5 +970,23 @@ mod tests {
             io.register_button_release(input);
         }
         println!();
+    }
+
+    // Tests the various properties of the VRAM selection register.
+    //  - Only the first bit is used, all other should always return 1
+    //  - Default position on the first bit is unset
+    #[test]
+    fn vram_select_tests() {
+        let mut io = IoRegisters::default();
+        assert_eq!(io.read_byte(0xFF4F), 0b1111_1110);
+
+        io.write_byte(0xFF4F, 0);
+        assert_eq!(io.read_byte(0xFF4F), 0b1111_1110);
+
+        io.write_byte(0xFF4F, 1);
+        assert_eq!(io.read_byte(0xFF4F), 0b1111_1111);
+
+        io.write_byte(0xFF4F, 0xFF);
+        assert_eq!(io.read_byte(0xFF4F), 0b1111_1111);
     }
 }
