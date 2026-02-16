@@ -33,6 +33,7 @@ pub(super) struct CpuVramIndex(pub bool, pub u16);
 pub(super) struct CpuOamIndex(pub u16);
 
 #[repr(u8)]
+#[cfg_attr(test, derive(strum_macros::EnumIter))]
 #[derive(
     Debug,
     Default,
