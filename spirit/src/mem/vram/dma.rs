@@ -33,7 +33,6 @@ impl VramDma {
 
     pub fn read_byte(&self, index: u16) -> u8 {
         if index == 0xFF55 {
-            println!("{:?}", self.state);
             self.state
                 .as_ref()
                 .map(|state| state.length.wrapping_sub(1))
@@ -121,9 +120,10 @@ impl VramDma {
 
 #[cfg(test)]
 mod tests {
-    use crate::{instruction::Instruction, mem::vram::PpuMode};
+    use strum::IntoEnumIterator;
 
     use super::VramDma;
+    use crate::{instruction::Instruction, mem::vram::PpuMode};
 
     /// The source and destination registers (FF51-FF54) are all write-only. Reads should return
     /// 0xFF
@@ -152,6 +152,7 @@ mod tests {
     /// from memory. This ensures that the sequence produces the correct indices in order.
     // TODO: Test that the bottom bits of the src and dest bytes are being ignored.
     // TODO: Test a range of src and dest addresses
+    // TODO: Test a range of transfer lengths
     // TODO: Test both kind of transfer modes
     #[test]
     fn vram_dma_indexing() {
@@ -225,6 +226,64 @@ mod tests {
     /// transfers only occur during HBlank PPU mode
     #[test]
     fn hblank_transfer_pause() {
-        todo!()
+        fn mode_check(dma: &VramDma, ly: u8) {
+            for mode in PpuMode::iter() {
+                println!("Checking with LY={ly}, mode={mode:?}");
+                let op = dma.get_op(ly, mode);
+                if ly > 143 {
+                    assert!(
+                        op.is_none(),
+                        "DMA should only occur while LY is between 0..=143, not when LY={ly}"
+                    );
+                } else if matches!(mode, PpuMode::HBlank) {
+                    assert!(
+                        matches!(op, Some(Instruction::Transfer)),
+                        "DMA should return a transfer instruction but returned {op:?}"
+                    );
+                } else {
+                    assert!(
+                        op.is_none(),
+                        "DMA should only return a transfer instruction during an HBlank, not during a {mode:?}"
+                    );
+                }
+            }
+        }
+
+        let mut dma = VramDma::default();
+
+        let [src_hi, src_lo] = 0x5000u16.to_be_bytes();
+        dma.write_byte(0xFF51, src_lo);
+        dma.write_byte(0xFF52, src_hi);
+
+        let [dest_hi, dest_lo] = 0x8000u16.to_be_bytes();
+        dma.write_byte(0xFF53, dest_lo);
+        dma.write_byte(0xFF54, dest_hi);
+
+        // Trigger a HBlank transfer
+        let length = 0b1011_0000;
+        dma.write_byte(0xFF55, length);
+
+        // Check that DMA is primed (read FF55 and check that get_op returns an op)
+        let trigger_reg = dma.read_byte(0xFF55);
+        assert_eq!(
+            trigger_reg,
+            0x7F & (length - 1),
+            "Trigger register should be 0x{:0>2X} but was 0x{trigger_reg:0>2X}",
+            0x7F & (length - 1)
+        );
+        mode_check(&dma, 0);
+
+        let mut expected_length = (0x7F & length) - 1;
+        let mut i = 0;
+        let mut ly = 100;
+        while i < length {
+            println!("Cycle {i}");
+            mode_check(&dma, ly);
+            if ly < 144 {
+                i += 1;
+            }
+            ly += 1;
+            ly %= 154;
+        }
     }
 }
