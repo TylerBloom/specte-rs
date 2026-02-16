@@ -69,9 +69,9 @@ impl VramDma {
         };
 
         match &self.state {
-            Some(state) if check_bit_const::<7>(value) => {
+            Some(state) if !check_bit_const::<7>(value) => {
                 tracing::info!("Cancelling HBlank VRAM DMA transfer");
-                self.trigger = state.length.wrapping_sub(1);
+                self.trigger = 0x80 | state.length.wrapping_sub(1);
                 self.state = None;
             }
             _ => {
@@ -123,7 +123,7 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use super::VramDma;
-    use crate::{instruction::Instruction, mem::vram::PpuMode};
+    use crate::{cpu::check_bit_const, instruction::Instruction, mem::vram::PpuMode};
 
     /// The source and destination registers (FF51-FF54) are all write-only. Reads should return
     /// 0xFF
@@ -216,10 +216,50 @@ mod tests {
         );
     }
 
-    /// If a HBlank transfer is active, it can be stopped by unsetting the topmost bit.
+    /// If an HBlank transfer is active, it can be stopped by unsetting the topmost bit.
     #[test]
     fn vram_dma_halting() {
-        todo!()
+        let mut dma = VramDma::default();
+
+        let [src_hi, src_lo] = 0x5000u16.to_be_bytes();
+        dma.write_byte(0xFF51, src_lo);
+        dma.write_byte(0xFF52, src_hi);
+
+        let [dest_hi, dest_lo] = 0x8000u16.to_be_bytes();
+        dma.write_byte(0xFF53, dest_lo);
+        dma.write_byte(0xFF54, dest_hi);
+
+        // Trigger a HBlank transfer
+        let length = 0b1011_0000;
+        dma.write_byte(0xFF55, length);
+
+        let length = 0x7F & length;
+        let diff = 10;
+        for i in 0..(length - diff) {
+            dma.next_addrs().unwrap();
+        }
+        // Check that the transfer is running
+        let trigger_reg = dma.read_byte(0xFF55);
+        assert!(
+            !check_bit_const::<7>(trigger_reg),
+            "Trigger register's top bit should be unset, but is 0b{trigger_reg:0>8}"
+        );
+
+        // Cancel the transfer
+        dma.write_byte(0xFF55, 0);
+        let trigger_reg = dma.read_byte(0xFF55);
+        println!("{trigger_reg:0>2X}");
+        assert!(
+            check_bit_const::<7>(trigger_reg),
+            "Trigger register's top bit should be set, but is 0b{trigger_reg:0>8}"
+        );
+        let trigger_reg = 0x7F & trigger_reg;
+        assert_eq!(
+            trigger_reg,
+            diff - 1,
+            "Trigger register should contain the number of remaining 'blocks' ({}), but is {trigger_reg} (0x{trigger_reg:0>2X})",
+            diff - 1
+        );
     }
 
     /// In HBlank mode, transfers do not occur when the line's Y is more than 144. Similarly,
@@ -263,14 +303,6 @@ mod tests {
         let length = 0b1011_0000;
         dma.write_byte(0xFF55, length);
 
-        // Check that DMA is primed (read FF55 and check that get_op returns an op)
-        let trigger_reg = dma.read_byte(0xFF55);
-        assert_eq!(
-            trigger_reg,
-            0x7F & (length - 1),
-            "Trigger register should be 0x{:0>2X} but was 0x{trigger_reg:0>2X}",
-            0x7F & (length - 1)
-        );
         mode_check(&dma, 0);
 
         let mut expected_length = (0x7F & length) - 1;
