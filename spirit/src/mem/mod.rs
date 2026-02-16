@@ -14,6 +14,7 @@ use tracing::trace;
 use self::vram::CpuOamIndex;
 use self::vram::CpuVramIndex;
 use self::vram::VRam;
+use self::vram::dma::VramDma;
 
 use crate::ButtonInput;
 use crate::JoypadInput;
@@ -25,8 +26,9 @@ use crate::lookup::parse_instruction;
 use crate::ppu::Ppu;
 
 pub mod io;
-mod mbc;
+pub mod mbc;
 pub mod vram;
+pub mod oam;
 
 use io::IoRegisters;
 pub use mbc::MemoryBankController;
@@ -59,19 +61,6 @@ pub trait MemoryLike {
     // `MemoryLike` is removed, `MemoryMap::tick` does not need to take this reference.
     fn tick(&mut self, ppu: &mut Ppu);
 }
-
-/*
-/// The `impl FnOnce` in `update_byte` would make `MemoryLike` non-object safe, which is needs for
-/// instrution parsing.
-pub trait MemoryLikeExt: MemoryLike {
-    fn update_byte(&mut self, addr: u16, op: impl FnOnce(&mut u8)) -> u8 {
-        let mut val = self.read_byte(addr);
-        op(&mut val);
-        self.write_byte(addr, val);
-        val
-    }
-}
-*/
 
 #[serde_as]
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,11 +128,7 @@ impl MemoryLike for MemoryMap {
             n @ 0xFE00..=0xFE9F => self.vram[CpuOamIndex(n)] = val,
             // NOTE: This region *should not* actually be accessed
             0xFEA0..=0xFEFF => {}
-            0xFF51 => self.vram_dma.src_hi = val,
-            0xFF52 => self.vram_dma.src_lo = val,
-            0xFF53 => self.vram_dma.dest_hi = val,
-            0xFF54 => self.vram_dma.dest_lo = val,
-            0xFF55 => self.vram_dma.trigger(val),
+            0xFF51..0xFF55 => self.vram_dma.write_byte(addr, val),
             0xFF46 => self.oam_dma.trigger(val),
             n @ 0xFF00..=0xFF7F => self.io.write_byte(n, val),
             n @ 0xFF80..=0xFFFE => self.hr[(n - 0xFF80) as usize] = val,
@@ -215,48 +200,6 @@ impl MemoryLike for MemoryMap {
         }
     }
 }
-
-/*
-impl MemoryLikeExt for MemoryMap {
-    #[track_caller]
-    fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
-        let ptr = match index {
-            n @ 0x0000..=0x7FFF => return self.mbc.update_byte(n, update),
-            n @ 0x8000..=0x9FFF => &mut self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
-            n @ 0xA000..=0xBFFF => return self.mbc.update_byte(n, update),
-            n @ 0xC000..=0xCFFF => &mut self.wram[0][n as usize - 0xC000],
-            n @ 0xD000..=0xDFFF => &mut self.wram[1][n as usize - 0xD000],
-            // Echo RAM
-            n @ 0xE000..=0xEFFF => &mut self.wram[0][n as usize - 0xE000],
-            n @ 0xF000..=0xFDFF => &mut self.wram[1][n as usize - 0xF000],
-            n @ 0xFE00..=0xFE9F => &mut self.vram[CpuOamIndex(n)],
-            // NOTE: This region *should not* actually be accessed
-            0xFEA0..=0xFEFF => return 0xFF,
-            0xFF51 => &mut self.vram_dma.src_hi,
-            0xFF52 => &mut self.vram_dma.src_lo,
-            0xFF53 => &mut self.vram_dma.dest_hi,
-            0xFF54 => &mut self.vram_dma.dest_lo,
-            0xFF55 => {
-                let mut byte = self.vram_dma.trigger;
-                update(&mut byte);
-                self.vram_dma.trigger(byte);
-                return byte;
-            }
-            0xFF46 => {
-                let mut byte = self.oam_dma.register;
-                update(&mut byte);
-                self.oam_dma.trigger(byte);
-                return byte;
-            }
-            n @ 0xFF00..=0xFF7F => return self.io.update_byte(n, update),
-            n @ 0xFF80..=0xFFFE => &mut self.hr[(n - 0xFF80) as usize],
-            0xFFFF => &mut self.ie,
-        };
-        update(ptr);
-        *ptr
-    }
-}
-*/
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OamDma {
@@ -372,75 +315,6 @@ impl Default for OamDma {
     }
 }
 
-#[derive(Default, Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct VramDma {
-    src_hi: u8,
-    src_lo: u8,
-    curr_src: u16,
-    dest_hi: u8,
-    dest_lo: u8,
-    curr_dest: u16,
-    trigger: u8,
-    /// The amount of data left to transfer.
-    len_left: u8,
-    ly: u8,
-}
-
-impl VramDma {
-    fn new() -> Self {
-        Self {
-            ..Default::default()
-        }
-    }
-
-    fn read_trigger(&self) -> u8 {
-        self.len_left.wrapping_sub(1)
-    }
-
-    fn trigger(&mut self, value: u8) {
-        info!("Writing to VRAM DMA transfer");
-        if !check_bit_const::<7>(value) && self.len_left > 0 {
-            info!("Cancelling VRAM DMA transfer");
-            self.len_left |= 1 << 7;
-        } else {
-            info!("Cancelling VRAM DMA transfer");
-            self.trigger = value;
-            self.len_left = value & 0x7F;
-            self.curr_src = 0xFFF0 & u16::from_be_bytes([self.src_hi, self.src_hi]);
-            self.curr_dest = 0x8000 + (0x1FF0 & u16::from_be_bytes([self.dest_hi, self.dest_lo]));
-        }
-    }
-
-    /// Returns the next pair of addresses to transfer data from and into, respectively. These
-    /// addresses represent an entire tile's worth data that needs to be transferred, not just a
-    /// byte.
-    fn next_addrs(&mut self) -> Option<(u16, u16)> {
-        (self.len_left > 0).then(|| {
-            self.len_left -= 1;
-            let src = self.curr_src;
-            let dest = self.curr_dest;
-            self.curr_src += 16;
-            self.curr_dest += 16;
-            (src, dest)
-        })
-    }
-
-    pub(crate) fn get_op(&self, ly: u8, state: PpuMode) -> Option<Instruction> {
-        if check_bit_const::<7>(self.read_trigger()) {
-            return None;
-        }
-        if check_bit_const::<7>(self.trigger) {
-            if self.ly == ly && matches!(state, PpuMode::HBlank) {
-                Some(Instruction::Transfer)
-            } else {
-                None
-            }
-        } else {
-            Some(Instruction::Transfer)
-        }
-    }
-}
-
 impl MemoryMap {
     pub fn new(cart: Vec<u8>) -> Self {
         Self {
@@ -497,11 +371,7 @@ impl MemoryMap {
             // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
             // dead byte will be returned instead.
             0xFEA0..=0xFEFF => DEAD_BYTE,
-            0xFF51 => self.vram_dma.src_hi,
-            0xFF52 => self.vram_dma.src_lo,
-            0xFF53 => self.vram_dma.dest_hi,
-            0xFF54 => self.vram_dma.dest_lo,
-            0xFF55 => self.vram_dma.read_trigger(),
+            0xFF51..0xFF55 => self.vram_dma.read_byte(index),
             0xFF46 => self.oam_dma.register,
             n @ 0xFF00..=0xFF7F => self.io.read_byte(n),
             n @ 0xFF80..=0xFFFE => self.hr[(n - 0xFF80) as usize],

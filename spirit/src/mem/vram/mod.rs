@@ -18,6 +18,8 @@ use super::ObjTileDataIndex;
 use super::io::BgPaletteIndex;
 use super::io::ObjPaletteIndex;
 
+pub mod dma;
+
 static DEAD_READ_ONLY_BYTE: u8 = 0xFF;
 
 /// This wrapper type is used to communicate that the VRAM should be indexed into when indexing into VRam.
