@@ -9,6 +9,7 @@ use tracing::trace;
 use crate::ButtonInput;
 use crate::cpu::check_bit_const;
 use crate::instruction::InterruptOp;
+use crate::mem::SpeedMode;
 use crate::ppu::Pixel;
 use crate::utils::Wrapping;
 
@@ -360,8 +361,8 @@ impl Index<ObjPaletteIndex> for MemoryMap {
 // FF4A & FF4B -> Window position (Y, X + 7)
 
 impl IoRegisters {
-    pub(super) fn tick(&mut self) {
-        if self.tac.tick() {
+    pub(super) fn tick(&mut self, speed: SpeedMode) {
+        if self.tac.tick(speed) {
             self.request_timer_int();
         }
     }
@@ -627,7 +628,7 @@ impl IoRegisters {
             | 0xFF71
             | 0xFF76.. => {}
             ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF70 | 0xFF46 | 0xFF80.. => unreachable!(
-                "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
+                "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70 but was indexed at 0x{index:0>4X}!"
             ),
         }
     }

@@ -246,6 +246,21 @@ impl<M: MemoryLike> GameboyState<'_, M> {
             self.cycle_count += 1;
         }
     }
+
+    /// In the CGB, there were two speed modes. The double speed mode is triggered by writing to
+    /// the KEY1 register and running a STOP instruction. This switch take a total of 2050 machine
+    /// cycles.
+    ///
+    /// Once in double speed mode, CPU operations, Timer/Divider register ticks, Serial port
+    /// updates, and OAM DMA transfers take half as much time to perform. However, the LCD video
+    /// controller (including the PPU), HDMA VRAM transfers, and all sound effects are unaffected.
+    ///
+    /// To model this, the unaffected components will be ticked twice rather than four times while
+    /// in this mode.
+    pub fn switch_speeds(&mut self) {
+        // TODO: Does the PPU get advanced during this time?? Yes?
+        self.mem.switch_speeds();
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
