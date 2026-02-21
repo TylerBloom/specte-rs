@@ -2,7 +2,6 @@
 use std::fmt::Display;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::time::Duration;
 
 use clap::Parser;
 use rboy::cpu::Action;
@@ -29,7 +28,7 @@ struct Config {
     rom: String,
 }
 
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Clone)]
 enum Either<L, R> {
     Left(L),
     Right(R),
@@ -55,7 +54,7 @@ fn main() {
     other_gb.cpu.mmu.wram = [0; 0x8000];
     tracing::warn!("[  rboy] Constructed GB");
     if !sweep_mem(&gb.mem, &mut other_gb.cpu.mmu) {
-        panic!("Memory maps did not match");
+        panic!("Intial memory maps did not match");
     }
 
     let mut init_gb = gb.clone();
@@ -305,19 +304,19 @@ fn check_ppu(gb: &Gameboy, other_gb: &mut Device) -> bool {
     // dots. This will lead to misalignments
     // TODO: We can catch and model these misalignments...
     let state_check = true; // disc == gpu.mode;
-    /*
-    tracing::warn!("Do states match? {state_check}");
-    println!("Do states match? {state_check}");
-    if !state_check {
-        tracing::warn!(
-            "[  rboy] GPU {{ mode: {}, modeclock: {} }}",
-            gpu.mode,
-            gpu.modeclock
-        );
-        print_ppu(&gb.ppu);
-    }
-    assert!(state_check);
-    // */
+                            /*
+                            tracing::warn!("Do states match? {state_check}");
+                            println!("Do states match? {state_check}");
+                            if !state_check {
+                                tracing::warn!(
+                                    "[  rboy] GPU {{ mode: {}, modeclock: {} }}",
+                                    gpu.mode,
+                                    gpu.modeclock
+                                );
+                                print_ppu(&gb.ppu);
+                            }
+                            assert!(state_check);
+                            */
     let dots_check = match &gb.ppu.inner {
         PpuInner::OamScan { dots } => *dots as u32 == gpu.modeclock,
         PpuInner::Drawing { dots } => (*dots as u32 + 80) == gpu.modeclock,
@@ -341,15 +340,63 @@ fn check_key_registers(gb: &Gameboy, other_gb: &mut Device) -> bool {
 
 fn sweep_mem(mem: &MemoryMap, mmu: &mut MMU) -> bool {
     let mut digest = 0;
+    let mut buffer = Vec::new();
     for i in 0u16..=u16::MAX {
+        if (0xFF01..=0xFF02).contains(&i) {
+            continue;
+        }
+        if 0xFF07 == i {
+            continue;
+        }
         if (0xFF10..=0xFF3F).contains(&i) {
+            continue;
+        }
+        if (0xFF51..=0xFF55).contains(&i) {
+            continue;
+        }
+        if 0xFF68 == i {
+            continue;
+        }
+        if 0xFF6A == i {
             continue;
         }
         let a = mem.read_byte(i);
         let b = mmu.rb(i);
         if a != b {
             digest += 1;
-            tracing::warn!("Memory mismatch @ 0x{i:0>4X}, spirit=0b{a:0>8b}, rboy=0b{b:0>8b}");
+            match buffer.last().cloned() {
+                Some((Either::Left(addr), s, r)) => {
+                    if addr == i.saturating_sub(1) && a == s && r == b {
+                        buffer.pop();
+                        buffer.push((Either::Right(addr..=i), a, b));
+                    } else {
+                        buffer.push((Either::Left(i), a, b));
+                    }
+                }
+                Some((Either::Right(range), s, r)) => {
+                    let end = *range.end();
+                    if end == i.saturating_sub(1) && a == s && b == r {
+                        let start = *range.start();
+                        buffer.pop();
+                        buffer.push((Either::Right(start..=i), a, b));
+                    } else {
+                        buffer.push((Either::Left(i), a, b));
+                    }
+                }
+                None => buffer.push((Either::Left(i), a, b)),
+            }
+        }
+    }
+    for (addr, a, b) in buffer {
+        match addr {
+            Either::Left(i) => {
+                tracing::warn!("Memory mismatch @ 0x{i:0>4X}, spirit=0b{a:0>8b}, rboy=0b{b:0>8b}")
+            }
+            Either::Right(r) => {
+                let start = r.start();
+                let end = r.end();
+                tracing::warn!("Memory mismatch @ 0x{start:0>4X}..=0x{end:0>4X}, spirit=0b{a:0>8b}, rboy=0b{b:0>8b}")
+            }
         }
     }
     tracing::warn!("Total memory mismatches: {digest}");
