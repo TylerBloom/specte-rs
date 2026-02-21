@@ -20,8 +20,6 @@ use super::io::ObjPaletteIndex;
 
 pub mod dma;
 
-static DEAD_READ_ONLY_BYTE: u8 = 0xFF;
-
 /// This wrapper type is used to communicate that the VRAM should be indexed into when indexing into VRam.
 /// Since there is state that determines what gets indexed into, this type is used rather than
 /// making the field `pub(crate)`/`pub(super)`.
@@ -112,10 +110,7 @@ impl Index<CpuVramIndex> for VRam {
     type Output = u8;
 
     fn index(&self, CpuVramIndex(bank, index): CpuVramIndex) -> &Self::Output {
-        if self.status.is_drawing() {
-            info!("Attempting to read from VRAM while locked!!!");
-            &DEAD_READ_ONLY_BYTE
-        } else if bank {
+        if bank {
             &self.vram[1][index as usize - 0x8000]
         } else {
             &self.vram[0][index as usize - 0x8000]
@@ -125,11 +120,7 @@ impl Index<CpuVramIndex> for VRam {
 
 impl IndexMut<CpuVramIndex> for VRam {
     fn index_mut(&mut self, CpuVramIndex(bank, index): CpuVramIndex) -> &mut Self::Output {
-        if self.status.is_drawing() {
-            info!("Attempting to write to VRAM while locked!!!");
-            self.dead_byte = 0xFF;
-            &mut self.dead_byte
-        } else if bank {
+        if bank {
             &mut self.vram[1][index as usize - 0x8000]
         } else {
             &mut self.vram[0][index as usize - 0x8000]

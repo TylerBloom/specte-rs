@@ -27,8 +27,8 @@ use crate::ppu::Ppu;
 
 pub mod io;
 pub mod mbc;
-pub mod vram;
 pub mod oam;
+pub mod vram;
 
 use io::IoRegisters;
 pub use mbc::MemoryBankController;
@@ -52,6 +52,8 @@ pub trait MemoryLike {
     fn check_interrupt(&self) -> Option<InterruptOp>;
 
     fn vram_transfer(&mut self);
+
+    fn switch_speeds(&mut self);
 
     /// Makes necessary changes in memory that occur during a instruction that aren't just reads
     /// and writes and then ticks the PPU to make its necessary changes.
@@ -88,6 +90,22 @@ pub struct MemoryMap {
     ///  - Bit 4 corresponds to the joypad interrupt
     /// When indexed, this register is at 0xFFFF.
     pub ie: u8,
+    pub(crate) speed_mode: SpeedMode,
+}
+
+/// Marks the speed at which certain parts of the GB should be running at. Note that "speed" here
+/// is tracked relatively rather than in absolute terms. That is, for example, the absolute amount
+/// amount of time that it takes the CPU to "tick" once (a machine cycle) is cut in half in double
+/// speed mode. So, relative to the PPU, the CPU performs twice as many cycles in the same span of
+/// time compared to what it would perform at standard speed.
+///
+/// The values of the variants denote the number of ticks that components not affected
+/// by the speed change perform in the amount of time the CPU "tick"s once.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum SpeedMode {
+    Standard = 4,
+    Double = 2,
 }
 
 impl MemoryLike for MemoryMap {
@@ -128,7 +146,7 @@ impl MemoryLike for MemoryMap {
             n @ 0xFE00..=0xFE9F => self.vram[CpuOamIndex(n)] = val,
             // NOTE: This region *should not* actually be accessed
             0xFEA0..=0xFEFF => {}
-            0xFF51..0xFF55 => self.vram_dma.write_byte(addr, val),
+            0xFF51..=0xFF55 => self.vram_dma.write_byte(addr, val),
             0xFF46 => self.oam_dma.trigger(val),
             n @ 0xFF00..=0xFF7F => self.io.write_byte(n, val),
             n @ 0xFF80..=0xFFFE => self.hr[(n - 0xFF80) as usize] = val,
@@ -167,14 +185,16 @@ impl MemoryLike for MemoryMap {
     /// This method ticks the memory. The only thing this affects is the divider and timer
     /// registers.
     fn tick(&mut self, ppu: &mut Ppu) {
+        self.io.tick(self.speed_mode);
+        ppu.tick(self);
         for _ in 0..4 {
+            // FIXME: This is incorect. OAM DMA transfers happen immediately, not while being
+            // ticked. This needs to be removed.
             if let Some((r, w)) = self.oam_dma.tick() {
                 let byte = self.dma_read_byte(r);
                 // info!("Transferring byte to OAM @ 0x{r:0>4X}: 0x{byte:0>2X}");
                 self.vram.oam[w as usize] = byte;
             }
-            self.io.tick();
-            ppu.tick(self);
         }
     }
 
@@ -198,6 +218,10 @@ impl MemoryLike for MemoryMap {
                 }
             }
         }
+    }
+
+    fn switch_speeds(&mut self) {
+        self.speed_mode = SpeedMode::Double;
     }
 }
 
@@ -326,6 +350,7 @@ impl MemoryMap {
             ie: 0,
             oam_dma: OamDma::new(),
             vram_dma: VramDma::new(),
+            speed_mode: SpeedMode::Standard,
         }
     }
 
@@ -371,7 +396,7 @@ impl MemoryMap {
             // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
             // dead byte will be returned instead.
             0xFEA0..=0xFEFF => DEAD_BYTE,
-            0xFF51..0xFF55 => self.vram_dma.read_byte(index),
+            0xFF51..=0xFF55 => self.vram_dma.read_byte(index),
             0xFF46 => self.oam_dma.register,
             n @ 0xFF00..=0xFF7F => self.io.read_byte(n),
             n @ 0xFF80..=0xFFFE => self.hr[(n - 0xFF80) as usize],
@@ -443,6 +468,7 @@ impl MemoryMap {
             ie: 0,
             oam_dma: OamDma::new(),
             vram_dma: VramDma::new(),
+            speed_mode: SpeedMode::Standard,
         }
     }
 
@@ -698,9 +724,7 @@ impl MemoryLike for Vec<u8> {
 
     fn tick(&mut self, _ppu: &mut Ppu) {}
 
-    fn check_interrupt(&self) -> Option<InterruptOp> {
-        None
-    }
+    fn switch_speeds(&mut self) {}
 }
 
 // #[cfg(test)]

@@ -63,17 +63,21 @@ impl Ppu {
     }
 
     pub(crate) fn tick(&mut self, mem: &mut MemoryMap) -> bool {
-        if check_bit_const::<7>(mem.io().lcd_control) {
-            self.ticked = true;
-            self.inner
-                .tick(&mut self.screen, &mut self.obj_fifo, &mut self.bg_fifo, mem)
-        } else {
-            if self.ticked {
-                mem.io_mut().lcd_y = 0;
-                *self = Self::new();
+        let mut digest = false;
+        for _ in 0..(mem.speed_mode as u8) {
+            if check_bit_const::<7>(mem.io().lcd_control) {
+                self.ticked = true;
+                digest |= self.inner
+                    .tick(&mut self.screen, &mut self.obj_fifo, &mut self.bg_fifo, mem);
+            } else {
+                if self.ticked {
+                    mem.io_mut().lcd_y = 0;
+                    *self = Self::new();
+                }
+                digest = true;
             }
-            true
         }
+        digest
     }
 
     pub fn state(&self) -> PpuMode {
