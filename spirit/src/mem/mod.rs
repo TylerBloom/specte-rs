@@ -23,6 +23,7 @@ use crate::cpu::check_bit_const;
 use crate::instruction::Instruction;
 use crate::instruction::InterruptOp;
 use crate::lookup::parse_instruction;
+use crate::mem::oam::dma::OamDma;
 use crate::ppu::Ppu;
 
 pub mod io;
@@ -130,24 +131,20 @@ impl MemoryLike for MemoryMap {
         }
         trace!("Mut index into MemMap: 0x{addr:0>4X}");
         match addr {
-            n @ 0x0000..=0x7FFF => self.mbc.write_byte(n, val),
-            n @ 0x8000..=0x9FFF => {
-                if n >= 0x9800 && check_bit_const::<3>(val) {
-                    // info!("Writting 0b{val:0>8b} to 0x{n:0>4X}, which will read from VRAM bank 1");
-                }
-                self.vram[CpuVramIndex(self.io.vram_select == 1, n)] = val
-            }
-            n @ 0xA000..=0xBFFF => self.mbc.write_byte(n, val),
+            0x0000..=0x7FFF => self.mbc.write_byte(addr, val),
+            0x8000..=0x9FFF => self.vram[CpuVramIndex(self.io.vram_select == 1, addr)] = val,
+
+            0xA000..=0xBFFF => self.mbc.write_byte(addr, val),
             0xC000..=0xCFFF | 0xD000..=0xDFFF | 0xFF70 | 0xE000..=0xEFFF | 0xF000..=0xFDFF => {
                 self.wram.write_byte(addr, val)
             }
-            n @ 0xFE00..=0xFE9F => self.vram[CpuOamIndex(n)] = val,
+            0xFE00..=0xFE9F => self.vram[CpuOamIndex(addr)] = val,
             // NOTE: This region *should not* actually be accessed
             0xFEA0..=0xFEFF => {}
             0xFF51..=0xFF55 => self.vram_dma.write_byte(addr, val),
             0xFF46 => self.oam_dma.trigger(val),
-            n @ 0xFF00..=0xFF7F => self.io.write_byte(n, val),
-            n @ 0xFF80..=0xFFFE => self.hr[(n - 0xFF80) as usize] = val,
+            0xFF00..=0xFF7F => self.io.write_byte(addr, val),
+            0xFF80..=0xFFFE => self.hr[(addr - 0xFF80) as usize] = val,
             0xFFFF => self.ie = val,
         }
     }
@@ -201,120 +198,6 @@ impl MemoryLike for MemoryMap {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OamDma {
-    register: u8,
-    read_addr: u16,
-    write_addr: u16,
-    ticks: u16,
-    bus: ConflictBus,
-}
-
-impl Display for OamDma {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self {
-            register,
-            read_addr,
-            write_addr,
-            ticks,
-            bus,
-        } = self;
-        writeln!(f, "OamDma {{")?;
-        writeln!(f, "  register:   0x{register:0>2X}")?;
-        writeln!(f, "  read_addr:  0x{read_addr:0>4X}")?;
-        writeln!(f, "  write_addr: 0x{write_addr:0>4X}")?;
-        writeln!(f, "  ticks:      {ticks}")?;
-        writeln!(f, "  bus:        {bus}")?;
-        writeln!(f, "}}")
-    }
-}
-
-/// When the OAM DMA is active, the transfer occurs on one of two busses. If a read or write occurs
-/// from the CPU (including a push/pop to/from the stack or instruction read), the operation needs
-/// to be ignored (reads get 0xFF).
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize, derive_more::Display)]
-enum ConflictBus {
-    Wram,
-    Cartridge,
-}
-
-impl OamDma {
-    fn new() -> Self {
-        Self {
-            register: 0,
-            read_addr: 0,
-            write_addr: 0,
-            ticks: 640,
-            bus: ConflictBus::Cartridge,
-        }
-    }
-
-    /// Calculates if a read/write is happening in region that is being transferred.
-    fn in_conflict(&self, index: u16) -> bool {
-        if self.ticks >= 640 {
-            return false;
-        }
-
-        // TODO: For the DMG, the only memory that can be accessed is HRAM. It is unclear if that
-        // "only" restriction applies to the GBC. That is, if transferring from WRAM, can the CPU
-        // *only* access cartridge memory?
-        // For now, the less restrictive route will be taken as we can assume that any ROM authors
-        // will have taken the correct behavior into account.
-        //
-        // When transferring from WRAM, the CPU and access cartridge memory (ROM or RAM).
-        // When transferring from the cartridge, the CPU can access WRAM.
-        //
-        // See here: https://gbdev.io/pandocs/OAM_DMA_Transfer.html#oam-dma-bus-conflicts
-        match (self.bus, index) {
-            (ConflictBus::Wram, 0xC000..0xE000) => true,
-            (ConflictBus::Wram, _) => false,
-            (ConflictBus::Cartridge, 0x0000..0x8000 | 0xA000..0xC000) => true,
-            (ConflictBus::Cartridge, _) => false,
-        }
-    }
-
-    fn trigger(&mut self, value: u8) {
-        self.register = value;
-        // TODO: Verify that this is correct. The docs say that `value` must be below 0xDF, but
-        // this seems like a note for ROM authors not Emu authors.
-        self.read_addr = u16::from_be_bytes([value, 0]);
-        self.bus = match self.read_addr {
-            0xC000..0xE000 => ConflictBus::Wram,
-            _ => ConflictBus::Cartridge,
-        };
-        self.write_addr = 0;
-        info!("Beginning OAM DMA starting at 0x{:0>4X}", self.read_addr);
-        self.ticks = 0;
-    }
-
-    fn tick(&mut self) -> Option<(u16, u16)> {
-        if self.ticks == 640 {
-            return None;
-        }
-        self.ticks += 1;
-        if self.ticks.is_multiple_of(4) {
-            /*
-            info!(
-                "At {} ticks, transferring 0x{:0>4X} -> 0x{:0>4X}",
-                self.ticks, self.read_addr, self.write_addr
-            );
-            */
-            let digest = (self.read_addr, self.write_addr);
-            self.read_addr += 1;
-            self.write_addr += 1;
-            Some(digest)
-        } else {
-            None
-        }
-    }
-}
-
-impl Default for OamDma {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl MemoryMap {
     pub fn new(cart: Vec<u8>) -> Self {
         Self {
@@ -359,7 +242,6 @@ impl MemoryMap {
     /// This method only exists to sidestep the "DMA contains" check and should only be called by
     /// the `read_byte` method and during the DMA transfer.
     fn dma_read_byte(&self, index: u16) -> u8 {
-        static DEAD_BYTE: u8 = 0xFF;
         match index {
             0x0000..=0x7FFF => self.mbc.read_byte(index),
             n @ 0x8000..=0x9FFF => self.vram[CpuVramIndex(self.io.vram_select == 1, n)],
@@ -371,7 +253,7 @@ impl MemoryMap {
             n @ 0xFE00..=0xFE9F => self.vram[CpuOamIndex(n)],
             // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
             // dead byte will be returned instead.
-            0xFEA0..=0xFEFF => DEAD_BYTE,
+            0xFEA0..=0xFEFF => 0xFF,
             0xFF51..=0xFF55 => self.vram_dma.read_byte(index),
             0xFF46 => self.oam_dma.register,
             n @ 0xFF00..=0xFF7F => self.io.read_byte(n),
