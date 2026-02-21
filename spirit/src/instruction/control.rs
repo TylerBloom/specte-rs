@@ -1,4 +1,4 @@
-use crate::cpu::CpuState;
+use crate::cpu::{CpuState, check_bit_const};
 
 use super::*;
 
@@ -22,8 +22,16 @@ impl ControlOp {
                 state.cpu.state = CpuState::Halted;
             }
             ControlOp::Stop => {
+                let speed_control = state.mem.read_byte(0xFF4D);
+                // If the bottom bit is set, the speed switch is primed, and, if the top bit is
+                // unset, we are in the normal speed. In this case, we will switch speeds.
                 state.tick(MCycle::final_cycle());
-                state.cpu.state = CpuState::Stopped;
+                state.tick(MCycle::final_cycle());
+                if !check_bit_const::<7>(speed_control) && check_bit_const::<0>(speed_control) {
+                    state.switch_speeds()
+                } else {
+                    state.cpu.state = CpuState::Stopped;
+                }
             }
         }
     }
