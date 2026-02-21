@@ -91,14 +91,14 @@ impl MBC3 {
     pub(super) fn read_byte(&self, index: u16) -> u8 {
         match index {
             0x0000..0x4000 => self.rom[0][index as usize],
-            index @ 0x4000..0x8000 => {
+            0x4000..0x8000 => {
                 // info!("Reading from ROM BANK {} @ 0x{index:0>4X}", self.rom_bank + 1);
                 self.rom[self.rom_bank as usize][(index - 0x4000) as usize]
             }
             0x8000..0xA000 => unreachable!("How did you get here??"),
-            index @ 0xA000..0xC000 => {
+            0xA000..0xC000 => {
                 if !self.is_ram_accessable() {
-                    return 0;
+                    return 0xFF;
                 }
                 match self.ram_clock_index {
                     RamAndClockIndex::Ram(bank) => {
@@ -154,7 +154,7 @@ impl MBC3 {
             0x8000..0xA000 => unreachable!("How did you get here??"),
             0xA000..0xC000 => {
                 if !self.is_ram_accessable() {
-                    info!("Not enabled...");
+                    tracing::info!("Not enabled...");
                     return;
                 }
                 match self.ram_clock_index {
