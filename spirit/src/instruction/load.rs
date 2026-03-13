@@ -43,10 +43,10 @@ pub enum LoadOp {
     #[display("PUSH {_0}")]
     Push(WideRegWithoutSP),
     /// Used for opcode 0xE0
-    #[display("LDH A")]
+    #[display("LDH [u8], A")]
     LoadHigh,
     /// Used for opcode 0xF0
-    #[display("LDH A")]
+    #[display("LDH A, [u8]")]
     StoreHigh,
     /// Used for opcode 0xE2
     #[display("LDHCA")]
