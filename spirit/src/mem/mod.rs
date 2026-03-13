@@ -386,16 +386,14 @@ impl VramDma {
     /// addresses represent an entire tile's worth data that needs to be transferred, not just a
     /// byte.
     fn next_addrs(&mut self) -> Option<(u16, u16)> {
-        if self.len_left > 0 {
+        (self.len_left > 0).then(|| {
             self.len_left -= 1;
             let src = self.curr_src;
             let dest = self.curr_dest;
             self.curr_src += 16;
             self.curr_dest += 16;
-            Some((src, dest))
-        } else {
-            None
-        }
+            (src, dest)
+        })
     }
 
     pub(crate) fn get_op(&self, ly: u8, state: PpuMode) -> Option<Instruction> {
@@ -513,10 +511,6 @@ impl MemoryMap {
     pub(crate) fn inc_ppu_status(&mut self, state: PpuMode) {
         self.io.set_ppu_status(state);
         self.vram.inc_status(state)
-    }
-
-    pub(crate) fn reset_lcd_y(&mut self) {
-        self.io.reset_lcd_y()
     }
 
     pub(crate) fn inc_lcd_y(&mut self) {
