@@ -22,6 +22,8 @@ pub struct Debugger(pub u8);
 
 impl Debugger {
     pub fn view<M: 'static>(&self, gb: &Gameboy) -> impl Iterator<Item = Element<'static, M>> {
+        std::iter::empty()
+        /*
         [
             Column::from_vec(tile_map_0(gb).map(Into::into).collect())
                 .spacing(3)
@@ -40,6 +42,7 @@ impl Debugger {
                 .into(),
         ]
         .into_iter()
+        */
     }
 
     pub fn inc(&mut self) {
@@ -47,6 +50,7 @@ impl Debugger {
         self.0 %= 8;
     }
 }
+/*
 
 fn tile_map_0<M: 'static>(
     gb: &Gameboy,
@@ -229,3 +233,4 @@ fn bytes_to_pixels(gb: &Gameboy, palette: u8, lo: u8, hi: u8) -> [Pixel; 8] {
     let mut iter = zip_bits(hi, lo).map(|c| palette.get_color(c).into());
     std::array::from_fn(|_| iter.next().unwrap())
 }
+*/
