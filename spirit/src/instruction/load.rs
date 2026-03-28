@@ -284,18 +284,18 @@ impl LoadOp {
                     idu: Some((IduSignal::Dec, FullRegister::SP)),
                     alu: None,
                 };
-                let (most, least) = wide_reg_without_sp.split();
+                let (hi, lo) = wide_reg_without_sp.split();
                 state.tick(cycle);
                 let cycle = MCycle {
                     addr_bus: PointerReg::SP,
-                    action: AddrAction::Write(most.into()),
+                    action: AddrAction::Write(hi.into()),
                     idu: Some((IduSignal::Dec, FullRegister::SP)),
                     alu: None,
                 };
                 state.tick(cycle);
                 let cycle = MCycle {
                     addr_bus: PointerReg::SP,
-                    action: AddrAction::Write(least.into()),
+                    action: AddrAction::Write(lo.into()),
                     idu: None,
                     alu: None,
                 };
