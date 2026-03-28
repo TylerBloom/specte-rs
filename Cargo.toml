@@ -4,6 +4,7 @@ members = [
     "tombstone",
     "ghast",
     "mausoleum",
+    "seance",
     "imp",
 ]
 
