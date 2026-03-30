@@ -1,16 +1,22 @@
-use axum::{
-    Json, Router,
-    extract::{FromRequest, Path, Request, State},
-    http::StatusCode,
-    response::IntoResponse,
-    routing::*,
-};
-use base64::{Engine, prelude::BASE64_STANDARD};
-use chrono::{DateTime, Utc};
+use axum::Json;
+use axum::Router;
+use axum::extract::FromRequest;
+use axum::extract::Path;
+use axum::extract::Request;
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::routing::*;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
+use chrono::DateTime;
+use chrono::Utc;
 use clap::Parser;
 use futures::StreamExt;
-use serde_json::{Value, to_value};
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use serde_json::Value;
+use serde_json::to_value;
+use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
@@ -214,14 +220,17 @@ WHERE
             }
         };
 
-    let data = data.into_iter().map(|row|{
-        serde_json::json!({
-            "rom_id": row.0,
-            "user_id": row.1,
-            "created_at": row.2,
-            "last_updated": row.3
+    let data = data
+        .into_iter()
+        .map(|row| {
+            serde_json::json!({
+                "rom_id": row.0,
+                "user_id": row.1,
+                "created_at": row.2,
+                "last_updated": row.3
+            })
         })
-    }).collect();
+        .collect();
 
     (StatusCode::OK, Json(Value::Array(data)))
 }
