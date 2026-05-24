@@ -43,7 +43,7 @@ impl BitOp {
                         cycle.alu = Some(AluSignal::bit(bit, DataLocation::Bus));
                         state.tick(cycle);
                         state.tick(MCycle::final_cycle());
-                        return
+                        return;
                     }
                     BitOpInner::Res => AluSignal::res(bit, DataLocation::Bus),
                     BitOpInner::Set => AluSignal::set(bit, DataLocation::Bus),
