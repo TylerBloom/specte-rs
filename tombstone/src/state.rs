@@ -332,7 +332,7 @@ impl InnerAppState {
         let mut state = HashSet::new();
         loop {
             if !state.insert((self.gb.gb().cpu().clone(), self.gb.gb().mem.clone())) {
-                break
+                break;
             } else {
                 self.gb.gb_mut().step();
             }
