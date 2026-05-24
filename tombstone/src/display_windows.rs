@@ -118,7 +118,10 @@ pub fn render_interrupts(state: &InnerAppState, frame: &mut Frame, area: Rect) {
         .title_alignment(ratatui::layout::Alignment::Center);
     let para = Paragraph::new(Text::from_iter([
         format!("Enabled   : 0b{:0>8b}", state.gb.gb().mem.ie), // , mem.ie),
-        format!("Requested : 0b{:0>8b}", state.gb.gb().mem.io().interrupt_flags), // , mem.io.interrupt_flags),
+        format!(
+            "Requested : 0b{:0>8b}",
+            state.gb.gb().mem.io().interrupt_flags
+        ), // , mem.io.interrupt_flags),
     ]))
     .block(block);
     frame.render_widget(para, area);
