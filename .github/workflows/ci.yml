@@ -19,6 +19,8 @@ jobs:
         with:
           rust-version: nightly
           components: rustfmt, clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
       - uses: actions/checkout@v6
       - run: cargo fmt --check
       - run: cargo clippy --all
@@ -37,5 +39,7 @@ jobs:
         uses: jetli/trunk-action@v0.5.1
         with:
           version: 'latest'
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
       - run: cargo build
       - run: cargo test
