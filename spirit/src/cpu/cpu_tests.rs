@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::GameboyState;
+use crate::cpu::Ime;
 use crate::ppu::Ppu;
 
 use super::Cpu;
@@ -292,7 +293,7 @@ impl CpuState {
             // executed). This corrects that offset.
             pc: (self.pc - 1).into(),
             sp: self.sp.into(),
-            ime: self.ime.unwrap_or_default(),
+            ime: Ime { current: self.ime.unwrap_or_default(), ..Default::default() },
             ..Default::default()
         };
         let mut mem = vec![0; 64 * 1024];

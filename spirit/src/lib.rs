@@ -26,12 +26,13 @@ use ppu::Ppu;
 pub mod apu;
 pub mod cpu;
 pub mod instruction;
-pub mod lookup;
 pub mod mem;
 pub mod ppu;
 pub mod rom;
 #[doc(hidden)]
 pub mod utils;
+
+pub use instruction::lookup;
 
 /// Represents a Gameboy color with a cartridge inserted.
 #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
@@ -78,7 +79,7 @@ impl Gameboy {
     pub fn op_iter(&self) -> impl Iterator<Item = (u16, Instruction)> {
         let mut pc = self.cpu.pc.0.saturating_sub(1);
         let orig_pc = pc;
-        let ime = self.cpu.ime;
+        let ime = self.cpu.ime.current;
         let op = self.mem.read_op(pc, ime);
         pc += op.size() as u16;
         let mut stop = false;
@@ -127,7 +128,7 @@ impl Gameboy {
             self.mem.check_interrupt(),
         ) {
             (Some(op), _) => op,
-            (None, Some(op)) if self.cpu.ime => op,
+            (None, Some(op)) if self.cpu.ime.current => op,
             _ => self.cpu.read_op(),
         }
     }

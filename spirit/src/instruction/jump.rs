@@ -303,7 +303,7 @@ impl JumpOp {
                 state.tick(MCycle::noop());
                 let ghost = state.cpu.ghost_addr();
                 state.cpu.pc = ghost.into();
-                state.cpu.to_set_ime = true;
+                state.cpu.ime.current = true;
 
                 state.tick(MCycle::final_cycle());
             }

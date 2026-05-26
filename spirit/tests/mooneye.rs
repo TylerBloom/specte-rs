@@ -292,7 +292,6 @@ fn oam_dma_timing() {
 }
 
 #[test]
-#[should_panic]
 fn pop_timing() {
     mooneye_test!("pop_timing.gb")
 }

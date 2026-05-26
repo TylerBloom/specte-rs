@@ -54,7 +54,7 @@ impl InterruptOp {
         // There is an edge case where pushing the PC to the stack can overwrite the IF register.
         // If this happens, the PC is not changed.
         if state.mem.read_byte(0xFF0F) != 0 {
-            state.cpu.ime = false;
+            state.cpu.ime.reset();
             state.mem.clear_interrupt_req(self);
             // FIXME: I think is incorrect. Once the jump is made, we need to load the byte that we
             // are now pointing at into the IR. Othewise, the instruction that was in the IR will

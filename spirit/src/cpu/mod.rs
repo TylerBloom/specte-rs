@@ -59,8 +59,7 @@ pub struct Cpu {
     pub sp: Wrapping<u16>,
     /// The PC register
     pub pc: Wrapping<u16>,
-    pub ime: bool,
-    pub to_set_ime: bool,
+    pub ime: Ime,
     /// Once the gameboy has halted, this flag is set. Note that the gameboy can continue to be
     /// ticked, but the stack pointer is not moved, so it will continue to cycle without change.
     pub state: CpuState,
@@ -73,6 +72,39 @@ pub struct Cpu {
     /// for the next instruction. That data is put into this register then decoded into the next
     /// operation.
     pub ir: Wrapping<u8>,
+}
+
+/// Models the behavior of the IME register in the CPU. Specifically, the EI and RETI instructions
+/// enable interrupts after the end of the following instruction, not the current one.
+///
+/// The `current` field holds the current state of the IME register and determines if in interrupt
+/// should be signaled.
+/// The `next` field holds changes to the IME register after the current instruction finishes.
+/// The `future` field holds the state of the IME register after the next instruction finishes.
+///
+/// The need for three fields is largely an impl detail of how instructions are implemented. After
+/// all instruction are executed, the IME is "ticked" in order to move into the next state. This
+/// avoids unnecessary conditional logic for RETI and EI instruction.
+#[derive(
+    Debug, Default, Hash, Clone, PartialEq, Eq, derive_more::Display, Serialize, Deserialize,
+)]
+#[display("IME {{ current: {current}, next: {next}, future: {future} }}")]
+pub struct Ime {
+    pub current: bool,
+    pub next: bool,
+    pub future: bool,
+}
+
+impl Ime {
+    pub fn tick(&mut self) {
+        self.current |= self.next;
+        self.next = self.future;
+        self.future = false;
+    }
+
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
 }
 
 #[derive(
