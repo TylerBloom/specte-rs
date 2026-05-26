@@ -15,8 +15,8 @@ mod control;
 mod interrupt;
 mod jump;
 mod load;
-mod prefixed;
 pub mod lookup;
+mod prefixed;
 
 pub use arithmetic::*;
 pub use bit::*;
@@ -25,8 +25,8 @@ pub use control::*;
 pub use interrupt::*;
 pub use jump::*;
 pub use load::*;
-pub use prefixed::*;
 pub use lookup::*;
+pub use prefixed::*;
 
 // Refactor plan:
 // Implement the instruction execution via a series of "M Cycle" sub-instructions. This needs to
