@@ -2,11 +2,11 @@ use crate::GameboyState;
 use crate::cpu::Cpu;
 use crate::cpu::CpuState;
 use crate::cpu::FullRegister;
-use crate::lookup::parse_prefixed_instruction;
 use crate::mem::MemoryLikeExt;
 
 use derive_more::From;
 use derive_more::IsVariant;
+use tracing::info;
 
 mod arithmetic;
 mod bit;
@@ -16,6 +16,7 @@ mod interrupt;
 mod jump;
 mod load;
 mod prefixed;
+pub mod lookup;
 
 pub use arithmetic::*;
 pub use bit::*;
@@ -25,7 +26,7 @@ pub use interrupt::*;
 pub use jump::*;
 pub use load::*;
 pub use prefixed::*;
-use tracing::info;
+pub use lookup::*;
 
 // Refactor plan:
 // Implement the instruction execution via a series of "M Cycle" sub-instructions. This needs to
@@ -436,12 +437,11 @@ impl Instruction {
             Instruction::Rrca => state.tick(MCycle::final_with_alu(AluSignal::rrca())),
             Instruction::Di => {
                 state.tick(MCycle::final_cycle());
-                state.cpu.to_set_ime = false;
-                state.cpu.ime = false;
+                state.cpu.ime.reset();
             }
             Instruction::Ei => {
                 state.tick(MCycle::final_cycle());
-                state.cpu.to_set_ime = true;
+                state.cpu.ime.future = true;
             }
             Instruction::Prefixed => {
                 state.tick(MCycle::final_cycle());
@@ -474,8 +474,7 @@ impl Instruction {
             Instruction::Unused => panic!("Attempted to execute an invalid operation code!!"),
         }
         debug_assert_eq!(state.cycle_count, length);
-        state.cpu.ime |= state.cpu.to_set_ime;
-        state.cpu.to_set_ime = false;
+        state.cpu.ime.tick();
     }
 
     /// Returns the number of ticks to will take to complete this instruction.
