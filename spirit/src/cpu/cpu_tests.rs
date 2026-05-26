@@ -293,7 +293,10 @@ impl CpuState {
             // executed). This corrects that offset.
             pc: (self.pc - 1).into(),
             sp: self.sp.into(),
-            ime: Ime { current: self.ime.unwrap_or_default(), ..Default::default() },
+            ime: Ime {
+                current: self.ime.unwrap_or_default(),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut mem = vec![0; 64 * 1024];
