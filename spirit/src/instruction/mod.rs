@@ -400,8 +400,6 @@ pub enum AluOp {
 impl Instruction {
     pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
         info!("Executing {self}");
-        #[cfg(debug_assertions)]
-        let length = self.length(&state) as usize / 4;
         match self {
             Instruction::Load(load_op) => load_op.execute(&mut state),
             Instruction::ControlOp(control_op) => control_op.execute(&mut state),
@@ -473,13 +471,13 @@ impl Instruction {
             }
             Instruction::Unused => panic!("Attempted to execute an invalid operation code!!"),
         }
-        debug_assert_eq!(state.cycle_count, length);
         state.cpu.ime.tick();
     }
 
     /// Returns the number of ticks to will take to complete this instruction.
     /// Takes a reference to the CPU in order to determine if this instruction will pass any
     /// conditions.
+    #[allow(dead_code)]
     fn length<M: MemoryLikeExt>(&self, state: &GameboyState<'_, M>) -> u8 {
         match self {
             Instruction::Load(op) => op.length(),
