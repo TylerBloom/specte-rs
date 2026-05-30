@@ -47,6 +47,8 @@ pub trait MemoryLike {
 
     fn clear_interrupt_req(&mut self, op: InterruptOp) {}
 
+    fn check_interrupt(&self) -> Option<InterruptOp>;
+
     fn vram_transfer(&mut self);
 
     /// Makes necessary changes in memory that occur during a instruction that aren't just reads
@@ -159,7 +161,7 @@ impl MemoryLike for MemoryMap {
             self.check_interrupt(),
         ) {
             (Some(op), _) => op,
-            (None, Some(op)) if ime => op,
+            (None, Some(op)) if ime => Instruction::Interrupt(op),
             _ => parse_instruction(self.read_byte(addr)),
         }
     }
@@ -189,6 +191,28 @@ impl MemoryLike for MemoryMap {
             }
             self.io.tick();
             ppu.tick(self);
+        }
+    }
+
+    fn check_interrupt(&self) -> Option<InterruptOp> {
+        match self.ie & self.io.read_byte(0xFF0F) {
+            0 => None,
+            n => {
+                if check_bit_const::<0>(n) {
+                    Some(InterruptOp::VBlank)
+                } else if check_bit_const::<1>(n) {
+                    Some(InterruptOp::LCD)
+                } else if check_bit_const::<2>(n) {
+                    Some(InterruptOp::Timer)
+                } else if check_bit_const::<3>(n) {
+                    Some(InterruptOp::Serial)
+                } else if check_bit_const::<4>(n) {
+                    Some(InterruptOp::Joypad)
+                } else {
+                    // Technically unreachable
+                    None
+                }
+            }
         }
     }
 }
@@ -481,28 +505,6 @@ impl MemoryMap {
         todo!()
     }
 
-    pub(super) fn check_interrupt(&self) -> Option<Instruction> {
-        match self.ie & self.io.read_byte(0xFF0F) {
-            0 => None,
-            n => {
-                if check_bit_const::<0>(n) {
-                    Some(Instruction::Interrupt(InterruptOp::VBlank))
-                } else if check_bit_const::<1>(n) {
-                    Some(Instruction::Interrupt(InterruptOp::LCD))
-                } else if check_bit_const::<2>(n) {
-                    Some(Instruction::Interrupt(InterruptOp::Timer))
-                } else if check_bit_const::<3>(n) {
-                    Some(Instruction::Interrupt(InterruptOp::Serial))
-                } else if check_bit_const::<4>(n) {
-                    Some(Instruction::Interrupt(InterruptOp::Joypad))
-                } else {
-                    // Technically unreachable
-                    None
-                }
-            }
-        }
-    }
-
     pub(crate) fn reset_ppu_status(&mut self) {
         self.io.set_ppu_status(PpuMode::default());
         self.vram.reset_status()
@@ -771,6 +773,10 @@ impl MemoryLike for Vec<u8> {
     fn vram_transfer(&mut self) {}
 
     fn tick(&mut self, _ppu: &mut Ppu) {}
+
+    fn check_interrupt(&self) -> Option<InterruptOp> {
+        None
+    }
 }
 
 #[cfg(test)]
