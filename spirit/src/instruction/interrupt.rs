@@ -35,7 +35,7 @@ impl InterruptOp {
             alu: None,
         };
         state.tick(cycle);
-        let [hi, lo] = state.cpu.pc.0.to_be_bytes();
+        let [hi, lo] = (state.cpu.pc - 1u16).0.to_be_bytes();
         let cycle = MCycle {
             addr_bus: PointerReg::SP,
             action: AddrAction::Write(DataLocation::Literal(hi)),
