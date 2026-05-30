@@ -77,13 +77,14 @@ impl Gameboy {
     /// conditional jump will execute. Rather, it is to be used for debugging by providing a window
     /// into region around the PC.
     pub fn op_iter(&self) -> impl Iterator<Item = (u16, Instruction)> {
-        let mut pc = self.cpu.pc.0.saturating_sub(1);
-        let orig_pc = pc;
+        let loaded_pc = self.cpu.pc.0.saturating_sub(1);
+        let loaded_op = self.read_op();
+
         let ime = self.cpu.ime.current;
-        let op = self.mem.read_op(pc, ime);
-        pc += op.size() as u16;
+        let mut pc = loaded_pc + loaded_op.size() as u16;
+
         let mut stop = false;
-        std::iter::once((orig_pc, op)).chain(std::iter::from_fn(move || {
+        std::iter::once((loaded_pc, loaded_op)).chain(std::iter::from_fn(move || {
             if stop {
                 return None;
             }
@@ -128,7 +129,7 @@ impl Gameboy {
             self.mem.check_interrupt(),
         ) {
             (Some(op), _) => op,
-            (None, Some(op)) if self.cpu.ime.current => op,
+            (None, Some(op)) if self.cpu.ime.current => Instruction::Interrupt(op),
             _ => self.cpu.read_op(),
         }
     }
