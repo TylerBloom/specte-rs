@@ -137,7 +137,6 @@ fn oam_dma_reg_read() {
 }
 
 #[test]
-#[should_panic]
 fn interrups_ie_push() {
     mooneye_test!("interrupts/ie_push.gb")
 }
