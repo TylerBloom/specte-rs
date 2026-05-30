@@ -83,7 +83,7 @@ impl Default for IoRegisters {
             joypad: Default::default(),
             serial: Default::default(),
             tac: TimerRegisters::new(),
-            interrupt_flags: Default::default(),
+            interrupt_flags: 0b1110_0000,
             audio: Default::default(),
             lcd_control: Default::default(),
             lcd_status: Default::default(),
@@ -381,7 +381,6 @@ impl IoRegisters {
     }
 
     pub fn request_vblank_int(&mut self) {
-        // self.io.interrupt_flags |= self.ie & 0b1;
         self.interrupt_flags |= 0b1;
     }
 
@@ -395,17 +394,14 @@ impl IoRegisters {
     }
 
     pub fn request_lcd_int(&mut self) {
-        // self.io.interrupt_flags |= self.ie & 0b10;
         self.interrupt_flags |= 0b10;
     }
 
     pub fn request_timer_int(&mut self) {
-        // self.io.interrupt_flags |= self.ie & 0b100;
         self.interrupt_flags |= 0b100;
     }
 
     pub fn request_serial_int(&mut self) {
-        // self.io.interrupt_flags |= self.ie & 0b1000;
         self.interrupt_flags |= 0b1000;
     }
 
@@ -426,7 +422,6 @@ impl IoRegisters {
         debug_assert_eq!(byte.count_ones(), 1);
         debug_assert!(byte < 0xF0);
         self.joypad &= byte;
-        // self.io.interrupt_flags |= self.ie & 0b1_0000;
         self.interrupt_flags |= 0b1_0000;
     }
 
@@ -439,6 +434,7 @@ impl IoRegisters {
             InterruptOp::Joypad => 0b1_0000,
         };
         self.interrupt_flags &= !mask;
+        self.interrupt_flags |= 0b1110_0000;
     }
 
     pub(crate) fn read_byte(&self, index: u16) -> u8 {
@@ -504,7 +500,7 @@ impl IoRegisters {
                 }
             }
             // Top three bits are ignored because there are only 5 types of interrupts
-            0xFF0F => self.interrupt_flags = 0x1F & value,
+            0xFF0F => self.interrupt_flags = 0b1110_0000 | (0x1F & value),
             0xFF10..=0xFF3F => self.audio.write_byte(index, value),
             0xFF40 => {
                 self.lcd_control = value;
