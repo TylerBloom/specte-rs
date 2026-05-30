@@ -216,7 +216,6 @@ fn call_timing2() {
 }
 
 #[test]
-#[should_panic]
 fn ei_sequence() {
     mooneye_test!("ei_sequence.gb")
 }
@@ -302,7 +301,6 @@ fn push_timing() {
 }
 
 #[test]
-#[should_panic]
 fn rapid_di_ei() {
     mooneye_test!("rapid_di_ei.gb")
 }
