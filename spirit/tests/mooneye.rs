@@ -141,32 +141,35 @@ fn interrups_ie_push() {
     mooneye_test!("interrupts/ie_push.gb")
 }
 
-/* FIXME: These take more than a minute to run...
 #[test]
+#[should_panic]
 fn ppu_intr_2_0_timing() {
     mooneye_test!("ppu/intr_2_0_timing.gb")
 }
 
 #[test]
+#[should_panic]
 fn ppu_intr_2_mode0_timing_a() {
     mooneye_test!("ppu/intr_2_mode0_timing.gb")
 }
 
 #[test]
+#[should_panic]
 fn ppu_intr_2_mode0_timing_sprites() {
     mooneye_test!("ppu/intr_2_mode0_timing_sprites.gb")
 }
 
 #[test]
+#[should_panic]
 fn ppu_intr_2_mode3_timing() {
     mooneye_test!("ppu/intr_2_mode3_timing.gb")
 }
 
 #[test]
+#[should_panic]
 fn ppu_intr_2_oam_ok_timing() {
     mooneye_test!("ppu/intr_2_oam_ok_timing.gb")
 }
-*/
 
 #[test]
 #[should_panic]
@@ -243,7 +246,6 @@ fn halt_ime1_timing() {
 }
 
 #[test]
-#[should_panic]
 fn if_ie_registers() {
     mooneye_test!("if_ie_registers.gb")
 }
