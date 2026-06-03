@@ -351,6 +351,16 @@ impl IoRegisters {
         self.lcd_status &= 0b1111_1100;
         // Update the bottom two bits to be the state
         self.lcd_status |= state as u8;
+        // Check if the STAT interrupt needs to be triggered
+        match state {
+            // Trigger if we are moving into HBlank (mode 0) and the fifth bit is set
+            PpuMode::HBlank if check_bit_const::<3>(self.lcd_status) => self.request_lcd_int(),
+            // Trigger if we are moving into VBlank (mode 1) and the fifth bit is set
+            PpuMode::VBlank if check_bit_const::<4>(self.lcd_status) => self.request_lcd_int(),
+            // Trigger if we are moving into OamScan (mode 2) and the fifth bit is set
+            PpuMode::OamScan if check_bit_const::<5>(self.lcd_status) => self.request_lcd_int(),
+            _ => {}
+        }
     }
 
     pub(crate) fn disable_lcd(&mut self) {
