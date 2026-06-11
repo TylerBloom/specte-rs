@@ -59,7 +59,7 @@ impl PcState {
                 } else {
                     "  "
                 };
-                let ptr = if *pc == gb.cpu().pc.0 { ">" } else { " " };
+                let ptr = if *pc == gb.cpu().pc.0.saturating_sub(1) { ">" } else { " " };
                 format!("{prefix} {ptr} 0x{pc:0>4X} -> {op}\n")
             })
             .take(len)
