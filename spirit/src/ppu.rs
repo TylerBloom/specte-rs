@@ -142,7 +142,6 @@ impl PpuInner {
                 mem.inc_lcd_y();
                 assert_eq!(bg.y, mem.io().lcd_y);
                 if bg.y == 144 {
-                    mem.request_vblank_int();
                     *self = Self::VBlank { dots: 0 };
                     mem.inc_ppu_status(self.state());
                 } else {
