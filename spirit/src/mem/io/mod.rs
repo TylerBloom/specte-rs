@@ -361,6 +361,9 @@ impl IoRegisters {
             PpuMode::OamScan if check_bit_const::<5>(self.lcd_status) => self.request_lcd_int(),
             _ => {}
         }
+        if matches!(state, PpuMode::VBlank) {
+            self.request_vblank_int();
+        }
     }
 
     pub(crate) fn disable_lcd(&mut self) {
