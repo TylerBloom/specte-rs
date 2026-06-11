@@ -446,12 +446,18 @@ impl Instruction {
                 let op = state.cpu.read_prefixed_op();
                 op.execute(&mut state);
             }
-            Instruction::Stall => state.tick(MCycle {
-                addr_bus: PointerReg::PC,
-                action: AddrAction::Noop,
-                idu: None,
-                alu: None,
-            }),
+            Instruction::Stall => {
+                if state.mem.check_interrupt().is_some() {
+                    state.cpu.state = CpuState::Running;
+                } else {
+                    state.tick(MCycle {
+                        addr_bus: PointerReg::PC,
+                        action: AddrAction::Noop,
+                        idu: None,
+                        alu: None,
+                    })
+                }
+            }
             Instruction::Stopped => state.tick(MCycle {
                 addr_bus: PointerReg::PC,
                 action: AddrAction::Noop,
