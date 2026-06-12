@@ -313,7 +313,7 @@ impl AudioRegisters {
             // NOTE: Only the top 2 bits are used
             0xFF23 => self.ch4_control = val & 0b1100_0000,
             /* Oops... */
-            idx => unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4x}"),
+            idx => {}, // unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4x}"),
         }
     }
 }
