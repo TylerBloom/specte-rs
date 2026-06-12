@@ -115,7 +115,6 @@ impl Gameboy {
             mem: &mut self.mem,
             ppu: &mut self.ppu,
             cpu: &mut self.cpu,
-            cycle_count: 0,
         };
         op.execute(state);
     }
@@ -214,19 +213,12 @@ where
     pub(crate) mem: &'a mut M,
     pub(crate) ppu: &'a mut Ppu,
     pub(crate) cpu: &'a mut Cpu,
-    #[cfg(debug_assertions)]
-    /// Used during testing to ensure the number of cycles executed per instruction is correct
-    pub(crate) cycle_count: usize,
 }
 
 impl<M: MemoryLike> GameboyState<'_, M> {
     pub(crate) fn tick(&mut self, cycle: MCycle) {
         self.cpu.execute(cycle, self.mem);
         self.mem.tick(self.ppu);
-        #[cfg(debug_assertions)]
-        {
-            self.cycle_count += 1;
-        }
     }
 
     /// In the CGB, there were two speed modes. The double speed mode is triggered by writing to
