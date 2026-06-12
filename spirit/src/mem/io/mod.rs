@@ -51,6 +51,12 @@ pub struct IoRegisters {
     monochrome_obj_palettes: [u8; 2],
     /// ADDR FF4A & FF4B
     pub(crate) window_position: [u8; 2],
+    /// ADDR FF4C
+    /// CPU mode selection. Only bit 2 is used. If set, the system is run in compatability mode.
+    /// Locked after boot.
+    pub cpu_mode: u8,
+    /// ADDR FF4D
+    pub speed_switch: u8,
     /// ADDR FF4F
     // TODO: Only the 0th bit is used. From the docs:
     // """
@@ -98,6 +104,8 @@ impl Default for IoRegisters {
             object_palettes: Default::default(),
             dead_byte: Default::default(),
             boot_status_disabled: false,
+            cpu_mode: Default::default(),
+            speed_switch: Default::default(),
         }
     }
 }
@@ -468,6 +476,9 @@ impl IoRegisters {
             0xFF49 => self.monochrome_obj_palettes[1],
             0xFF4A => self.window_position[0],
             0xFF4B => self.window_position[1],
+            // This can not be directly accessed
+            0xFF4C => 0xFF,
+            0xFF4D => self.speed_switch,
             // When reading from this register, all bits expect the first are 1
             0xFF4F => 0xFE | self.vram_select,
             0xFF50 => {
@@ -478,10 +489,9 @@ impl IoRegisters {
                 }
             }
             0xFF68 => self.background_palettes.read_index(),
-            0xFF69 => self.background_palettes.read_index(),
+            0xFF69 => self.background_palettes.read_palette_byte(),
             0xFF6A => self.object_palettes.read_index(),
-            0xFF6B => self.object_palettes.read_index(),
-            0xFF70 => self.wram_select,
+            0xFF6B => self.object_palettes.read_palette_byte(),
             0xFF72 => self.undoc_registers[0],
             0xFF73 => self.undoc_registers[1],
             0xFF74 => self.undoc_registers[2],
@@ -489,7 +499,7 @@ impl IoRegisters {
             0xFF03
             | 0xFF08..=0xFF0E
             | 0xFF27..=0xFF2F
-            | 0xFF4C..=0xFF4E
+            | 0xFF4E
             | 0xFF56..=0xFF67
             | 0xFF6C..=0xFF6F
             | 0xFF71
@@ -515,7 +525,6 @@ impl IoRegisters {
             0xFF0F => self.interrupt_flags = 0b1110_0000 | (0x1F & value),
             0xFF10..=0xFF3F => self.audio.write_byte(index, value),
             0xFF40 => {
-                let was_on = check_bit_const::<7>(self.lcd_control);
                 self.lcd_control = value;
                 let is_on = check_bit_const::<7>(self.lcd_control);
                 match (was_on, is_on) {
@@ -542,6 +551,8 @@ impl IoRegisters {
             0xFF49 => self.monochrome_obj_palettes[1] = value,
             0xFF4A => self.window_position[0] = value,
             0xFF4B => self.window_position[1] = value,
+            0xFF4C => self.cpu_mode = value,
+            0xFF4D => self.speed_switch = value,
             // Ignore all but the first bit of the value
             0xFF4F => self.vram_select = 1 & value,
             0xFF50 => {
@@ -552,7 +563,6 @@ impl IoRegisters {
             0xFF69 => self.background_palettes.write_palette_byte(value),
             0xFF6A => self.object_palettes.write_index(value),
             0xFF6B => self.object_palettes.write_palette_byte(value),
-            0xFF70 => self.wram_select = value,
             0xFF72 => self.undoc_registers[0] = value,
             0xFF73 => self.undoc_registers[1] = value,
             0xFF74 => self.undoc_registers[2] = value,
@@ -562,7 +572,7 @@ impl IoRegisters {
             0xFF03
             | 0xFF08..=0xFF0E
             | 0xFF27..=0xFF2F
-            | 0xFF4C..=0xFF4E
+            | 0xFF4E
             | 0xFF56..=0xFF67
             | 0xFF6C..=0xFF6F
             | 0xFF71
