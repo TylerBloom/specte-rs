@@ -48,13 +48,13 @@ pub(super) struct CpuOamIndex(pub u16);
 pub enum PpuMode {
     /// Also refered to as "Mode 2" in the pandocs.
     #[default]
-    OamScan = 0,
+    OamScan = 2,
     /// Also refered to as "Mode 3" in the pandocs.
-    Drawing = 1,
+    Drawing = 3,
     /// Also refered to as "Mode 0" in the pandocs.
-    HBlank = 2,
+    HBlank = 0,
     /// Also refered to as "Mode 1" in the pandocs.
-    VBlank = 3,
+    VBlank = 1,
 }
 
 #[serde_as]
