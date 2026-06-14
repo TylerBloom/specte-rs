@@ -105,7 +105,7 @@ impl Default for IoRegisters {
             monochrome_bg_palette: Default::default(),
             monochrome_obj_palettes: [0xFF; 2],
             window_position: Default::default(),
-            vram_select: 0xFE,
+            vram_select: 0,
             boot_status: Default::default(),
             background_palettes: Default::default(),
             object_palettes: Default::default(),
@@ -313,7 +313,7 @@ impl AudioRegisters {
             // NOTE: Only the top 2 bits are used
             0xFF23 => self.ch4_control = val & 0b1100_0000,
             /* Oops... */
-            idx => {}, // unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4x}"),
+            idx => {} // unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4x}"),
         }
     }
 }
@@ -495,7 +495,7 @@ impl IoRegisters {
             // When reading from this register, all bits expect the first are 1
             0xFF4F => {
                 if self.is_gbc {
-                    self.vram_select
+                    0xFE | self.vram_select
                 } else {
                     0xFF
                 }
@@ -610,10 +610,6 @@ impl IoRegisters {
                 if self.is_gbc {
                     let old = self.vram_select;
                     selective_write(&mut self.vram_select, 1, value);
-                    tracing::error!(
-                        "Writing to VRAM select: old: 0x{old:0>2X}, value: 0x{value:0>2X}, new: 0x{:0>2X}",
-                        self.vram_select
-                    );
                 }
             }
             0xFF50 => {
