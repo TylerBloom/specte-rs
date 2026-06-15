@@ -44,10 +44,10 @@ impl VramDma {
 
     pub fn write_byte(&mut self, index: u16, value: u8) {
         match index {
-            0xFF51 => self.src_lo = value,
-            0xFF52 => self.src_hi = value,
-            0xFF53 => self.dest_lo = value,
-            0xFF54 => self.dest_hi = value,
+            0xFF51 => self.src_hi = value,
+            0xFF52 => self.src_lo = value,
+            0xFF53 => self.dest_hi = value,
+            0xFF54 => self.dest_lo = value,
             0xFF55 => self.trigger(value),
             index => unreachable!("Called VramDma::write_byte with addr 0x{index:0>4X}"),
         }
