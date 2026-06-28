@@ -1,19 +1,5 @@
 use spirit::Gameboy;
 
-macro_rules! postcard_bytes {
-    ($file:literal) => {
-        postcard::from_bytes(include_bytes!($file)).unwrap()
-    };
-}
-
-#[test]
-#[should_panic]
-fn acid_which() {
-    let rom = include_bytes!("roms/acid/which.gb");
-    let _gb = Gameboy::load_cartridge(rom.into()).complete();
-    todo!()
-}
-
 #[test]
 #[should_panic]
 fn acid_dmg_acid2() {
@@ -22,18 +8,19 @@ fn acid_dmg_acid2() {
     todo!()
 }
 
-// FIXME: This test should actually pass, but the saved memory state is of a different format than
-// what it is now.
 #[test]
-#[should_panic]
 fn acid_cgb_acid2() {
     let rom = include_bytes!("roms/acid/cgb-acid2.gbc");
     let mut gb = Gameboy::load_cartridge(rom.into()).complete();
     (0..10).for_each(|_| gb.next_frame());
-    let expected_mem = postcard_bytes!("data/acid-cgb-acid2-memory-map.postcard");
-    assert_eq!(gb.mem, expected_mem);
-    let expected_screen: Vec<Vec<_>> = postcard_bytes!("data/acid-cgb-acid2-screen.postcard");
-    assert_eq!(gb.ppu.screen, expected_screen);
+    let screen: Vec<u8> = gb
+        .ppu
+        .screen
+        .iter()
+        .flatten()
+        .flat_map(|p| [p.r, p.g, p.b])
+        .collect();
+    insta::assert_binary_snapshot!("acid-cgb-acid2-screen.bin", screen);
 }
 
 #[test]

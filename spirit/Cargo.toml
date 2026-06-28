@@ -19,5 +19,5 @@ test-log = "0.2.16"
 
 [dev-dependencies]
 serde = { version = "1.0.210", features = ["derive", "rc"] }
-postcard = { version = "1.0.10", features = ["alloc"] }
 test-log = "0.2.16"
+insta = "1"

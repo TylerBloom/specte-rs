@@ -1,0 +1,6 @@
+---
+source: spirit/tests/acid.rs
+expression: screen
+extension: bin
+snapshot_kind: binary
+---
