@@ -10,10 +10,7 @@ macro_rules! blarg_test {
             .flatten()
             .flat_map(|p| [p.r, p.g, p.b])
             .collect();
-        insta::assert_binary_snapshot!(
-            concat!("blarg-cpu-instrs-", $file, "-screen.bin"),
-            screen
-        );
+        insta::assert_binary_snapshot!(concat!("blarg-cpu-instrs-", $file, "-screen.bin"), screen);
     };
 }
 
