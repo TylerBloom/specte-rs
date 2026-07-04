@@ -121,20 +121,21 @@ impl MemoryBankController {
         // Check cartridge type
         info!("Cartridge type: {}", cart[0x0147]);
         match cart[0x0147] {
-            0x00 => {
+            // 0x08 is ROM+RAM and 0x09 is ROM+RAM+BATTERY. Neither uses a memory bank controller,
+            // so they map directly like a bare ROM (0x00), plus the optional 8 KiB of RAM.
+            0x00 | 0x08 | 0x09 => {
                 let rom = cart[0x0000..=0x7FFF].iter().copied().collect();
                 let ram = RamBank::new();
                 Self::Direct { rom, ram }
             }
-            0x01 => Self::MBC1(MBC1::new(rom_size, ram_size as usize, &cart)),
-            // TODO: Does the info of this bit need to be passed to the MBC1 constructor?
-            0x02 => Self::MBC1(MBC1::new(rom_size, ram_size as usize, &cart)),
-            // TODO: We need to communicate that the cart has RAM that is maintained by a battery.
-            0x03 => Self::MBC1(MBC1::new(rom_size, ram_size as usize, &cart)),
-            0x05 => todo!(),
-            0x06 => todo!(),
-            0x08 => todo!(),
-            0x09 => todo!(),
+            // 0x02 is MBC1+RAM and 0x03 adds a battery. The presence and size of RAM is already
+            // communicated to the constructor via `ram_size` (derived from the cartridge header),
+            // and battery-backed persistence is handled by serializing the whole emulator state, so
+            // no additional info needs to be passed to the constructor.
+            0x01 | 0x02 | 0x03 => Self::MBC1(MBC1::new(rom_size, ram_size as usize, &cart)),
+            // 0x06 is MBC2+BATTERY. Battery-backed persistence is handled by serializing the whole
+            // emulator state, so no extra info needs to be passed to the constructor.
+            0x05 | 0x06 => Self::MBC2(MBC2::new(rom_size, &cart)),
             0x0B => todo!(),
             0x0C => todo!(),
             0x0D => todo!(),
@@ -143,12 +144,9 @@ impl MemoryBankController {
             0x11 => Self::MBC3(MBC3::new(rom_size, ram_size, &cart)),
             0x12 => Self::MBC3(MBC3::new(rom_size, ram_size, &cart)),
             0x13 => Self::MBC3(MBC3::new(rom_size, ram_size, &cart)),
-            0x19 => todo!(),
-            0x1A => todo!(),
-            0x1B => todo!(),
-            0x1C => todo!(),
-            0x1D => todo!(),
-            0x1E => todo!(),
+            // 0x1C-0x1E add a rumble motor (unmodeled); 0x1B/0x1E add a battery (handled via whole
+            // state serialization). None of that changes how the controller is constructed.
+            0x19..=0x1E => Self::MBC5(MBC5::new(rom_size, ram_size, &cart)),
             0x20 => todo!(),
             0x22 => todo!(),
             0xFC => todo!(),
@@ -167,9 +165,9 @@ impl MemoryBankController {
                 _ => {}
             },
             MemoryBankController::MBC1(controller) => controller.overwrite_rom_zero(index, val),
-            MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
+            MemoryBankController::MBC2(controller) => controller.overwrite_rom_zero(index, val),
             MemoryBankController::MBC3(controller) => controller.overwrite_rom_zero(index, val),
-            MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
+            MemoryBankController::MBC5(controller) => controller.overwrite_rom_zero(index, val),
         }
     }
 
@@ -181,9 +179,9 @@ impl MemoryBankController {
                 _ => 0xFF,
             },
             MemoryBankController::MBC1(controller) => controller.read_byte(index),
-            MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
+            MemoryBankController::MBC2(controller) => controller.read_byte(index),
             MemoryBankController::MBC3(controller) => controller.read_byte(index),
-            MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
+            MemoryBankController::MBC5(controller) => controller.read_byte(index),
         }
     }
 
@@ -195,28 +193,9 @@ impl MemoryBankController {
                 } // We drop any writes not to RAM
             }
             MemoryBankController::MBC1(controller) => controller.write_byte(index, value),
-            MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
+            MemoryBankController::MBC2(controller) => controller.write_byte(index, value),
             MemoryBankController::MBC3(controller) => controller.write_byte(index, value),
-            MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
-        }
-    }
-
-    #[track_caller]
-    pub(super) fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
-        match self {
-            MemoryBankController::Direct { rom, ram } => match index {
-                0xA000..0xC000 => {
-                    let ptr = &mut ram[index as usize - 0xA000];
-                    update(ptr);
-                    *ptr
-                }
-                // NOTE: This shouldn't happen
-                _ => 0,
-            },
-            MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
-            MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
-            MemoryBankController::MBC3(controller) => controller.update_byte(index, update),
-            MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
+            MemoryBankController::MBC5(controller) => controller.write_byte(index, value),
         }
     }
 }
@@ -224,14 +203,15 @@ impl MemoryBankController {
 impl Debug for MemoryBankController {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MemoryBankController::Direct { rom, ram, .. } => write!(
-                f,
-                "Direct {{ rom_size: {ROM_BANK_SIZE}, ram_size: {RAM_BANK_SIZE} }}",
-            ),
-            MemoryBankController::MBC1(_) => todo!("MBC1 not yet impl-ed"),
-            MemoryBankController::MBC2(_) => todo!("MBC2 not yet impl-ed"),
-            MemoryBankController::MBC3(_) => todo!("MBC3 not yet impl-ed"),
-            MemoryBankController::MBC5(_) => todo!("MBC5 not yet impl-ed"),
+            MemoryBankController::Direct { rom, ram } => f
+                .debug_struct("Direct")
+                .field("rom_size", &rom.0.len())
+                .field("ram_size", &ram.0.len())
+                .finish(),
+            MemoryBankController::MBC1(controller) => write!(f, "{controller:?}"),
+            MemoryBankController::MBC2(controller) => write!(f, "{controller:?}"),
+            MemoryBankController::MBC3(controller) => write!(f, "{controller:?}"),
+            MemoryBankController::MBC5(controller) => write!(f, "{controller:?}"),
         }
     }
 }
