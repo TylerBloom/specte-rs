@@ -67,8 +67,9 @@ impl Ppu {
         for _ in 0..(mem.speed_mode as u8) {
             if check_bit_const::<7>(mem.io().lcd_control) {
                 self.ticked = true;
-                digest |= self.inner
-                    .tick(&mut self.screen, &mut self.obj_fifo, &mut self.bg_fifo, mem);
+                digest |=
+                    self.inner
+                        .tick(&mut self.screen, &mut self.obj_fifo, &mut self.bg_fifo, mem);
             } else {
                 if self.ticked {
                     mem.io_mut().lcd_y = 0;
@@ -489,7 +490,7 @@ impl PixelFetcher {
                 let mut y = if let Some(window) = window {
                     window.line_count
                 } else {
-                    y
+                    y.wrapping_add(mem.io().bg_position.0)
                 };
                 y %= 8;
                 if check_bit_const::<6>(attr) {
@@ -511,16 +512,12 @@ impl PixelFetcher {
             }
             PixelFetcher::DataHigh { ticked, .. } if !*ticked => *ticked = true,
             &mut PixelFetcher::DataHigh {
-                ticked: _,
-                index,
-                x,
-                lo,
-                attr,
+                index, x, lo, attr, ..
             } => {
                 let mut y = if let Some(window) = window {
                     window.line_count
                 } else {
-                    y
+                    y.wrapping_add(mem.io().bg_position.0)
                 };
                 y %= 8;
                 if check_bit_const::<6>(attr) {
