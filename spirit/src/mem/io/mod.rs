@@ -84,8 +84,11 @@ pub struct IoRegisters {
     /// ADDR FF6A and FF6B
     pub(crate) object_palettes: ColorPalettes,
     undoc_registers: [u8; 4],
-    /// Set when written (register KEY0) to on startup.
-    pub(crate) is_gbc: bool,
+    /// There are gaps amount the memory mapped IO registers. Any index into this that hits one of
+    /// these gaps resets the value. Notably, this is also used when mutably indexing to the
+    /// divider register but not while immutably indexing.
+    /// ADDR FF03, FF08-FF0E, FF27-FF29, FF4C-FF4E, FF56-FF67, FF6C-FF6F
+    dead_byte: u8,
 }
 
 impl Default for IoRegisters {
@@ -109,10 +112,10 @@ impl Default for IoRegisters {
             boot_status: Default::default(),
             background_palettes: Default::default(),
             object_palettes: Default::default(),
+            dead_byte: Default::default(),
             boot_status_disabled: false,
             cpu_mode: Default::default(),
             speed_switch: 0b0111_1110,
-            is_gbc: true,
         }
     }
 }
@@ -485,21 +488,9 @@ impl IoRegisters {
             0xFF4B => self.window_position[1],
             // This can not be directly accessed
             0xFF4C => 0xFF,
-            0xFF4D => {
-                if self.is_gbc {
-                    self.speed_switch
-                } else {
-                    0xFF
-                }
-            }
+            0xFF4D => self.speed_switch,
             // When reading from this register, all bits expect the first are 1
-            0xFF4F => {
-                if self.is_gbc {
-                    0xFE | self.vram_select
-                } else {
-                    0xFF
-                }
-            }
+            0xFF4F => 0xFE | self.vram_select,
             0xFF50 => {
                 if self.boot_status_disabled {
                     0xFF
@@ -507,34 +498,10 @@ impl IoRegisters {
                     self.boot_status
                 }
             }
-            0xFF68 => {
-                if self.is_gbc {
-                    self.background_palettes.read_index()
-                } else {
-                    0xFF
-                }
-            }
-            0xFF69 => {
-                if self.is_gbc {
-                    self.background_palettes.read_palette_byte()
-                } else {
-                    0xFF
-                }
-            }
-            0xFF6A => {
-                if self.is_gbc {
-                    self.object_palettes.read_index()
-                } else {
-                    0xFF
-                }
-            }
-            0xFF6B => {
-                if self.is_gbc {
-                    self.object_palettes.read_palette_byte()
-                } else {
-                    0xFF
-                }
-            }
+            0xFF68 => self.background_palettes.read_index(),
+            0xFF69 => self.background_palettes.read_palette_byte(),
+            0xFF6A => self.object_palettes.read_index(),
+            0xFF6B => self.object_palettes.read_palette_byte(),
             0xFF72 => self.undoc_registers[0],
             0xFF73 => self.undoc_registers[1],
             0xFF74 => self.undoc_registers[2],
@@ -594,48 +561,21 @@ impl IoRegisters {
             0xFF49 => self.monochrome_obj_palettes[1] = value,
             0xFF4A => self.window_position[0] = value,
             0xFF4B => self.window_position[1] = value,
-            0xFF4C => {
-                if value == 0x04 {
-                    self.is_gbc = false;
-                }
-                self.cpu_mode = value
-            }
-            0xFF4D => {
-                if self.is_gbc {
-                    selective_write(&mut self.speed_switch, 1, value)
-                }
-            }
+            0xFF4C => self.cpu_mode = value,
+            0xFF4D => selective_write(&mut self.speed_switch, 1, value),
             // Ignore all but the first bit of the value
             0xFF4F => {
-                if self.is_gbc {
-                    let old = self.vram_select;
-                    selective_write(&mut self.vram_select, 1, value);
-                }
+                let old = self.vram_select;
+                selective_write(&mut self.vram_select, 1, value);
             }
             0xFF50 => {
                 self.boot_status_disabled = true;
                 self.boot_status = value
             }
-            0xFF68 => {
-                if self.is_gbc {
-                    self.background_palettes.write_index(value);
-                }
-            }
-            0xFF69 => {
-                if self.is_gbc {
-                    self.background_palettes.write_palette_byte(value);
-                }
-            }
-            0xFF6A => {
-                if self.is_gbc {
-                    self.object_palettes.write_index(value);
-                }
-            }
-            0xFF6B => {
-                if self.is_gbc {
-                    self.object_palettes.write_palette_byte(value);
-                }
-            }
+            0xFF68 => self.background_palettes.write_index(value),
+            0xFF69 => self.background_palettes.write_palette_byte(value),
+            0xFF6A => self.object_palettes.write_index(value),
+            0xFF6B => self.object_palettes.write_palette_byte(value),
             0xFF72 => self.undoc_registers[0] = value,
             0xFF73 => self.undoc_registers[1] = value,
             0xFF74 => self.undoc_registers[2] = value,
