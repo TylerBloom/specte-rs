@@ -607,6 +607,10 @@ impl MemoryLike for Vec<u8> {
     fn tick(&mut self, _ppu: &mut Ppu) {}
 
     fn switch_speeds(&mut self) {}
+
+    fn check_interrupt(&self) -> Option<InterruptOp> {
+        None
+    }
 }
 
 // #[cfg(test)]
