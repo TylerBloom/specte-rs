@@ -92,7 +92,6 @@ pub struct MemoryMap {
     /// When indexed, this register is at 0xFFFF.
     pub ie: u8,
     pub(crate) speed_mode: SpeedMode,
-    is_gbc: bool,
 }
 
 /// Marks the speed at which certain parts of the GB should be running at. Note that "speed" here
@@ -144,11 +143,7 @@ impl MemoryLike for MemoryMap {
             0xFE00..=0xFE9F => self.vram[CpuOamIndex(addr)] = val,
             // NOTE: This region *should not* actually be accessed
             0xFEA0..=0xFEFF => {}
-            0xFF51..=0xFF55 => {
-                if self.is_gbc {
-                    self.vram_dma.write_byte(addr, val)
-                }
-            }
+            0xFF51..=0xFF55 => self.vram_dma.write_byte(addr, val),
             0xFF46 => self.oam_dma.trigger(val),
             0xFF00..=0xFF7F => self.io.write_byte(addr, val),
             0xFF80..=0xFFFE => self.hr[(addr - 0xFF80) as usize] = val,
@@ -239,7 +234,6 @@ impl MemoryMap {
             oam_dma: OamDma::new(),
             vram_dma: VramDma::new(),
             speed_mode: SpeedMode::Standard,
-            is_gbc: true,
         }
     }
 
@@ -259,8 +253,6 @@ impl MemoryMap {
 
     pub(crate) fn start_up_unmap(&mut self, mut headers: StartUpHeaders) {
         info!("Starting start up unmapping...");
-        self.is_gbc = self.io.is_gbc;
-        self.wram.is_gbc = self.io.is_gbc;
         for i in 0..=0xFF {
             self.mbc.direct_overwrite(i as u16, &mut headers.0[i]);
         }
@@ -268,7 +260,6 @@ impl MemoryMap {
             self.mbc
                 .direct_overwrite((i + 0x200) as u16, &mut headers.1[i]);
         }
-        self.wram = WRam::default();
         info!("Finished start up unmapping!!");
     }
 
@@ -287,13 +278,7 @@ impl MemoryMap {
             // NOTE: This region *should not* actually be accessed, but, instead of panicking, a
             // dead byte will be returned instead.
             0xFEA0..=0xFEFF => 0xFF,
-            0xFF51..=0xFF55 => {
-                if self.is_gbc {
-                    self.vram_dma.read_byte(index)
-                } else {
-                    0xFF
-                }
-            }
+            0xFF51..=0xFF55 => self.vram_dma.read_byte(index),
             0xFF46 => self.oam_dma.register,
             n @ 0xFF00..=0xFF7F => self.io.read_byte(n),
             n @ 0xFF80..=0xFFFE => self.hr[(n - 0xFF80) as usize],
@@ -366,7 +351,6 @@ impl MemoryMap {
             oam_dma: OamDma::new(),
             vram_dma: VramDma::new(),
             speed_mode: SpeedMode::Standard,
-            is_gbc: true,
         }
     }
 
@@ -386,19 +370,12 @@ pub struct WRam {
     bank_selection: u8,
     static_bank: MemoryBank<0x1000>,
     rotation_bank: [MemoryBank<0x1000>; 7],
-    is_gbc: bool,
 }
 
 impl WRam {
     fn read_byte(&self, addr: u16) -> u8 {
         match addr {
-            0xFF70 => {
-                if self.is_gbc {
-                    std::cmp::max(self.bank_selection, 1)
-                } else {
-                    0xFF
-                }
-            }
+            0xFF70 => std::cmp::max(self.bank_selection, 1),
             0xC000..0xD000 | 0xE000..0xF000 => self.static_bank[(addr & 0x0FFF) as usize],
             0xD000..0xE000 | 0xF000..0xFE00 => {
                 let addr = addr & 0x0FFF;
@@ -417,11 +394,7 @@ impl WRam {
 
     fn write_byte(&mut self, addr: u16, value: u8) {
         match addr {
-            0xFF70 => {
-                if self.is_gbc {
-                    self.bank_selection = value & 0x07
-                }
-            }
+            0xFF70 => self.bank_selection = value & 0x07,
             0xC000..0xD000 | 0xE000..0xF000 => self.static_bank[(addr & 0x0FFF) as usize] = value,
             0xD000..0xE000 | 0xF000..0xFE00 => {
                 let addr = addr & 0x0FFF;
@@ -634,10 +607,6 @@ impl MemoryLike for Vec<u8> {
     fn tick(&mut self, _ppu: &mut Ppu) {}
 
     fn switch_speeds(&mut self) {}
-
-    fn check_interrupt(&self) -> Option<InterruptOp> {
-        None
-    }
 }
 
 // #[cfg(test)]
