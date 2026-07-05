@@ -316,12 +316,12 @@ impl MemoryMap {
         self.io.request_timer_int()
     }
 
-    pub fn request_serial_int(&mut self) {
-        self.io.request_serial_int()
+    pub fn request_button_press(&mut self, input: ButtonInput) {
+        self.io.register_button_input(input)
     }
 
-    pub fn request_button_int(&mut self, input: ButtonInput) {
-        self.io.register_button_input(input)
+    pub fn request_button_release(&mut self, input: ButtonInput) {
+        self.io.register_button_release(input)
     }
 }
 

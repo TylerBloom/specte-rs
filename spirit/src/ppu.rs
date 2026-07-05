@@ -323,30 +323,47 @@ pub struct BgPixel {
 pub struct ObjectPixel {
     /// Which color for the selected palette should be used. Ranges from 0 to 3.
     color: u8,
-    /// Color palette to use. Ranges from 0 to 7.
+    /// CGB color palette to use. Ranges from 0 to 7.
     palette: u8,
+    /// DMG monochrome palette to use (OAM attribute bit 4): 0 selects OBP0, 1 selects OBP1. Only
+    /// consulted in DMG compatibility mode.
+    dmg_palette: u8,
     priority: bool,
+}
+
+/// Maps a 2-bit DMG shade (0 = white ... 3 = black) to a grayscale `Pixel`. The values are in the
+/// RGB555 space used by `Pixel` (0-31 per channel).
+fn dmg_shade(shade: u8) -> Pixel {
+    const SHADES: [u8; 4] = [0x1F, 0x15, 0x0A, 0x00];
+    let v = SHADES[shade as usize];
+    Pixel { r: v, g: v, b: v }
 }
 
 impl BgPixel {
     fn mix(self, obj: ObjectPixel, mem: &MemoryMap) -> Pixel {
-        if obj.color == 0 {
-            return mem[BgPaletteIndex(self.palette)]
-                .get_color(self.color)
-                .into();
-        }
-        if !check_bit_const::<0>(mem.io().lcd_control) {
-            mem[ObjPaletteIndex(obj.palette)].get_color(obj.color)
-        } else if self.priority || obj.priority {
-            if self.color > 0 && self.color < 4 {
-                mem[BgPaletteIndex(self.palette)].get_color(self.color)
-            } else {
-                mem[ObjPaletteIndex(obj.palette)].get_color(obj.color)
-            }
+        // Decide whether the background or the object pixel is shown. This choice is independent of
+        // how the winning pixel is later colored (DMG monochrome vs CGB palette memory).
+        let bg_wins = obj.color == 0
+            || (check_bit_const::<0>(mem.io().lcd_control)
+                && (self.priority || obj.priority)
+                && (self.color > 0 && self.color < 4));
+        if bg_wins {
+            self.color_pixel(mem)
         } else {
-            mem[ObjPaletteIndex(obj.palette)].get_color(obj.color)
+            obj.color_pixel(mem)
         }
-        .into()
+    }
+
+    /// Resolves this background pixel to a concrete color. In DMG compatibility mode the color index
+    /// is mapped through the monochrome BG palette (BGP) to a gray shade; otherwise it indexes CGB
+    /// palette memory.
+    fn color_pixel(self, mem: &MemoryMap) -> Pixel {
+        if mem.io().dmg_mode() {
+            let shade = (mem.io().monochrome_bg_palette >> (2 * self.color)) & 0x3;
+            dmg_shade(shade)
+        } else {
+            mem[BgPaletteIndex(self.palette)].get_color(self.color).into()
+        }
     }
 }
 
@@ -357,14 +374,26 @@ impl ObjectPixel {
         Self {
             color: 0,
             palette: 0,
+            dmg_palette: 0,
             priority: true,
         }
     }
 
     pub fn as_pixel(self, mem: &MemoryMap) -> Pixel {
-        mem[ObjPaletteIndex(self.palette)]
-            .get_color(self.color)
-            .into()
+        self.color_pixel(mem)
+    }
+
+    /// Resolves this object pixel to a concrete color. In DMG compatibility mode the color index is
+    /// mapped through the monochrome OBJ palette selected by OAM attribute bit 4 (OBP0/OBP1) to a
+    /// gray shade; otherwise it indexes CGB palette memory.
+    fn color_pixel(self, mem: &MemoryMap) -> Pixel {
+        if mem.io().dmg_mode() {
+            let reg = mem.io().monochrome_obj_palettes[self.dmg_palette as usize];
+            let shade = (reg >> (2 * self.color)) & 0x3;
+            dmg_shade(shade)
+        } else {
+            mem[ObjPaletteIndex(self.palette)].get_color(self.color).into()
+        }
     }
 }
 
@@ -617,10 +646,14 @@ impl OamObject {
         let index = index as usize;
         let lo = obj[2 * index];
         let hi = obj[2 * index + 1];
+        let dmg_palette = (self.attrs >> 4) & 0x1;
         let mut digest = zip_bits(hi, lo)
             .map(|color| ObjectPixel {
                 color,
                 palette: self.attrs & 0x7,
+                // Keep transparent (color 0) pixels at 0 so they still compare equal to
+                // `ObjectPixel::transparent()` and are filtered out in `populate_buffer`.
+                dmg_palette: if color == 0 { 0 } else { dmg_palette },
                 priority: check_bit_const::<7>(self.attrs),
             })
             .collect::<InlineVec<_, 8>>();
