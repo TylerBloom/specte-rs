@@ -56,9 +56,9 @@ pub struct IoRegisters {
     /// ADDR FF45
     pub(crate) lcd_cmp: u8,
     /// ADDR FF47
-    monochrome_bg_palette: u8,
+    pub(crate) monochrome_bg_palette: u8,
     /// ADDR FF48 & FF49
-    monochrome_obj_palettes: [u8; 2],
+    pub(crate) monochrome_obj_palettes: [u8; 2],
     /// ADDR FF4A & FF4B
     pub(crate) window_position: [u8; 2],
     /// ADDR FF4C
@@ -95,7 +95,7 @@ impl Default for IoRegisters {
     fn default() -> Self {
         Self {
             undoc_registers: [0, 0, 0xFF, 0b1000_1111],
-            joypad: 0xFF,
+            joypad: 0xCF,
             serial: (0x00, 0x7E),
             tac: TimerRegisters::new(),
             interrupt_flags: 0b1110_0000,
@@ -435,6 +435,10 @@ impl IoRegisters {
         self.interrupt_flags |= 0b1000;
     }
 
+    pub fn request_button_int(&mut self) {
+        self.interrupt_flags |= 0b10000;
+    }
+
     pub fn register_button_input(&mut self, input: ButtonInput) {
         let byte = match input {
             ButtonInput::Joypad(button) if !check_bit_const::<4>(self.joypad) => button as u8,
@@ -442,17 +446,24 @@ impl IoRegisters {
             _ => return,
         };
         self.joypad &= !byte;
-        // self.io.interrupt_flags |= self.ie & 0b1_0000;
-        self.interrupt_flags |= 0b1_0000;
+        self.request_button_int();
     }
 
     pub fn register_button_release(&mut self, input: ButtonInput) {
         let byte = match input {
             ButtonInput::Joypad(button) if !check_bit_const::<4>(self.joypad) => button as u8,
             ButtonInput::Ssab(button) if !check_bit_const::<5>(self.joypad) => button as u8,
-            _ => return,
+            _ => 0,
         };
         self.joypad |= byte;
+    }
+
+    /// Whether the system is running a DMG (non-CGB) game in compatibility mode. The boot ROM
+    /// writes 0x04 to KEY0 (0xFF4C) for DMG cartridges, which is stored in `cpu_mode`. In this mode
+    /// the PPU renders via the monochrome palette registers (BGP/OBP0/OBP1) rather than CGB palette
+    /// memory.
+    pub(crate) fn dmg_mode(&self) -> bool {
+        self.cpu_mode & 0x04 != 0
     }
 
     pub(crate) fn clear_interrupt_req(&mut self, op: InterruptOp) {
@@ -469,7 +480,13 @@ impl IoRegisters {
 
     pub(crate) fn read_byte(&self, index: u16) -> u8 {
         match index {
-            0xFF00 => self.joypad,
+            0xFF00 => {
+                if check_bit_const::<4>(self.joypad) || check_bit_const::<5>(self.joypad) {
+                    self.joypad
+                } else {
+                    0xCF
+                }
+            }
             0xFF01 => self.serial.0,
             0xFF02 => self.serial.1,
             0xFF04..=0xFF07 => self.tac.read_byte(index),
