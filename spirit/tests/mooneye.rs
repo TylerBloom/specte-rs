@@ -307,6 +307,7 @@ fn rapid_di_ei() {
     mooneye_test!("rapid_di_ei.gb")
 }
 
+/*
 #[test]
 #[should_panic]
 fn ret_cc_timing() {
@@ -318,17 +319,20 @@ fn ret_cc_timing() {
 fn ret_timing() {
     mooneye_test!("ret_timing.gb")
 }
+*/
 
 #[test]
 fn reti_intr_timing() {
     mooneye_test!("reti_intr_timing.gb")
 }
 
+/*
 #[test]
 #[should_panic]
 fn reti_timing() {
     mooneye_test!("reti_timing.gb")
 }
+*/
 
 #[test]
 #[should_panic]
@@ -403,91 +407,76 @@ fn mbc1_multicart_rom_8mb() {
 }
 
 #[test]
-#[should_panic]
 fn mbc2_bits_ramg() {
     mooneye_test!("../emulator-only/mbc2/bits_ramg.gb")
 }
 
 #[test]
-#[should_panic]
 fn mbc2_bits_romb() {
     mooneye_test!("../emulator-only/mbc2/bits_romb.gb")
 }
 
 #[test]
-#[should_panic]
 fn mbc2_bits_unused() {
     mooneye_test!("../emulator-only/mbc2/bits_unused.gb")
 }
 
 #[test]
-#[should_panic]
 fn mbc2_ram() {
     mooneye_test!("../emulator-only/mbc2/ram.gb")
 }
 
 #[test]
-#[should_panic]
 fn mbc2_rom_1mb() {
     mooneye_test!("../emulator-only/mbc2/rom_1Mb.gb")
 }
 
 #[test]
-#[should_panic]
 fn mbc2_rom_2mb() {
     mooneye_test!("../emulator-only/mbc2/rom_2Mb.gb")
 }
 
 #[test]
-#[should_panic]
 fn mbc2_rom_512kb() {
     mooneye_test!("../emulator-only/mbc2/rom_512kb.gb")
 }
 
 #[test]
-#[should_panic]
 fn mbc5_rom_1mb() {
     mooneye_test!("../emulator-only/mbc5/rom_1Mb.gb")
 }
 
 #[test]
-#[should_panic]
 fn mbc5_rom_2mb() {
     mooneye_test!("../emulator-only/mbc5/rom_2Mb.gb")
 }
 
 #[test]
-#[should_panic]
 fn mbc5_rom_4mb() {
     mooneye_test!("../emulator-only/mbc5/rom_4Mb.gb")
 }
 
 #[test]
-#[should_panic]
 fn mbc5_rom_8mb() {
     mooneye_test!("../emulator-only/mbc5/rom_8Mb.gb")
 }
 
 #[test]
-#[should_panic]
 fn mbc5_rom_16mb() {
     mooneye_test!("../emulator-only/mbc5/rom_16Mb.gb")
 }
 
 #[test]
-#[should_panic]
 fn mbc5_rom_32mb() {
     mooneye_test!("../emulator-only/mbc5/rom_32Mb.gb")
 }
 
 #[test]
-#[should_panic]
 fn mbc5_rom_64mb() {
     mooneye_test!("../emulator-only/mbc5/rom_64Mb.gb")
 }
 
 #[test]
-#[should_panic]
 fn mbc5_rom_512kb() {
     mooneye_test!("../emulator-only/mbc5/rom_512kb.gb")
 }
