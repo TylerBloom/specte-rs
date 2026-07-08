@@ -56,8 +56,7 @@ impl CliHistory {
             let mut buffer = Vec::new();
             for span in spans {
                 let (start, end) = split_span(width, span);
-                loop {
-                }
+                loop {}
             }
         }
 
