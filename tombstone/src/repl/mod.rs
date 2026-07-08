@@ -9,14 +9,14 @@ mod commands;
 mod history;
 
 use crate::Command;
-use crate::cli::commands::CommandProcessor;
-use crate::cli::history::CliHistory;
+use crate::repl::commands::CommandProcessor;
+use crate::repl::history::CliHistory;
 
 /// The text displayed at the start of the shell command input.
 static PROMPT: &str = "> ";
 
 #[derive(Debug, Default)]
-pub struct Cli {
+pub struct Repl {
     processor: CommandProcessor,
     history: CliHistory,
     /// Tracks where in the CLI history the cursor is at. Used for events like Up and Down.
@@ -25,7 +25,7 @@ pub struct Cli {
     history_index: usize,
 }
 
-impl Cli {
+impl Repl {
     pub fn new() -> Self {
         Self {
             processor: CommandProcessor::new(),
@@ -35,7 +35,8 @@ impl Cli {
     }
 
     pub fn display(&mut self, data: String) {
-        self.history.push_visual_history(data);
+        self.history
+            .push_visual_history(data.lines().map(ToOwned::to_owned).map(Into::into));
     }
 
     pub fn push_to_history(&mut self, data: String) {
@@ -91,7 +92,8 @@ impl Cli {
                 if !s.is_empty() {
                     self.history.push_command(s);
                 } else {
-                    self.history.push_visual_history(PROMPT.into());
+                    self.history
+                        .push_visual_history(std::iter::once(PROMPT.into()));
                 }
                 self.history_index = 0;
                 match command {
@@ -107,7 +109,7 @@ impl Cli {
 
     pub fn render(&self, frame: &mut Frame, rect: Rect) {
         let block = Block::bordered()
-            .title(" CLI ")
+            .title(" REPL ")
             .title_alignment(ratatui::layout::Alignment::Center);
         let inner_rect = block.inner(rect);
         let y = inner_rect.y;
