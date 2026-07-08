@@ -18,7 +18,7 @@ pub(crate) static CONFIG_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
     base_dir
 });
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// The path to the game trove.
     #[serde(default)]

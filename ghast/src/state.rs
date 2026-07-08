@@ -2,7 +2,7 @@ use std::env::home_dir;
 
 use iced::Element;
 use iced::Subscription;
-use iced::advanced::image::Bytes;
+use bytes::Bytes;
 use iced::widget::Button;
 use iced::widget::Image;
 use iced::widget::column;
