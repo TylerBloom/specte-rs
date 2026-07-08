@@ -1,9 +1,8 @@
 use std::env::home_dir;
 
+use bytes::Bytes;
 use iced::Element;
 use iced::Subscription;
-use iced::advanced::image::Bytes;
-use iced::keyboard::on_key_press;
 use iced::widget::Button;
 use iced::widget::Image;
 use iced::widget::column;
@@ -114,7 +113,9 @@ impl UiState {
     }
 
     pub fn subscription(&self) -> Subscription<UiMessage> {
-        on_key_press(Keystroke::convert).map(UiMessage::Keystroke)
+        iced::keyboard::listen()
+            .filter_map(Keystroke::convert)
+            .map(UiMessage::Keystroke)
     }
 }
 
