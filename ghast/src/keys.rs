@@ -1,5 +1,5 @@
+use iced::keyboard::Event;
 use iced::keyboard::Key;
-use iced::keyboard::Modifiers;
 use iced::keyboard::key::Named;
 
 #[derive(Debug)]
@@ -8,9 +8,12 @@ pub enum Keystroke {
 }
 
 impl Keystroke {
-    pub fn convert(key: Key, _mods: Modifiers) -> Option<Self> {
-        match key {
-            Key::Named(Named::Escape) => Some(Self::Escape),
+    pub fn convert(event: Event) -> Option<Self> {
+        match event {
+            Event::KeyPressed {
+                key: Key::Named(Named::Escape),
+                ..
+            } => Some(Self::Escape),
             _ => None,
         }
     }
