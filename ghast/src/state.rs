@@ -1,8 +1,8 @@
 use std::env::home_dir;
 
+use bytes::Bytes;
 use iced::Element;
 use iced::Subscription;
-use bytes::Bytes;
 use iced::widget::Button;
 use iced::widget::Image;
 use iced::widget::column;
