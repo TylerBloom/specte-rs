@@ -119,6 +119,7 @@ impl PpuInner {
             PpuInner::OamScan { dots } if *dots == 79 => {
                 *self = Self::Drawing { dots: 0 };
                 obj.oam_scan(bg.y, mem);
+                bg.find_bg_position(mem);
                 mem.inc_ppu_status(self.state());
             }
             PpuInner::OamScan { dots } => *dots += 1,
@@ -249,6 +250,10 @@ struct BackgroundFiFo {
     /// the x position of the pixel is large enough and the window is enabled.
     background: InlineVec<BgPixel, 8>,
     window: Window,
+    /// The background X position might not be aligned to the edge of a tile. In such cases, we
+    /// need to skip some number of pixels before returning the rest.
+    pixels_to_skip: usize,
+    skipped_pixels: usize,
 }
 
 #[derive(Debug, Default, Hash, Serialize, Deserialize, Clone, Copy)]
@@ -268,9 +273,17 @@ impl BackgroundFiFo {
             fetcher: PixelFetcher::new(),
             background: InlineVec::new(),
             window: Window::default(),
+            pixels_to_skip: 0,
+            skipped_pixels: 0,
             x: 0,
             y: 0,
         }
+    }
+
+    fn find_bg_position(&mut self, mem: &MemoryMap) {
+        self.background.clear();
+        self.skipped_pixels = 0;
+        self.pixels_to_skip = mem.io().bg_position.1 as usize % 8;
     }
 
     fn next_scanline(&mut self) {
@@ -301,7 +314,14 @@ impl BackgroundFiFo {
     }
 
     fn pop_pixel(&mut self) -> Option<BgPixel> {
-        self.background.pop()
+        if self.skipped_pixels < self.pixels_to_skip {
+            if self.background.pop().is_some() {
+                self.skipped_pixels += 1;
+            }
+            None
+        } else {
+            self.background.pop()
+        }
     }
 }
 
