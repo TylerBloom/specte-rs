@@ -201,25 +201,20 @@ impl ObjectFiFo {
         } else {
             8
         };
-        let digest = (0..40)
-            // std::iter::once(0)
-            // .skip(1)
-            // .step_by(2)
+        let mut digest = (0..40)
             .map(|i| &mem[OamObjectIndex(i)])
             .filter(|[y_pos, ..]| *y_pos <= y && *y_pos + range > y)
             .copied()
             .map(OamObject::new)
             .take(10)
-            // TODO: This is a better way to do this. We should collect into a heapless::Vec
-            // and just call `.rev()` on the iter. Unforetunely, the heapless vec iter doesn't
-            // impl this :"(
-            .collect::<Vec<_>>();
+            .collect::<InlineVec<_, 10>>();
 
-        digest
-            .into_iter()
-            // We reverse here because the top objects have priority over the lower ones should
-            // they overlap.
-            .rev()
+        // Prioritize objects with the lower X value for non-GBC games.
+        if mem.io().dmg_mode() {
+            digest.sort_by(|a, b| a.x.cmp(&b.x));
+        }
+
+        digest.into_iter().rev()
     }
 
     /// Constructs all of the pixels needed for mixing on this scanline
@@ -341,9 +336,9 @@ fn dmg_shade(shade: u8) -> Pixel {
 
 impl BgPixel {
     fn mix(self, obj: ObjectPixel, mem: &MemoryMap) -> Pixel {
-        // Decide whether the background or the object pixel is shown. This choice is independent of
-        // how the winning pixel is later colored (DMG monochrome vs CGB palette memory).
-        let bg_wins = obj.color == 0
+        // Decide whether the background or the object pixel is shown. This choice is independent
+        // of how the winning pixel is later colored (DMG monochrome vs CGB palette memory).
+        let bg_wins = obj.is_transparent()
             || (check_bit_const::<0>(mem.io().lcd_control)
                 && (self.priority || obj.priority)
                 && (self.color > 0 && self.color < 4));
@@ -362,7 +357,9 @@ impl BgPixel {
             let shade = (mem.io().monochrome_bg_palette >> (2 * self.color)) & 0x3;
             dmg_shade(shade)
         } else {
-            mem[BgPaletteIndex(self.palette)].get_color(self.color).into()
+            mem[BgPaletteIndex(self.palette)]
+                .get_color(self.color)
+                .into()
         }
     }
 }
@@ -379,6 +376,11 @@ impl ObjectPixel {
         }
     }
 
+    #[inline(always)]
+    const fn is_transparent(&self) -> bool {
+        self.color == 0
+    }
+
     pub fn as_pixel(self, mem: &MemoryMap) -> Pixel {
         self.color_pixel(mem)
     }
@@ -392,7 +394,9 @@ impl ObjectPixel {
             let shade = (reg >> (2 * self.color)) & 0x3;
             dmg_shade(shade)
         } else {
-            mem[ObjPaletteIndex(self.palette)].get_color(self.color).into()
+            mem[ObjPaletteIndex(self.palette)]
+                .get_color(self.color)
+                .into()
         }
     }
 }
@@ -618,7 +622,7 @@ impl OamObject {
         self.generate_pixels(y, mem)
             .into_iter()
             .enumerate()
-            .filter(|(_, pixel)| pixel != &ObjectPixel::transparent())
+            .filter(|(_, pixel)| !pixel.is_transparent())
             .for_each(|(i, pixel)| buffer[x + i] = pixel);
     }
 
