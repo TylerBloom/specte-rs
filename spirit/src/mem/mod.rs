@@ -62,7 +62,7 @@ pub trait MemoryLike {
     // memory (that's the PPU's tick is implemented) and have the tick be done by the Gameboy
     // directly. Unfortunately, the `MemoryLike` abstraction makes that much more difficult. When
     // `MemoryLike` is removed, `MemoryMap::tick` does not need to take this reference.
-    fn tick(&mut self, ppu: &mut Ppu);
+    fn tick(&mut self, ppu: &mut Ppu) -> usize;
 }
 
 #[serde_as]
@@ -181,10 +181,11 @@ impl MemoryLike for MemoryMap {
 
     /// This method ticks the memory. The only thing this affects is the divider and timer
     /// registers.
-    fn tick(&mut self, ppu: &mut Ppu) {
+    fn tick(&mut self, ppu: &mut Ppu) -> usize {
         self.io.tick(self.speed_mode);
         ppu.tick(self);
-        for _ in 0..4 {
+        let speed = self.speed_mode as usize;
+        for _ in 0..speed {
             // FIXME: This is incorect. OAM DMA transfers happen immediately, not while being
             // ticked. This needs to be removed.
             if let Some((r, w)) = self.oam_dma.tick() {
@@ -193,6 +194,7 @@ impl MemoryLike for MemoryMap {
                 self.vram.oam[w as usize] = byte;
             }
         }
+        speed
     }
 
     fn check_interrupt(&self) -> Option<InterruptOp> {
@@ -604,7 +606,7 @@ impl MemoryLike for Vec<u8> {
 
     fn vram_transfer(&mut self) {}
 
-    fn tick(&mut self, _ppu: &mut Ppu) {}
+    fn tick(&mut self, _ppu: &mut Ppu) -> usize { 0 }
 
     fn switch_speeds(&mut self) {}
 
