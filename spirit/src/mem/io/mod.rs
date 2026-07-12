@@ -33,7 +33,7 @@ pub fn selective_write(existing: &mut u8, mask: u8, new: u8) {
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IoRegisters {
     /// ADDR FF00
-    pub(super) joypad: u8,
+    pub(super) joypad: Joypad,
     /// ADDR FF01, FF02
     // FIXME: Not impl-ed at all
     serial: (u8, u8),
@@ -95,7 +95,7 @@ impl Default for IoRegisters {
     fn default() -> Self {
         Self {
             undoc_registers: [0, 0, 0xFF, 0b1000_1111],
-            joypad: 0xCF,
+            joypad: Joypad::default(),
             serial: (0x00, 0x7E),
             tac: TimerRegisters::new(),
             interrupt_flags: 0b1110_0000,
@@ -227,6 +227,71 @@ struct AudioRegisters {
     /// The CH4 control
     /// This register is at FF23
     ch4_control: u8,
+}
+
+/// Represents the abstract idea of the joypad register.
+///
+/// The joypad register contains information of all 8 buttons. When read, the register contains
+/// information on when inputs are selected. A group is selected when the 4th or 5th bits of the
+/// register are set, which are the only two writable bits.
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+struct Joypad {
+    selection: u8,
+    dpad_state: u8,
+    ssab_state: u8,
+}
+
+impl Joypad {
+    /// The lower nibble is ANDed across whichever groups are selected. A bit reads as pressed when
+    /// unset. When neither group is selected the lower four nibble is 0xF.
+    fn read(&self) -> u8 {
+        let mut nibble = 0x0F;
+        if !check_bit_const::<4>(self.joypad) {
+            nibble &= !self.dpad_state;
+        }
+        if !check_bit_const::<5>(self.joypad) {
+            nibble &= !self.ssab_state;
+        }
+        0xC0 | (self.joypad & 0x30) | nibble
+    }
+
+    fn write(&mut self, value: u8) {
+        selective_write(&mut self.joypad, 0b0011_0000, value)
+    }
+
+    fn register_button_input(&mut self, input: ButtonInput) -> bool {
+        match input {
+            ButtonInput::Joypad(button) => {
+                let bit = button as u8;
+                let transition = self.dpad_state & bit == 0;
+                self.dpad_state |= bit;
+                transition && !check_bit_const::<4>(self.joypad)
+            }
+            ButtonInput::Ssab(button) => {
+                let bit = button as u8;
+                let transition = self.ssab_state & bit == 0;
+                self.ssab_state |= bit;
+                transition && !check_bit_const::<5>(self.joypad)
+            }
+        }
+    }
+
+    fn register_button_release(&mut self, input: ButtonInput) {
+        match input {
+            ButtonInput::Joypad(button) => self.dpad_state &= !(button as u8),
+            ButtonInput::Ssab(button) => self.ssab_state &= !(button as u8),
+        }
+    }
+}
+
+impl Default for Joypad {
+    fn default() -> Self {
+        Self {
+            selection: 0x30,
+            dpad_state: Default::default(),
+            ssab_state: Default::default(),
+        }
+    }
 }
 
 impl AudioRegisters {
@@ -440,22 +505,13 @@ impl IoRegisters {
     }
 
     pub fn register_button_input(&mut self, input: ButtonInput) {
-        let byte = match input {
-            ButtonInput::Joypad(button) if !check_bit_const::<4>(self.joypad) => button as u8,
-            ButtonInput::Ssab(button) if !check_bit_const::<5>(self.joypad) => button as u8,
-            _ => return,
-        };
-        self.joypad &= !byte;
-        self.request_button_int();
+        if self.joypad.register_button_input(input) {
+            self.request_button_int();
+        }
     }
 
     pub fn register_button_release(&mut self, input: ButtonInput) {
-        let byte = match input {
-            ButtonInput::Joypad(button) if !check_bit_const::<4>(self.joypad) => button as u8,
-            ButtonInput::Ssab(button) if !check_bit_const::<5>(self.joypad) => button as u8,
-            _ => 0,
-        };
-        self.joypad |= byte;
+        self.joypad.register_button_release(input)
     }
 
     /// Whether the system is running a DMG (non-CGB) game in compatibility mode. The boot ROM
@@ -480,13 +536,7 @@ impl IoRegisters {
 
     pub(crate) fn read_byte(&self, index: u16) -> u8 {
         match index {
-            0xFF00 => {
-                if check_bit_const::<4>(self.joypad) || check_bit_const::<5>(self.joypad) {
-                    self.joypad
-                } else {
-                    0xCF
-                }
-            }
+            0xFF00 => self.joypad.read(),
             0xFF01 => self.serial.0,
             0xFF02 => self.serial.1,
             0xFF04..=0xFF07 => self.tac.read_byte(index),
@@ -539,7 +589,7 @@ impl IoRegisters {
 
     pub(crate) fn write_byte(&mut self, index: u16, value: u8) {
         match index {
-            0xFF00 => selective_write(&mut self.joypad, 0b0011_0000, value),
+            0xFF00 => self.joypad.write(value),
             0xFF01 => self.serial.0 = value,
             0xFF02 => self.serial.1 = value,
             0xFF04..=0xFF07 => {
@@ -567,7 +617,12 @@ impl IoRegisters {
                 self.check_y_cmp();
             }
             0xFF42 => self.bg_position.0 = value,
-            0xFF43 => self.bg_position.1 = value,
+            0xFF43 => {
+                if value != self.bg_position.1 {
+                    tracing::warn!("Updating BG X from {} to {value}", self.bg_position.1);
+                }
+                self.bg_position.1 = value
+            }
             0xFF44 => {}
             0xFF45 => {
                 self.lcd_cmp = value;
