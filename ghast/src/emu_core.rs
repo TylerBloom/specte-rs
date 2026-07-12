@@ -3,6 +3,7 @@ use std::task::Context;
 use std::task::Poll;
 
 use iced::advanced::image::Handle;
+use spirit::ButtonInput;
 use spirit::Gameboy;
 use spirit::StartUpSequence;
 use spirit::ppu::Pixel;
@@ -13,9 +14,15 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::unbounded_channel;
+use tokio::time::Duration;
+use tokio::time::Instant;
+use tokio::time::interval;
 use tokio_stream::Stream;
 use tokio_stream::wrappers::ReceiverStream;
 
+use crate::keys::ButtonInteration;
+use crate::keys::ControlSignal;
+use crate::keys::Keystroke;
 use crate::utils::screen_to_image_scaled;
 
 pub struct EmuHandle {
@@ -25,9 +32,9 @@ pub struct EmuHandle {
 
 pub struct EmuSend(UnboundedSender<EmuMessage>);
 
-pub struct EmuRecv(Receiver<Handle>);
+pub struct EmuRecv(Receiver<(Handle, usize)>);
 
-pub struct EmuStream(Pin<Box<ReceiverStream<Handle>>>);
+pub struct EmuStream(Pin<Box<ReceiverStream<(Handle, usize)>>>);
 
 impl EmuHandle {
     // TODO: This will need a trove handle to pull in setting and configs
@@ -39,6 +46,7 @@ impl EmuHandle {
         let core = EmuCore {
             recv: msg_recv,
             send: frame_send,
+            frame_send: EmuSend(msg_send.clone()),
         };
         tokio::task::spawn(core.run());
         Self {
@@ -52,40 +60,35 @@ impl EmuHandle {
         (send, recv)
     }
 
-    pub fn pause(&self) {
-        self.send.pause()
-    }
-
-    pub fn resume(&self) {
-        self.send.resume()
-    }
-
     pub fn start_game(&self, game: Vec<u8>) {
         self.send.start_game(game)
     }
 
-    pub async fn next_frame(&mut self) -> Handle {
+    pub async fn next_frame(&mut self) -> (Handle, usize) {
         self.recv.next_frame().await
     }
 }
 
 impl EmuSend {
-    pub fn pause(&self) {
-        self.0.send(EmuMessage::Pause).unwrap()
+    pub fn keystroke(&self, key: Keystroke) {
+        self.0.send(EmuMessage::Keystroke(key)).unwrap()
     }
 
-    pub fn resume(&self) {
-        self.0.send(EmuMessage::Resume).unwrap()
+    pub fn pause(&self) {
+        self.keystroke(Keystroke::Control(ControlSignal::Pause));
     }
 
     pub fn start_game(&self, game: Vec<u8>) {
-        // self.0.send(EmuMessage::Start(game)).await.unwrap()
         self.0.send(EmuMessage::Start(game)).unwrap()
+    }
+
+    fn next_frame(&self) {
+        self.0.send(EmuMessage::NextFrame).unwrap()
     }
 }
 
 impl EmuRecv {
-    pub async fn next_frame(&mut self) -> Handle {
+    pub async fn next_frame(&mut self) -> (Handle, usize) {
         self.0.recv().await.unwrap()
     }
 
@@ -95,7 +98,7 @@ impl EmuRecv {
 }
 
 impl Stream for EmuStream {
-    type Item = Handle;
+    type Item = (Handle, usize);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::get_mut(self).0.as_mut().poll_next(cx)
@@ -106,47 +109,84 @@ impl Stream for EmuStream {
 /// intended that the core is ran in a seperate thread/task from the main core.
 struct EmuCore {
     recv: UnboundedReceiver<EmuMessage>,
-    send: Sender<Handle>,
+    frame_send: EmuSend,
+    send: Sender<(Handle, usize)>,
 }
 
 enum EmuMessage {
     Start(Vec<u8>),
-    Pause,
-    Resume,
+    Keystroke(Keystroke),
+    NextFrame,
 }
 
 impl EmuCore {
     async fn run(mut self) {
         let mut emu = self.wait_for_cart().await;
-        let Self { mut recv, send } = self;
-        let mut is_paused = false;
-        // 1/60 of a second is ~17 msec
-        let mut timer = tokio::time::interval(tokio::time::Duration::from_millis(17));
-        // Initially, this is a very basic cycle. We will always wait 17 ms, check for messages,
-        // then, if not paused, calculate the next frame and send it off to the handle.
-        loop {
+        let Self {
+            mut recv,
+            send,
+            frame_send,
+        } = self;
+        tokio::spawn(async move {
+            let mut timer = interval(tokio::time::Duration::from_secs(1) / 60);
             timer.tick().await;
             loop {
-                match recv.try_recv() {
-                    Ok(msg) => match msg {
-                        EmuMessage::Start(cart) => {
-                            is_paused = false;
-                            emu = Emulator::new(cart);
-                        }
-                        EmuMessage::Pause => is_paused = true,
-                        EmuMessage::Resume => is_paused = false,
-                    },
-                    Err(TryRecvError::Empty) => break,
-                    // There is nothing to do while the handle has hung up. Data can neither be
-                    // sent or recv-ed.
-                    // TODO: This needs to be a cleaner shutdown to prevent data loss.
-                    Err(TryRecvError::Disconnected) => panic!("Handle hung up"),
+                timer.tick().await;
+                frame_send.next_frame();
+            }
+        });
+        let mut is_paused = false;
+        let mut frames = 0;
+
+        let mut last_updated = Instant::now();
+        loop {
+            let Some(msg) = recv.recv().await else {
+                // There is nothing to do while the handle has hung up. Data can neither be
+                // sent or recv-ed.
+                // TODO: This needs to be a cleaner shutdown to prevent data loss.
+                panic!("Handle hung up")
+            };
+            match msg {
+                EmuMessage::NextFrame => {
+                    if !is_paused {
+                        emu.next_frame();
+                        frames += 1;
+                        send.send((emu.just_pixels(), frames)).await.unwrap();
+                    } else {
+                        continue;
+                    }
                 }
+                EmuMessage::Start(cart) => {
+                    frames = 0;
+                    is_paused = false;
+                    emu = Emulator::new(cart);
+                }
+                EmuMessage::Keystroke(Keystroke::Control(ControlSignal::Pause)) => {
+                    is_paused = !is_paused;
+                    continue;
+                }
+                EmuMessage::Keystroke(Keystroke::Control(ControlSignal::NextFrame)) => {
+                    is_paused = true;
+                    emu.next_frame();
+                    frames += 1;
+                    send.send((emu.just_pixels(), frames)).await.unwrap();
+                }
+                EmuMessage::Keystroke(Keystroke::Button(button)) => match button {
+                    ButtonInteration::ButtonPress(button) => {
+                        last_updated = Instant::now();
+                        step_duration(emu.gb_mut(), last_updated - last_updated);
+                        emu.gb_mut().button_press(button);
+                        continue
+                    }
+                    ButtonInteration::ButtonRelease(button) => {
+                        last_updated = Instant::now();
+                        step_duration(emu.gb_mut(), last_updated - last_updated);
+                        emu.gb_mut().button_release(button);
+                        continue
+                    }
+                },
             }
-            if !is_paused {
-                emu.next_frame();
-                send.send(emu.just_pixels()).await.unwrap();
-            }
+            last_updated = Instant::now()
         }
     }
 
@@ -236,5 +276,17 @@ impl Emulator {
 
     pub fn next_frame(&mut self) {
         self.gb.next_frame()
+    }
+}
+
+fn step_duration(gb: &mut Gameboy, dur: Duration) {
+    // We need to know how many instructions to step through. For this, we calculate the number of
+    // "dots" (clock cycles) that span the given duration.
+    //
+    // There are 70224 dots per frame. Calculate the percentage of a frame the duration is and find
+    // the number of dots for the duration
+    let mut dots = ((70224 * dur.as_micros()) / 17_000) as usize;
+    while dots > 0 {
+        dots = dots.saturating_sub(gb.step());
     }
 }
