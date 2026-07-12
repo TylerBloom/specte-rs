@@ -8,6 +8,8 @@ use ghast::emu_core::EmuHandle;
 use ghast::state::InGameMessage;
 use ghast::state::UiMessage;
 use ghast::state::UiState;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -15,6 +17,10 @@ struct Args {
 }
 
 pub fn main() -> iced::Result {
+    tracing_subscriber::fmt()
+        .compact()
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
     let conf = Config::read();
     let boot_fn = move || {
         let (send, recv) = EmuHandle::contruct_and_launch().split();
