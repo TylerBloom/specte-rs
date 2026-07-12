@@ -9,6 +9,7 @@ use tracing::trace;
 use crate::ButtonInput;
 use crate::cpu::check_bit_const;
 use crate::instruction::InterruptOp;
+use crate::mem::SpeedMode;
 use crate::ppu::Pixel;
 use crate::utils::Wrapping;
 
@@ -20,11 +21,21 @@ pub mod timers;
 
 use timers::TimerRegisters;
 
+/// Used to write a new byte into an existing byte where one or more of the bits are read-only.
+/// The `mask` should have writable bits set and read-only bits unset. E.g. if the bottom input is
+/// read-only, the mask should be 0xF0.
+pub fn selective_write(existing: &mut u8, mask: u8, new: u8) {
+    let masked_existing = *existing & (!mask);
+    let masked_new = new & mask;
+    *existing = masked_existing | masked_new;
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IoRegisters {
     /// ADDR FF00
-    pub(super) joypad: u8,
+    pub(super) joypad: Joypad,
     /// ADDR FF01, FF02
+    // FIXME: Not impl-ed at all
     serial: (u8, u8),
     /// ADDR FF04, FF05, FF06, FF07
     /// There are the (divider, timer, timer modulo, tac)
@@ -45,11 +56,17 @@ pub struct IoRegisters {
     /// ADDR FF45
     pub(crate) lcd_cmp: u8,
     /// ADDR FF47
-    monochrome_bg_palette: u8,
+    pub(crate) monochrome_bg_palette: u8,
     /// ADDR FF48 & FF49
-    monochrome_obj_palettes: [u8; 2],
+    pub(crate) monochrome_obj_palettes: [u8; 2],
     /// ADDR FF4A & FF4B
     pub(crate) window_position: [u8; 2],
+    /// ADDR FF4C
+    /// CPU mode selection. Only bit 2 is used. If set, the system is run in compatability mode.
+    /// Locked after boot.
+    pub cpu_mode: u8,
+    /// ADDR FF4D
+    pub speed_switch: u8,
     /// ADDR FF4F
     // TODO: Only the 0th bit is used. From the docs:
     // """
@@ -66,8 +83,6 @@ pub struct IoRegisters {
     pub background_palettes: ColorPalettes,
     /// ADDR FF6A and FF6B
     pub(crate) object_palettes: ColorPalettes,
-    /// ADDR FF70
-    wram_select: u8,
     undoc_registers: [u8; 4],
     /// There are gaps amount the memory mapped IO registers. Any index into this that hits one of
     /// these gaps resets the value. Notably, this is also used when mutably indexing to the
@@ -79,11 +94,11 @@ pub struct IoRegisters {
 impl Default for IoRegisters {
     fn default() -> Self {
         Self {
-            undoc_registers: [0, 0, 0, 0b1000_1111],
-            joypad: Default::default(),
-            serial: Default::default(),
+            undoc_registers: [0, 0, 0xFF, 0b1000_1111],
+            joypad: Joypad::default(),
+            serial: (0x00, 0x7E),
             tac: TimerRegisters::new(),
-            interrupt_flags: Default::default(),
+            interrupt_flags: 0b1110_0000,
             audio: Default::default(),
             lcd_control: Default::default(),
             lcd_status: Default::default(),
@@ -91,15 +106,16 @@ impl Default for IoRegisters {
             lcd_y: Default::default(),
             lcd_cmp: Default::default(),
             monochrome_bg_palette: Default::default(),
-            monochrome_obj_palettes: Default::default(),
+            monochrome_obj_palettes: [0xFF; 2],
             window_position: Default::default(),
-            vram_select: Default::default(),
+            vram_select: 0,
             boot_status: Default::default(),
             background_palettes: Default::default(),
             object_palettes: Default::default(),
-            wram_select: Default::default(),
             dead_byte: Default::default(),
             boot_status_disabled: false,
+            cpu_mode: Default::default(),
+            speed_switch: 0b0111_1110,
         }
     }
 }
@@ -213,7 +229,73 @@ struct AudioRegisters {
     ch4_control: u8,
 }
 
+/// Represents the abstract idea of the joypad register.
+///
+/// The joypad register contains information of all 8 buttons. When read, the register contains
+/// information on when inputs are selected. A group is selected when the 4th or 5th bits of the
+/// register are set, which are the only two writable bits.
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+struct Joypad {
+    selection: u8,
+    dpad_state: u8,
+    ssab_state: u8,
+}
+
+impl Joypad {
+    /// The lower nibble is ANDed across whichever groups are selected. A bit reads as pressed when
+    /// unset. When neither group is selected the lower four nibble is 0xF.
+    fn read(&self) -> u8 {
+        let mut nibble = 0x0F;
+        if !check_bit_const::<4>(self.joypad) {
+            nibble &= !self.dpad_state;
+        }
+        if !check_bit_const::<5>(self.joypad) {
+            nibble &= !self.ssab_state;
+        }
+        0xC0 | (self.joypad & 0x30) | nibble
+    }
+
+    fn write(&mut self, value: u8) {
+        selective_write(&mut self.joypad, 0b0011_0000, value)
+    }
+
+    fn register_button_input(&mut self, input: ButtonInput) -> bool {
+        match input {
+            ButtonInput::Joypad(button) => {
+                let bit = button as u8;
+                let transition = self.dpad_state & bit == 0;
+                self.dpad_state |= bit;
+                transition && !check_bit_const::<4>(self.joypad)
+            }
+            ButtonInput::Ssab(button) => {
+                let bit = button as u8;
+                let transition = self.ssab_state & bit == 0;
+                self.ssab_state |= bit;
+                transition && !check_bit_const::<5>(self.joypad)
+            }
+        }
+    }
+
+    fn register_button_release(&mut self, input: ButtonInput) {
+        match input {
+            ButtonInput::Joypad(button) => self.dpad_state &= !(button as u8),
+            ButtonInput::Ssab(button) => self.ssab_state &= !(button as u8),
+        }
+    }
+}
+
+impl Default for Joypad {
+    fn default() -> Self {
+        Self {
+            selection: 0x30,
+            dpad_state: Default::default(),
+            ssab_state: Default::default(),
+        }
+    }
+}
+
 impl AudioRegisters {
+    #[track_caller]
     fn read_byte(&self, index: u16) -> u8 {
         match index {
             /* Controls */
@@ -256,7 +338,7 @@ impl AudioRegisters {
             // NOTE: Only bit 6 is readable
             0xFF23 => self.ch4_control & 0b0100_0000,
             /* Oops... */
-            idx => unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4x}"),
+            idx => unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4X}"),
         }
     }
 
@@ -299,7 +381,7 @@ impl AudioRegisters {
             // NOTE: Only the top 2 bits are used
             0xFF23 => self.ch4_control = val & 0b1100_0000,
             /* Oops... */
-            idx => unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4x}"),
+            idx => {} // unreachable!("There was an attemped read from an unused bit @ 0x{idx:0>4x}"),
         }
     }
 }
@@ -340,8 +422,8 @@ impl Index<ObjPaletteIndex> for MemoryMap {
 // FF4A & FF4B -> Window position (Y, X + 7)
 
 impl IoRegisters {
-    pub(super) fn tick(&mut self) {
-        if self.tac.tick() {
+    pub(super) fn tick(&mut self, speed: SpeedMode) {
+        if self.tac.tick(speed) {
             self.request_timer_int();
         }
     }
@@ -351,6 +433,19 @@ impl IoRegisters {
         self.lcd_status &= 0b1111_1100;
         // Update the bottom two bits to be the state
         self.lcd_status |= state as u8;
+        // Check if the STAT interrupt needs to be triggered
+        match state {
+            // Trigger if we are moving into HBlank (mode 0) and the fifth bit is set
+            PpuMode::HBlank if check_bit_const::<3>(self.lcd_status) => self.request_lcd_int(),
+            // Trigger if we are moving into VBlank (mode 1) and the fifth bit is set
+            PpuMode::VBlank if check_bit_const::<4>(self.lcd_status) => self.request_lcd_int(),
+            // Trigger if we are moving into OamScan (mode 2) and the fifth bit is set
+            PpuMode::OamScan if check_bit_const::<5>(self.lcd_status) => self.request_lcd_int(),
+            _ => {}
+        }
+        if matches!(state, PpuMode::VBlank) {
+            self.request_vblank_int();
+        }
     }
 
     pub(crate) fn disable_lcd(&mut self) {
@@ -381,7 +476,6 @@ impl IoRegisters {
     }
 
     pub fn request_vblank_int(&mut self) {
-        // self.io.interrupt_flags |= self.ie & 0b1;
         self.interrupt_flags |= 0b1;
     }
 
@@ -395,39 +489,37 @@ impl IoRegisters {
     }
 
     pub fn request_lcd_int(&mut self) {
-        // self.io.interrupt_flags |= self.ie & 0b10;
         self.interrupt_flags |= 0b10;
     }
 
     pub fn request_timer_int(&mut self) {
-        // self.io.interrupt_flags |= self.ie & 0b100;
         self.interrupt_flags |= 0b100;
     }
 
     pub fn request_serial_int(&mut self) {
-        // self.io.interrupt_flags |= self.ie & 0b1000;
         self.interrupt_flags |= 0b1000;
     }
 
-    pub fn request_button_int(&mut self, input: ButtonInput) {
-        let byte = match input {
-            ButtonInput::Joypad(button)
-                if check_bit_const::<4>(self.joypad) && !check_bit_const::<5>(self.joypad) =>
-            {
-                button as u8
-            }
-            ButtonInput::Ssab(button)
-                if !check_bit_const::<4>(self.joypad) && check_bit_const::<5>(self.joypad) =>
-            {
-                button as u8
-            }
-            _ => return,
-        };
-        debug_assert_eq!(byte.count_ones(), 1);
-        debug_assert!(byte < 0xF0);
-        self.joypad &= byte;
-        // self.io.interrupt_flags |= self.ie & 0b1_0000;
-        self.interrupt_flags |= 0b1_0000;
+    pub fn request_button_int(&mut self) {
+        self.interrupt_flags |= 0b10000;
+    }
+
+    pub fn register_button_input(&mut self, input: ButtonInput) {
+        if self.joypad.register_button_input(input) {
+            self.request_button_int();
+        }
+    }
+
+    pub fn register_button_release(&mut self, input: ButtonInput) {
+        self.joypad.register_button_release(input)
+    }
+
+    /// Whether the system is running a DMG (non-CGB) game in compatibility mode. The boot ROM
+    /// writes 0x04 to KEY0 (0xFF4C) for DMG cartridges, which is stored in `cpu_mode`. In this mode
+    /// the PPU renders via the monochrome palette registers (BGP/OBP0/OBP1) rather than CGB palette
+    /// memory.
+    pub(crate) fn dmg_mode(&self) -> bool {
+        self.cpu_mode & 0x04 != 0
     }
 
     pub(crate) fn clear_interrupt_req(&mut self, op: InterruptOp) {
@@ -439,15 +531,16 @@ impl IoRegisters {
             InterruptOp::Joypad => 0b1_0000,
         };
         self.interrupt_flags &= !mask;
+        self.interrupt_flags |= 0b1110_0000;
     }
 
     pub(crate) fn read_byte(&self, index: u16) -> u8 {
         match index {
-            0xFF00 => self.joypad,
+            0xFF00 => self.joypad.read(),
             0xFF01 => self.serial.0,
             0xFF02 => self.serial.1,
             0xFF04..=0xFF07 => self.tac.read_byte(index),
-            0xFF0F => self.interrupt_flags,
+            0xFF0F => 0xE0 | self.interrupt_flags,
             0xFF10..=0xFF3F => self.audio.read_byte(index),
             0xFF40 => self.lcd_control,
             0xFF41 => self.lcd_status,
@@ -460,6 +553,9 @@ impl IoRegisters {
             0xFF49 => self.monochrome_obj_palettes[1],
             0xFF4A => self.window_position[0],
             0xFF4B => self.window_position[1],
+            // This can not be directly accessed
+            0xFF4C => 0xFF,
+            0xFF4D => self.speed_switch,
             // When reading from this register, all bits expect the first are 1
             0xFF4F => 0xFE | self.vram_select,
             0xFF50 => {
@@ -470,10 +566,9 @@ impl IoRegisters {
                 }
             }
             0xFF68 => self.background_palettes.read_index(),
-            0xFF69 => self.background_palettes.read_index(),
+            0xFF69 => self.background_palettes.read_palette_byte(),
             0xFF6A => self.object_palettes.read_index(),
-            0xFF6B => self.object_palettes.read_index(),
-            0xFF70 => self.wram_select,
+            0xFF6B => self.object_palettes.read_palette_byte(),
             0xFF72 => self.undoc_registers[0],
             0xFF73 => self.undoc_registers[1],
             0xFF74 => self.undoc_registers[2],
@@ -481,12 +576,12 @@ impl IoRegisters {
             0xFF03
             | 0xFF08..=0xFF0E
             | 0xFF27..=0xFF2F
-            | 0xFF4C..=0xFF4E
+            | 0xFF4E
             | 0xFF56..=0xFF67
             | 0xFF6C..=0xFF6F
             | 0xFF71
             | 0xFF76.. => 0xFF,
-            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF46 => unreachable!(
+            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF70 | 0xFF46 => unreachable!(
                 "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF80! Got index 0x{index:0>4x}"
             ),
         }
@@ -494,8 +589,7 @@ impl IoRegisters {
 
     pub(crate) fn write_byte(&mut self, index: u16, value: u8) {
         match index {
-            // TODO: Some bits aren't used. Mask those them.
-            0xFF00 => self.joypad = value,
+            0xFF00 => self.joypad.write(value),
             0xFF01 => self.serial.0 = value,
             0xFF02 => self.serial.1 = value,
             0xFF04..=0xFF07 => {
@@ -504,10 +598,9 @@ impl IoRegisters {
                 }
             }
             // Top three bits are ignored because there are only 5 types of interrupts
-            0xFF0F => self.interrupt_flags = 0x1F & value,
+            0xFF0F => self.interrupt_flags = 0b1110_0000 | (0x1F & value),
             0xFF10..=0xFF3F => self.audio.write_byte(index, value),
             0xFF40 => {
-                self.lcd_control = value;
                 let was_on = check_bit_const::<7>(self.lcd_control);
                 self.lcd_control = value;
                 let is_on = check_bit_const::<7>(self.lcd_control);
@@ -524,7 +617,12 @@ impl IoRegisters {
                 self.check_y_cmp();
             }
             0xFF42 => self.bg_position.0 = value,
-            0xFF43 => self.bg_position.1 = value,
+            0xFF43 => {
+                if value != self.bg_position.1 {
+                    tracing::warn!("Updating BG X from {} to {value}", self.bg_position.1);
+                }
+                self.bg_position.1 = value
+            }
             0xFF44 => {}
             0xFF45 => {
                 self.lcd_cmp = value;
@@ -535,8 +633,13 @@ impl IoRegisters {
             0xFF49 => self.monochrome_obj_palettes[1] = value,
             0xFF4A => self.window_position[0] = value,
             0xFF4B => self.window_position[1] = value,
+            0xFF4C => self.cpu_mode = value,
+            0xFF4D => selective_write(&mut self.speed_switch, 1, value),
             // Ignore all but the first bit of the value
-            0xFF4F => self.vram_select = 1 & value,
+            0xFF4F => {
+                let old = self.vram_select;
+                selective_write(&mut self.vram_select, 1, value);
+            }
             0xFF50 => {
                 self.boot_status_disabled = true;
                 self.boot_status = value
@@ -545,7 +648,6 @@ impl IoRegisters {
             0xFF69 => self.background_palettes.write_palette_byte(value),
             0xFF6A => self.object_palettes.write_index(value),
             0xFF6B => self.object_palettes.write_palette_byte(value),
-            0xFF70 => self.wram_select = value,
             0xFF72 => self.undoc_registers[0] = value,
             0xFF73 => self.undoc_registers[1] = value,
             0xFF74 => self.undoc_registers[2] = value,
@@ -555,13 +657,13 @@ impl IoRegisters {
             0xFF03
             | 0xFF08..=0xFF0E
             | 0xFF27..=0xFF2F
-            | 0xFF4C..=0xFF4E
+            | 0xFF4E
             | 0xFF56..=0xFF67
             | 0xFF6C..=0xFF6F
             | 0xFF71
             | 0xFF76.. => {}
-            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF46 | 0xFF80.. => unreachable!(
-                "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70!"
+            ..=0xFEFF | 0xFF51..=0xFF55 | 0xFF70 | 0xFF46 | 0xFF80.. => unreachable!(
+                "The MemoryMap should never index into the IO registers outside of 0xFF00-0xFF70 but was indexed at 0x{index:0>4X}!"
             ),
         }
     }
@@ -692,5 +794,146 @@ impl From<PaletteColor> for Pixel {
             g: value.g(),
             b: value.b(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use strum::IntoEnumIterator;
+
+    use crate::ButtonInput;
+    use crate::JoypadInput;
+    use crate::SsabInput;
+
+    use super::ColorPalettes;
+    use super::IoRegisters;
+    use super::Palette;
+    use super::PaletteColor;
+
+    // Tests the various traits of the joypad.
+    //  - The bottom nibble is read only
+    //  - The default position of the bottom 4 bits is 1
+    //  - Pressing an allowed button should switch the cooresponding bit to 0
+    //  - "mode" selection (for bits 4 and 5) works similarly, 0 == selected
+    //   - If no mode is selected, the bottom nibble is read as 0xF
+    //  - The top two bits are ignored.
+    #[test]
+    fn joypad_tests() {
+        fn button_iter() -> impl Iterator<Item = ButtonInput> {
+            JoypadInput::iter()
+                .map(ButtonInput::Joypad)
+                .chain(SsabInput::iter().map(ButtonInput::Ssab))
+        }
+
+        let mut io = IoRegisters::default();
+        // Initially, no input mode should be selected
+        assert_eq!(io.read_byte(0xFF00), 0xFF);
+        // Top two bits should be unaffected, both modes should be on, bottom nibble should be
+        // unaffected
+        io.write_byte(0xFF00, 0);
+        assert_eq!(io.read_byte(0xFF00), 0xCF);
+
+        // Select no modes and ensure that no button press is registered
+        io.write_byte(0xFF00, 0xFF);
+        assert_eq!(io.read_byte(0xFF00), 0xFF);
+        for input in button_iter() {
+            io.register_button_input(input);
+            assert_eq!(io.read_byte(0xFF00), 0xFF);
+            io.register_button_release(input);
+        }
+        println!();
+
+        // Select only Joypad modes and ensure that only those button presses are registered
+        println!("Testing joypad only...");
+        io.write_byte(0xFF00, 0xEF);
+        assert_eq!(io.read_byte(0xFF00), 0xEF);
+        for input in button_iter() {
+            println!("Testing input: {input:?}");
+            io.register_button_input(input);
+            let expected = match input {
+                ButtonInput::Joypad(input) => 0x0F & !(input as u8),
+                ButtonInput::Ssab(_) => 0x0F,
+            };
+            assert_eq!(io.read_byte(0xFF00), 0xE0 | expected,);
+            // Ensure that, when other buttons are pressed, it leaves this button unaffected
+            for other in button_iter().filter(|other| *other != input) {
+                io.register_button_input(other);
+                let inner_expected = match other {
+                    ButtonInput::Joypad(input) => 0x0F & !(input as u8),
+                    ButtonInput::Ssab(_) => 0x0F,
+                };
+                assert_eq!(io.read_byte(0xFF00), 0xE0 | (inner_expected & expected));
+                io.register_button_release(other);
+                assert_eq!(io.read_byte(0xFF00), 0xE0 | expected);
+            }
+            io.register_button_release(input);
+        }
+        println!();
+
+        // Select only SSAB modes and ensure that only those button presses are registered
+        println!("Testing SSAB only...");
+        io.write_byte(0xFF00, 0xDF);
+        assert_eq!(io.read_byte(0xFF00), 0xDF);
+        for input in button_iter() {
+            println!("Testing input: {input:?}");
+            io.register_button_input(input);
+            let expected = match input {
+                ButtonInput::Ssab(input) => 0x0F & !(input as u8),
+                ButtonInput::Joypad(_) => 0x0F,
+            };
+            assert_eq!(io.read_byte(0xFF00), 0xD0 | expected);
+            for other in button_iter().filter(|other| *other != input) {
+                io.register_button_input(other);
+                let inner_expected = match other {
+                    ButtonInput::Ssab(input) => 0x0F & !(input as u8),
+                    ButtonInput::Joypad(_) => 0x0F,
+                };
+                assert_eq!(
+                    io.read_byte(0xFF00),
+                    0xD0 | (inner_expected & expected),
+                    "Actual: 0x{:0>2X}, Expected: 0x{:0>2X}",
+                    io.read_byte(0xFF00),
+                    0xD0 | (inner_expected & expected)
+                );
+                io.register_button_release(other);
+                assert_eq!(io.read_byte(0xFF00), 0xD0 | expected);
+            }
+            io.register_button_release(input);
+        }
+        println!();
+
+        // Select both modes and ensure that all button presses are registered
+        println!("Testing both modes...");
+        io.write_byte(0xFF00, 0xCF);
+        assert_eq!(io.read_byte(0xFF00), 0xCF);
+        for input in button_iter() {
+            println!("Testing input: {input:?}");
+            io.register_button_input(input);
+            let expected = match input {
+                ButtonInput::Ssab(input) => 0x0F & !(input as u8),
+                ButtonInput::Joypad(input) => 0x0F & !(input as u8),
+            };
+            assert_eq!(io.read_byte(0xFF00), 0xC0 | expected);
+            io.register_button_release(input);
+        }
+        println!();
+    }
+
+    // Tests the various properties of the VRAM selection register.
+    //  - Only the first bit is used, all other should always return 1
+    //  - Default position on the first bit is unset
+    #[test]
+    fn vram_select_tests() {
+        let mut io = IoRegisters::default();
+        assert_eq!(io.read_byte(0xFF4F), 0b1111_1110);
+
+        io.write_byte(0xFF4F, 0);
+        assert_eq!(io.read_byte(0xFF4F), 0b1111_1110);
+
+        io.write_byte(0xFF4F, 1);
+        assert_eq!(io.read_byte(0xFF4F), 0b1111_1111);
+
+        io.write_byte(0xFF4F, 0xFF);
+        assert_eq!(io.read_byte(0xFF4F), 0b1111_1111);
     }
 }

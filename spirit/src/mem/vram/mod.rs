@@ -18,7 +18,7 @@ use super::ObjTileDataIndex;
 use super::io::BgPaletteIndex;
 use super::io::ObjPaletteIndex;
 
-static DEAD_READ_ONLY_BYTE: u8 = 0xFF;
+pub mod dma;
 
 /// This wrapper type is used to communicate that the VRAM should be indexed into when indexing into VRam.
 /// Since there is state that determines what gets indexed into, this type is used rather than
@@ -31,6 +31,7 @@ pub(super) struct CpuVramIndex(pub bool, pub u16);
 pub(super) struct CpuOamIndex(pub u16);
 
 #[repr(u8)]
+#[cfg_attr(test, derive(strum_macros::EnumIter))]
 #[derive(
     Debug,
     Default,
@@ -48,13 +49,13 @@ pub(super) struct CpuOamIndex(pub u16);
 pub enum PpuMode {
     /// Also refered to as "Mode 2" in the pandocs.
     #[default]
-    OamScan = 0,
+    OamScan = 2,
     /// Also refered to as "Mode 3" in the pandocs.
-    Drawing = 1,
+    Drawing = 3,
     /// Also refered to as "Mode 0" in the pandocs.
-    HBlank = 2,
+    HBlank = 0,
     /// Also refered to as "Mode 1" in the pandocs.
-    VBlank = 3,
+    VBlank = 1,
 }
 
 #[serde_as]
@@ -73,6 +74,17 @@ pub struct VRam {
     /// Because we need to return a reference to some byte when indexing but the state of the PPU
     /// might restrict reads/write, this byte is used in those cases.
     dead_byte: u8,
+}
+
+impl Default for VRam {
+    fn default() -> Self {
+        Self {
+            vram: [[0; 0x2000]; 2],
+            oam: [0; 0xA0],
+            status: Default::default(),
+            dead_byte: Default::default(),
+        }
+    }
 }
 
 impl VRam {
@@ -98,10 +110,7 @@ impl Index<CpuVramIndex> for VRam {
     type Output = u8;
 
     fn index(&self, CpuVramIndex(bank, index): CpuVramIndex) -> &Self::Output {
-        if self.status.is_drawing() {
-            info!("Attempting to read from VRAM while locked!!!");
-            &DEAD_READ_ONLY_BYTE
-        } else if bank {
+        if bank {
             &self.vram[1][index as usize - 0x8000]
         } else {
             &self.vram[0][index as usize - 0x8000]
@@ -111,11 +120,7 @@ impl Index<CpuVramIndex> for VRam {
 
 impl IndexMut<CpuVramIndex> for VRam {
     fn index_mut(&mut self, CpuVramIndex(bank, index): CpuVramIndex) -> &mut Self::Output {
-        if self.status.is_drawing() {
-            info!("Attempting to write to VRAM while locked!!!");
-            self.dead_byte = 0xFF;
-            &mut self.dead_byte
-        } else if bank {
+        if bank {
             &mut self.vram[1][index as usize - 0x8000]
         } else {
             &mut self.vram[0][index as usize - 0x8000]
@@ -128,23 +133,14 @@ impl Index<CpuOamIndex> for VRam {
 
     fn index(&self, CpuOamIndex(index): CpuOamIndex) -> &Self::Output {
         trace!("Indexing into OAM @ 0x{index:0>4X}");
-        if matches!(self.status, PpuMode::OamScan | PpuMode::Drawing) {
-            &DEAD_READ_ONLY_BYTE
-        } else {
-            &self.oam[index as usize - 0xFE00]
-        }
+        &self.oam[index as usize - 0xFE00]
     }
 }
 
 impl IndexMut<CpuOamIndex> for VRam {
     fn index_mut(&mut self, CpuOamIndex(index): CpuOamIndex) -> &mut Self::Output {
         trace!("Mutably indexing into OAM @ 0x{index:0>4X}");
-        if matches!(self.status, PpuMode::OamScan | PpuMode::Drawing) {
-            self.dead_byte = 0xFF;
-            &mut self.dead_byte
-        } else {
-            &mut self.oam[index as usize - 0xFE00]
-        }
+        &mut self.oam[index as usize - 0xFE00]
     }
 }
 

@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::cpu::check_bit_const;
+use crate::mem::SpeedMode;
 use crate::utils::Wrapping;
 
 // FIXME: The DIV, DIV counter, and timer control can probably be more directly and effeciently
@@ -83,38 +84,46 @@ impl TimerRegisters {
             divider_counter: Wrapping(0),
             timer_counter: TimerCounter::Ready(Wrapping(0)),
             timer_modulo: Wrapping(0),
-            timer_control: TimerControl::Disabled(0),
+            timer_control: TimerControl::Disabled(0xF8),
         }
     }
 
-    pub(super) fn tick(&mut self) -> bool {
-        self.divider_counter += 1;
-        if self.divider_counter == 0u8 {
-            self.divider_reg += 1;
-        }
-        if let TimerCounter::Loading(value) = &mut self.timer_counter {
-            *value += 1;
-            if *value == 4 {
-                self.timer_counter = TimerCounter::Ready(self.timer_modulo);
-            }
-        }
-        let inc = match &mut self.timer_control {
-            TimerControl::Disabled(_) => false,
-            TimerControl::Fastest => self.divider_counter % 16u8 == 0,
-            TimerControl::Fast => self.divider_counter % 64u8 == 0,
-            TimerControl::Slow => self.divider_counter == 0,
-            TimerControl::Slowest(counter) => {
-                if self.divider_counter == 0 {
-                    *counter += 1;
-                }
-                let digest = *counter == 4;
-                if digest {
-                    *counter = 0;
-                }
-                digest
-            }
+    pub(super) fn tick(&mut self, speed: SpeedMode) -> bool {
+        let mut digest = false;
+        let speed = match speed {
+            SpeedMode::Standard => 4,
+            SpeedMode::Double => 2,
         };
-        if inc { self.inc_timer_counter() } else { false }
+        for _ in 0..speed {
+            self.divider_counter += 1;
+            if self.divider_counter == 0u8 {
+                self.divider_reg += 1;
+            }
+            if let TimerCounter::Loading(value) = &mut self.timer_counter {
+                *value += 1;
+                if *value == 4 {
+                    self.timer_counter = TimerCounter::Ready(self.timer_modulo);
+                }
+            }
+            let inc = match &mut self.timer_control {
+                TimerControl::Disabled(_) => false,
+                TimerControl::Fastest => self.divider_counter % 16u8 == 0,
+                TimerControl::Fast => self.divider_counter % 64u8 == 0,
+                TimerControl::Slow => self.divider_counter == 0,
+                TimerControl::Slowest(counter) => {
+                    if self.divider_counter == 0 {
+                        *counter += 1;
+                    }
+                    let digest = *counter == 4;
+                    if digest {
+                        *counter = 0;
+                    }
+                    digest
+                }
+            };
+            digest |= if inc { self.inc_timer_counter() } else { false };
+        }
+        digest
     }
 
     fn inc_timer_counter(&mut self) -> bool {
@@ -220,12 +229,14 @@ impl TimerControl {
 }
 
 mod test {
+    use crate::mem::SpeedMode;
+
     use super::TimerRegisters;
 
     #[test]
     fn divider_register() {
         let mut regs = TimerRegisters::new();
-        assert!((0..0x100).all(|_| !regs.tick()));
+        assert!((0..0x100).all(|_| !regs.tick(SpeedMode::Standard)));
         assert_eq!(regs.divider_reg, 1);
         assert_eq!(regs.divider_counter, 0);
         let mut regs = TimerRegisters::new();
@@ -234,11 +245,11 @@ mod test {
         let digest = std::iter::repeat_n(0..0x100, u8::MAX as usize)
             .chain(std::iter::once(0..0xFF))
             .flatten()
-            .all(|_| !regs.tick());
+            .all(|_| !regs.tick(SpeedMode::Standard));
         assert!(digest);
         assert_eq!(regs.divider_reg, 0xFF);
         assert_eq!(regs.divider_counter, 0xFF);
-        assert!(!regs.tick());
+        assert!(!regs.tick(SpeedMode::Standard));
         assert_eq!(regs.divider_reg, 0);
         assert_eq!(regs.divider_counter, 0);
     }
@@ -420,4 +431,10 @@ mod test {
         assert_eq!(regs.timer_control, TimerControl::Fastest);
     }
     */
+}
+
+impl Default for TimerRegisters {
+    fn default() -> Self {
+        Self::new()
+    }
 }

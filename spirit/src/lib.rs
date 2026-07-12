@@ -16,7 +16,6 @@ use cpu::Cpu;
 use cpu::CpuState;
 use instruction::*;
 use mem::MemoryLike;
-use mem::MemoryLikeExt;
 use mem::MemoryMap;
 use mem::StartUpHeaders;
 use mem::vram::PpuMode;
@@ -69,7 +68,12 @@ impl Gameboy {
 
     /// Registers a button press.
     pub fn button_press(&mut self, input: ButtonInput) {
-        self.mem.request_button_int(input);
+        self.mem.request_button_press(input);
+    }
+
+    /// Registers a button press.
+    pub fn button_release(&mut self, input: ButtonInput) {
+        self.mem.request_button_release(input);
     }
 
     /// This method returns an iterator over the current and upcoming instructions, based on the
@@ -77,13 +81,14 @@ impl Gameboy {
     /// conditional jump will execute. Rather, it is to be used for debugging by providing a window
     /// into region around the PC.
     pub fn op_iter(&self) -> impl Iterator<Item = (u16, Instruction)> {
-        let mut pc = self.cpu.pc.0.saturating_sub(1);
-        let orig_pc = pc;
+        let loaded_pc = self.cpu.pc.0.saturating_sub(1);
+        let loaded_op = self.read_op();
+
         let ime = self.cpu.ime.current;
-        let op = self.mem.read_op(pc, ime);
-        pc += op.size() as u16;
+        let mut pc = loaded_pc + loaded_op.size() as u16;
+
         let mut stop = false;
-        std::iter::once((orig_pc, op)).chain(std::iter::from_fn(move || {
+        std::iter::once((loaded_pc, loaded_op)).chain(std::iter::from_fn(move || {
             if stop {
                 return None;
             }
@@ -109,15 +114,19 @@ impl Gameboy {
     /// This returns a state that will track the number of required clock ticks it takes to
     /// complete the next operation. If the state is dropped before the required number of ticks,
     /// the intruction is automatically ran.
-    pub fn step(&mut self) {
+    ///
+    /// Returns the number of clock cycles it took to execution the next operation.
+    pub fn step(&mut self) -> usize {
         let op = self.read_op();
+        let mut cycles = 0;
         let state = GameboyState {
             mem: &mut self.mem,
             ppu: &mut self.ppu,
             cpu: &mut self.cpu,
-            cycle_count: 0,
+            cycles: &mut cycles,
         };
         op.execute(state);
+        cycles
     }
 
     pub fn read_op(&self) -> Instruction {
@@ -128,7 +137,7 @@ impl Gameboy {
             self.mem.check_interrupt(),
         ) {
             (Some(op), _) => op,
-            (None, Some(op)) if self.cpu.ime.current => op,
+            (None, Some(op)) if self.cpu.ime.current => Instruction::Interrupt(op),
             _ => self.cpu.read_op(),
         }
     }
@@ -209,32 +218,44 @@ impl DerefMut for StartUpSequence {
 
 pub(crate) struct GameboyState<'a, M = MemoryMap>
 where
-    M: MemoryLikeExt,
+    M: MemoryLike,
 {
     pub(crate) mem: &'a mut M,
     pub(crate) ppu: &'a mut Ppu,
     pub(crate) cpu: &'a mut Cpu,
-    #[cfg(debug_assertions)]
-    /// Used during testing to ensure the number of cycles executed per instruction is correct
-    pub(crate) cycle_count: usize,
+    cycles: &'a mut usize
 }
 
-impl<M: MemoryLikeExt> GameboyState<'_, M> {
+impl<M: MemoryLike> GameboyState<'_, M> {
     pub(crate) fn tick(&mut self, cycle: MCycle) {
         self.cpu.execute(cycle, self.mem);
-        self.mem.tick(self.ppu);
-        #[cfg(debug_assertions)]
-        {
-            self.cycle_count += 1;
-        }
+        *self.cycles = self.mem.tick(self.ppu);
+    }
+
+    /// In the CGB, there were two speed modes. The double speed mode is triggered by writing to
+    /// the KEY1 register and running a STOP instruction. This switch take a total of 2050 machine
+    /// cycles.
+    ///
+    /// Once in double speed mode, CPU operations, Timer/Divider register ticks, Serial port
+    /// updates, and OAM DMA transfers take half as much time to perform. However, the LCD video
+    /// controller (including the PPU), HDMA VRAM transfers, and all sound effects are unaffected.
+    ///
+    /// To model this, the unaffected components will be ticked twice rather than four times while
+    /// in this mode.
+    pub fn switch_speeds(&mut self) {
+        // TODO: Does the PPU get advanced during this time?? Yes?
+        self.mem.switch_speeds();
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ButtonInput {
     Joypad(JoypadInput),
     Ssab(SsabInput),
 }
 
+#[cfg_attr(test, derive(strum_macros::EnumIter))]
+#[derive(Debug, PartialEq, Clone, Copy)]
 #[repr(u8)]
 pub enum JoypadInput {
     Right = 0x1,
@@ -243,6 +264,8 @@ pub enum JoypadInput {
     Down = 0x8,
 }
 
+#[cfg_attr(test, derive(strum_macros::EnumIter))]
+#[derive(Debug, PartialEq, Clone, Copy)]
 #[repr(u8)]
 pub enum SsabInput {
     A = 0x1,
@@ -250,6 +273,9 @@ pub enum SsabInput {
     Select = 0x4,
     Start = 0x8,
 }
+
+// TODO: Write tests for
+//  - Double speed mode
 
 #[cfg(test)]
 mod tests {

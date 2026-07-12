@@ -62,3 +62,20 @@ fn main() {
     )
     .unwrap();
 }
+
+fn sweep_mem(mem: &MemoryMap, mmu: &mut MMU) -> bool {
+    let mut digest = 0;
+    for i in 0u16..=u16::MAX {
+        if (0xFF10..=0xFF3F).contains(&i) {
+            continue
+        }
+        let a = mem.read_byte(i);
+        let b = mmu.rb(i);
+        if a != b {
+            digest += 1;
+            println!("Memory mismatch @ 0x{i:0>4X}, spirit=0x{a:0>2X}, rboy=0x{b:0>2X}");
+        }
+    }
+    println!("Total memory mismatches: {digest}");
+    digest == 0
+}

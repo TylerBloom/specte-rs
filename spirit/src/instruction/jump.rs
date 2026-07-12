@@ -63,8 +63,8 @@ pub enum JumpOp {
 }
 
 impl JumpOp {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, state: &mut GameboyState<'_, M>) {
-        fn vector_jump<const ADDR: u16, M: MemoryLikeExt>(state: &mut GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLike>(self, state: &mut GameboyState<'_, M>) {
+        fn vector_jump<const ADDR: u16, M: MemoryLike>(state: &mut GameboyState<'_, M>) {
             let cycle = MCycle {
                 addr_bus: PointerReg::SP,
                 action: AddrAction::Noop,
@@ -179,18 +179,17 @@ impl JumpOp {
                     alu: None,
                 };
                 state.tick(cycle);
-                let [s, _] = state.cpu.pc.0.to_be_bytes();
+                let [hi, lo] = state.cpu.pc.0.to_be_bytes();
                 let cycle = MCycle {
                     addr_bus: PointerReg::SP,
-                    action: AddrAction::Write(DataLocation::Literal(s)),
+                    action: AddrAction::Write(DataLocation::Literal(hi)),
                     idu: Some((IduSignal::Dec, FullRegister::SP)),
                     alu: None,
                 };
                 state.tick(cycle);
-                let [_, p] = state.cpu.pc.0.to_be_bytes();
                 let cycle = MCycle {
                     addr_bus: PointerReg::SP,
-                    action: AddrAction::Write(DataLocation::Literal(p)),
+                    action: AddrAction::Write(DataLocation::Literal(lo)),
                     idu: None,
                     alu: None,
                 };
@@ -216,18 +215,17 @@ impl JumpOp {
                         alu: None,
                     };
                     state.tick(cycle);
-                    let [s, _] = state.cpu.pc.0.to_be_bytes();
+                    let [hi, lo] = state.cpu.pc.0.to_be_bytes();
                     let cycle = MCycle {
                         addr_bus: PointerReg::SP,
-                        action: AddrAction::Write(DataLocation::Literal(s)),
+                        action: AddrAction::Write(DataLocation::Literal(hi)),
                         idu: Some((IduSignal::Dec, FullRegister::SP)),
                         alu: None,
                     };
                     state.tick(cycle);
-                    let [_, p] = state.cpu.pc.0.to_be_bytes();
                     let cycle = MCycle {
                         addr_bus: PointerReg::SP,
-                        action: AddrAction::Write(DataLocation::Literal(p)),
+                        action: AddrAction::Write(DataLocation::Literal(lo)),
                         idu: None,
                         alu: None,
                     };

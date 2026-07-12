@@ -2,7 +2,7 @@ use crate::GameboyState;
 use crate::cpu::Cpu;
 use crate::cpu::CpuState;
 use crate::cpu::FullRegister;
-use crate::mem::MemoryLikeExt;
+use crate::mem::MemoryLike;
 
 use derive_more::From;
 use derive_more::IsVariant;
@@ -398,10 +398,8 @@ pub enum AluOp {
 }
 
 impl Instruction {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, mut state: GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLike>(self, mut state: GameboyState<'_, M>) {
         info!("Executing {self}");
-        #[cfg(debug_assertions)]
-        let length = self.length(&state) as usize / 4;
         match self {
             Instruction::Load(load_op) => load_op.execute(&mut state),
             Instruction::ControlOp(control_op) => control_op.execute(&mut state),
@@ -448,12 +446,18 @@ impl Instruction {
                 let op = state.cpu.read_prefixed_op();
                 op.execute(&mut state);
             }
-            Instruction::Stall => state.tick(MCycle {
-                addr_bus: PointerReg::PC,
-                action: AddrAction::Noop,
-                idu: None,
-                alu: None,
-            }),
+            Instruction::Stall => {
+                if state.mem.check_interrupt().is_some() {
+                    state.cpu.state = CpuState::Running;
+                } else {
+                    state.tick(MCycle {
+                        addr_bus: PointerReg::PC,
+                        action: AddrAction::Noop,
+                        idu: None,
+                        alu: None,
+                    })
+                }
+            }
             Instruction::Stopped => state.tick(MCycle {
                 addr_bus: PointerReg::PC,
                 action: AddrAction::Noop,
@@ -473,14 +477,14 @@ impl Instruction {
             }
             Instruction::Unused => panic!("Attempted to execute an invalid operation code!!"),
         }
-        debug_assert_eq!(state.cycle_count, length);
         state.cpu.ime.tick();
     }
 
     /// Returns the number of ticks to will take to complete this instruction.
     /// Takes a reference to the CPU in order to determine if this instruction will pass any
     /// conditions.
-    fn length<M: MemoryLikeExt>(&self, state: &GameboyState<'_, M>) -> u8 {
+    #[allow(dead_code)]
+    fn length<M: MemoryLike>(&self, state: &GameboyState<'_, M>) -> u8 {
         match self {
             Instruction::Load(op) => op.length(),
             Instruction::ControlOp(op) => op.length(),

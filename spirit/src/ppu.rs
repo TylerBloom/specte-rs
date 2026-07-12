@@ -63,17 +63,22 @@ impl Ppu {
     }
 
     pub(crate) fn tick(&mut self, mem: &mut MemoryMap) -> bool {
-        if check_bit_const::<7>(mem.io().lcd_control) {
-            self.ticked = true;
-            self.inner
-                .tick(&mut self.screen, &mut self.obj_fifo, &mut self.bg_fifo, mem)
-        } else {
-            if self.ticked {
-                mem.io_mut().lcd_y = 0;
-                *self = Self::new();
+        let mut digest = false;
+        for _ in 0..(mem.speed_mode as u8) {
+            if check_bit_const::<7>(mem.io().lcd_control) {
+                self.ticked = true;
+                digest |=
+                    self.inner
+                        .tick(&mut self.screen, &mut self.obj_fifo, &mut self.bg_fifo, mem);
+            } else {
+                if self.ticked {
+                    mem.io_mut().lcd_y = 0;
+                    *self = Self::new();
+                }
+                digest = true;
             }
-            true
         }
+        digest
     }
 
     pub fn state(&self) -> PpuMode {
@@ -114,6 +119,7 @@ impl PpuInner {
             PpuInner::OamScan { dots } if *dots == 79 => {
                 *self = Self::Drawing { dots: 0 };
                 obj.oam_scan(bg.y, mem);
+                bg.find_bg_position(mem);
                 mem.inc_ppu_status(self.state());
             }
             PpuInner::OamScan { dots } => *dots += 1,
@@ -142,7 +148,6 @@ impl PpuInner {
                 mem.inc_lcd_y();
                 assert_eq!(bg.y, mem.io().lcd_y);
                 if bg.y == 144 {
-                    mem.request_vblank_int();
                     *self = Self::VBlank { dots: 0 };
                     mem.inc_ppu_status(self.state());
                 } else {
@@ -197,25 +202,20 @@ impl ObjectFiFo {
         } else {
             8
         };
-        let digest = (0..40)
-            // std::iter::once(0)
-            // .skip(1)
-            // .step_by(2)
+        let mut digest = (0..40)
             .map(|i| &mem[OamObjectIndex(i)])
             .filter(|[y_pos, ..]| *y_pos <= y && *y_pos + range > y)
             .copied()
             .map(OamObject::new)
             .take(10)
-            // TODO: This is a better way to do this. We should collect into a heapless::Vec
-            // and just call `.rev()` on the iter. Unforetunely, the heapless vec iter doesn't
-            // impl this :"(
-            .collect::<Vec<_>>();
+            .collect::<InlineVec<_, 10>>();
 
-        digest
-            .into_iter()
-            // We reverse here because the top objects have priority over the lower ones should
-            // they overlap.
-            .rev()
+        // Prioritize objects with the lower X value for non-GBC games.
+        if mem.io().dmg_mode() {
+            digest.sort_by(|a, b| a.x.cmp(&b.x));
+        }
+
+        digest.into_iter().rev()
     }
 
     /// Constructs all of the pixels needed for mixing on this scanline
@@ -250,6 +250,10 @@ struct BackgroundFiFo {
     /// the x position of the pixel is large enough and the window is enabled.
     background: InlineVec<BgPixel, 8>,
     window: Window,
+    /// The background X position might not be aligned to the edge of a tile. In such cases, we
+    /// need to skip some number of pixels before returning the rest.
+    pixels_to_skip: usize,
+    skipped_pixels: usize,
 }
 
 #[derive(Debug, Default, Hash, Serialize, Deserialize, Clone, Copy)]
@@ -269,9 +273,17 @@ impl BackgroundFiFo {
             fetcher: PixelFetcher::new(),
             background: InlineVec::new(),
             window: Window::default(),
+            pixels_to_skip: 0,
+            skipped_pixels: 0,
             x: 0,
             y: 0,
         }
+    }
+
+    fn find_bg_position(&mut self, mem: &MemoryMap) {
+        self.background.clear();
+        self.skipped_pixels = 0;
+        self.pixels_to_skip = mem.io().bg_position.1 as usize % 8;
     }
 
     fn next_scanline(&mut self) {
@@ -302,7 +314,14 @@ impl BackgroundFiFo {
     }
 
     fn pop_pixel(&mut self) -> Option<BgPixel> {
-        self.background.pop()
+        if self.skipped_pixels < self.pixels_to_skip {
+            if self.background.pop().is_some() {
+                self.skipped_pixels += 1;
+            }
+            None
+        } else {
+            self.background.pop()
+        }
     }
 }
 
@@ -319,30 +338,49 @@ pub struct BgPixel {
 pub struct ObjectPixel {
     /// Which color for the selected palette should be used. Ranges from 0 to 3.
     color: u8,
-    /// Color palette to use. Ranges from 0 to 7.
+    /// CGB color palette to use. Ranges from 0 to 7.
     palette: u8,
+    /// DMG monochrome palette to use (OAM attribute bit 4): 0 selects OBP0, 1 selects OBP1. Only
+    /// consulted in DMG compatibility mode.
+    dmg_palette: u8,
     priority: bool,
+}
+
+/// Maps a 2-bit DMG shade (0 = white ... 3 = black) to a grayscale `Pixel`. The values are in the
+/// RGB555 space used by `Pixel` (0-31 per channel).
+fn dmg_shade(shade: u8) -> Pixel {
+    const SHADES: [u8; 4] = [0x1F, 0x15, 0x0A, 0x00];
+    let v = SHADES[shade as usize];
+    Pixel { r: v, g: v, b: v }
 }
 
 impl BgPixel {
     fn mix(self, obj: ObjectPixel, mem: &MemoryMap) -> Pixel {
-        if obj.color == 0 {
-            return mem[BgPaletteIndex(self.palette)]
-                .get_color(self.color)
-                .into();
-        }
-        if !check_bit_const::<0>(mem.io().lcd_control) {
-            mem[ObjPaletteIndex(obj.palette)].get_color(obj.color)
-        } else if self.priority || obj.priority {
-            if self.color > 0 && self.color < 4 {
-                mem[BgPaletteIndex(self.palette)].get_color(self.color)
-            } else {
-                mem[ObjPaletteIndex(obj.palette)].get_color(obj.color)
-            }
+        // Decide whether the background or the object pixel is shown. This choice is independent
+        // of how the winning pixel is later colored (DMG monochrome vs CGB palette memory).
+        let bg_wins = obj.is_transparent()
+            || (check_bit_const::<0>(mem.io().lcd_control)
+                && (self.priority || obj.priority)
+                && (self.color > 0 && self.color < 4));
+        if bg_wins {
+            self.color_pixel(mem)
         } else {
-            mem[ObjPaletteIndex(obj.palette)].get_color(obj.color)
+            obj.color_pixel(mem)
         }
-        .into()
+    }
+
+    /// Resolves this background pixel to a concrete color. In DMG compatibility mode the color index
+    /// is mapped through the monochrome BG palette (BGP) to a gray shade; otherwise it indexes CGB
+    /// palette memory.
+    fn color_pixel(self, mem: &MemoryMap) -> Pixel {
+        if mem.io().dmg_mode() {
+            let shade = (mem.io().monochrome_bg_palette >> (2 * self.color)) & 0x3;
+            dmg_shade(shade)
+        } else {
+            mem[BgPaletteIndex(self.palette)]
+                .get_color(self.color)
+                .into()
+        }
     }
 }
 
@@ -353,14 +391,33 @@ impl ObjectPixel {
         Self {
             color: 0,
             palette: 0,
+            dmg_palette: 0,
             priority: true,
         }
     }
 
+    #[inline(always)]
+    const fn is_transparent(&self) -> bool {
+        self.color == 0
+    }
+
     pub fn as_pixel(self, mem: &MemoryMap) -> Pixel {
-        mem[ObjPaletteIndex(self.palette)]
-            .get_color(self.color)
-            .into()
+        self.color_pixel(mem)
+    }
+
+    /// Resolves this object pixel to a concrete color. In DMG compatibility mode the color index is
+    /// mapped through the monochrome OBJ palette selected by OAM attribute bit 4 (OBP0/OBP1) to a
+    /// gray shade; otherwise it indexes CGB palette memory.
+    fn color_pixel(self, mem: &MemoryMap) -> Pixel {
+        if mem.io().dmg_mode() {
+            let reg = mem.io().monochrome_obj_palettes[self.dmg_palette as usize];
+            let shade = (reg >> (2 * self.color)) & 0x3;
+            dmg_shade(shade)
+        } else {
+            mem[ObjPaletteIndex(self.palette)]
+                .get_color(self.color)
+                .into()
+        }
     }
 }
 
@@ -486,7 +543,7 @@ impl PixelFetcher {
                 let mut y = if let Some(window) = window {
                     window.line_count
                 } else {
-                    y
+                    y.wrapping_add(mem.io().bg_position.0)
                 };
                 y %= 8;
                 if check_bit_const::<6>(attr) {
@@ -508,16 +565,12 @@ impl PixelFetcher {
             }
             PixelFetcher::DataHigh { ticked, .. } if !*ticked => *ticked = true,
             &mut PixelFetcher::DataHigh {
-                ticked: _,
-                index,
-                x,
-                lo,
-                attr,
+                index, x, lo, attr, ..
             } => {
                 let mut y = if let Some(window) = window {
                     window.line_count
                 } else {
-                    y
+                    y.wrapping_add(mem.io().bg_position.0)
                 };
                 y %= 8;
                 if check_bit_const::<6>(attr) {
@@ -589,7 +642,7 @@ impl OamObject {
         self.generate_pixels(y, mem)
             .into_iter()
             .enumerate()
-            .filter(|(_, pixel)| pixel != &ObjectPixel::transparent())
+            .filter(|(_, pixel)| !pixel.is_transparent())
             .for_each(|(i, pixel)| buffer[x + i] = pixel);
     }
 
@@ -617,10 +670,14 @@ impl OamObject {
         let index = index as usize;
         let lo = obj[2 * index];
         let hi = obj[2 * index + 1];
+        let dmg_palette = (self.attrs >> 4) & 0x1;
         let mut digest = zip_bits(hi, lo)
             .map(|color| ObjectPixel {
                 color,
                 palette: self.attrs & 0x7,
+                // Keep transparent (color 0) pixels at 0 so they still compare equal to
+                // `ObjectPixel::transparent()` and are filtered out in `populate_buffer`.
+                dmg_palette: if color == 0 { 0 } else { dmg_palette },
                 priority: check_bit_const::<7>(self.attrs),
             })
             .collect::<InlineVec<_, 8>>();
