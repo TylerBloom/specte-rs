@@ -68,7 +68,12 @@ impl Gameboy {
 
     /// Registers a button press.
     pub fn button_press(&mut self, input: ButtonInput) {
-        self.mem.request_button_int(input);
+        self.mem.request_button_press(input);
+    }
+
+    /// Registers a button press.
+    pub fn button_release(&mut self, input: ButtonInput) {
+        self.mem.request_button_release(input);
     }
 
     /// This method returns an iterator over the current and upcoming instructions, based on the
@@ -109,14 +114,19 @@ impl Gameboy {
     /// This returns a state that will track the number of required clock ticks it takes to
     /// complete the next operation. If the state is dropped before the required number of ticks,
     /// the intruction is automatically ran.
-    pub fn step(&mut self) {
+    ///
+    /// Returns the number of clock cycles it took to execution the next operation.
+    pub fn step(&mut self) -> usize {
         let op = self.read_op();
+        let mut cycles = 0;
         let state = GameboyState {
             mem: &mut self.mem,
             ppu: &mut self.ppu,
             cpu: &mut self.cpu,
+            cycles: &mut cycles,
         };
         op.execute(state);
+        cycles
     }
 
     pub fn read_op(&self) -> Instruction {
@@ -213,12 +223,13 @@ where
     pub(crate) mem: &'a mut M,
     pub(crate) ppu: &'a mut Ppu,
     pub(crate) cpu: &'a mut Cpu,
+    cycles: &'a mut usize
 }
 
 impl<M: MemoryLike> GameboyState<'_, M> {
     pub(crate) fn tick(&mut self, cycle: MCycle) {
         self.cpu.execute(cycle, self.mem);
-        self.mem.tick(self.ppu);
+        *self.cycles = self.mem.tick(self.ppu);
     }
 
     /// In the CGB, there were two speed modes. The double speed mode is triggered by writing to
