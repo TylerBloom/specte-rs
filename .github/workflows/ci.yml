@@ -21,7 +21,7 @@ jobs:
           components: rustfmt, clippy
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - run: cargo fmt --check
       - run: cargo clippy --all
   tests:
@@ -34,7 +34,7 @@ jobs:
           rust-version: stable
           components: rustfmt
           targets: wasm32-unknown-unknown
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Fetch Trunk
         uses: jetli/trunk-action@v0.5.1
         with:
