@@ -246,17 +246,17 @@ impl Joypad {
     /// unset. When neither group is selected the lower four nibble is 0xF.
     fn read(&self) -> u8 {
         let mut nibble = 0x0F;
-        if !check_bit_const::<4>(self.joypad) {
+        if !check_bit_const::<4>(self.selection) {
             nibble &= !self.dpad_state;
         }
-        if !check_bit_const::<5>(self.joypad) {
+        if !check_bit_const::<5>(self.selection) {
             nibble &= !self.ssab_state;
         }
-        0xC0 | (self.joypad & 0x30) | nibble
+        0xC0 | (self.selection & 0x30) | nibble
     }
 
     fn write(&mut self, value: u8) {
-        selective_write(&mut self.joypad, 0b0011_0000, value)
+        selective_write(&mut self.selection, 0b0011_0000, value)
     }
 
     fn register_button_input(&mut self, input: ButtonInput) -> bool {
@@ -265,13 +265,13 @@ impl Joypad {
                 let bit = button as u8;
                 let transition = self.dpad_state & bit == 0;
                 self.dpad_state |= bit;
-                transition && !check_bit_const::<4>(self.joypad)
+                transition && !check_bit_const::<4>(self.selection)
             }
             ButtonInput::Ssab(button) => {
                 let bit = button as u8;
                 let transition = self.ssab_state & bit == 0;
                 self.ssab_state |= bit;
-                transition && !check_bit_const::<5>(self.joypad)
+                transition && !check_bit_const::<5>(self.selection)
             }
         }
     }
