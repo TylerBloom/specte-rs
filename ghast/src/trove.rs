@@ -15,16 +15,16 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use iced::Element;
-use iced::widget::Button;
-use iced::widget::Column;
-use iced::widget::Scrollable;
-use iced::widget::Text;
 use serde::Deserialize;
 use serde::Serialize;
+use xilem::WidgetView;
+use xilem::view::flex_col;
+use xilem::view::label;
+use xilem::view::text_button;
 
 use crate::config::CONFIG_PATH;
 use crate::state::HomeMessage;
+use crate::state::UiState;
 
 // TODO: To get an MVP working, the trove will just contain a copy of each can. Later, layers like
 // the game sets will be added.
@@ -93,24 +93,19 @@ impl Trove {
         GameSet { path: set_dir }
     }
     */
-    pub fn display(&self) -> Element<'static, HomeMessage> {
-        let children = std::iter::once("Trove".into())
-            .chain(std::iter::once(self.add_game_set_button()))
-            .chain(std::iter::once(
-                Scrollable::new(Column::from_iter(self.display_games()))
-                    .anchor_left()
-                    .into(),
-            ));
-        Column::with_children(children).into()
+    pub fn display(&self) -> impl WidgetView<UiState> + use<> {
+        flex_col((
+            label("Trove"),
+            self.add_game_set_button(),
+            self.display_games(),
+        ))
     }
 
-    pub fn add_game_set_button(&self) -> Element<'static, HomeMessage> {
-        Button::new("Add Game Set")
-            .on_press(HomeMessage::AddGame)
-            .into()
+    pub fn add_game_set_button(&self) -> impl WidgetView<UiState> + use<> {
+        text_button("Add Game Set", |_: &mut UiState| todo!())
     }
 
-    pub fn display_games(&self) -> impl IntoIterator<Item = Element<'static, HomeMessage>> {
+    pub fn display_games(&self) -> impl WidgetView<UiState> + use<> {
         let mut files: Vec<_> = std::fs::read_dir(&self.path)
             .unwrap()
             .map(Result::unwrap)
@@ -120,13 +115,12 @@ impl Trove {
 
         files.sort();
 
-        files
+        let col = files
             .into_iter()
-            .map(|file_name| {
-                Button::new(Text::new(file_name.clone()))
-                    .on_press(HomeMessage::StartGame(file_name))
-            })
-            .map(Into::into)
+            .map(|file_name| text_button(file_name, |_: &mut UiState| todo!()))
+            .collect::<Vec<_>>();
+
+        flex_col(col)
     }
 }
 
