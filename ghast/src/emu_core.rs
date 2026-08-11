@@ -2,7 +2,8 @@ use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
 
-use iced::advanced::image::Handle;
+use masonry::peniko::ImageAlphaType;
+use masonry::peniko::ImageData;
 use spirit::ButtonInput;
 use spirit::Gameboy;
 use spirit::StartUpSequence;
@@ -19,6 +20,8 @@ use tokio::time::Instant;
 use tokio::time::interval;
 use tokio_stream::Stream;
 use tokio_stream::wrappers::ReceiverStream;
+use xilem::Blob;
+use xilem::ImageFormat;
 
 use crate::keys::ButtonInteration;
 use crate::keys::ControlSignal;
@@ -30,11 +33,20 @@ pub struct EmuHandle {
     recv: EmuRecv,
 }
 
+#[derive(Debug)]
+pub struct Image(pub ImageData);
+
+impl Image {
+    pub fn empty() -> Self {
+        create_image(&vec![vec![Pixel::WHITE; 160]; 144])
+    }
+}
+
 pub struct EmuSend(UnboundedSender<EmuMessage>);
 
-pub struct EmuRecv(Receiver<(Handle, usize)>);
+pub struct EmuRecv(Receiver<(Image, usize)>);
 
-pub struct EmuStream(Pin<Box<ReceiverStream<(Handle, usize)>>>);
+pub struct EmuStream(Pin<Box<ReceiverStream<(Image, usize)>>>);
 
 impl EmuHandle {
     // TODO: This will need a trove handle to pull in setting and configs
@@ -64,7 +76,7 @@ impl EmuHandle {
         self.send.start_game(game)
     }
 
-    pub async fn next_frame(&mut self) -> (Handle, usize) {
+    pub async fn next_frame(&mut self) -> (Image, usize) {
         self.recv.next_frame().await
     }
 }
@@ -88,7 +100,7 @@ impl EmuSend {
 }
 
 impl EmuRecv {
-    pub async fn next_frame(&mut self) -> (Handle, usize) {
+    pub async fn next_frame(&mut self) -> (Image, usize) {
         self.0.recv().await.unwrap()
     }
 
@@ -98,7 +110,7 @@ impl EmuRecv {
 }
 
 impl Stream for EmuStream {
-    type Item = (Handle, usize);
+    type Item = (Image, usize);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::get_mut(self).0.as_mut().poll_next(cx)
@@ -110,7 +122,7 @@ impl Stream for EmuStream {
 struct EmuCore {
     recv: UnboundedReceiver<EmuMessage>,
     frame_send: EmuSend,
-    send: Sender<(Handle, usize)>,
+    send: Sender<(Image, usize)>,
 }
 
 enum EmuMessage {
@@ -176,13 +188,13 @@ impl EmuCore {
                         last_updated = Instant::now();
                         step_duration(emu.gb_mut(), last_updated - last_updated);
                         emu.gb_mut().button_press(button);
-                        continue
+                        continue;
                     }
                     ButtonInteration::ButtonRelease(button) => {
                         last_updated = Instant::now();
                         step_duration(emu.gb_mut(), last_updated - last_updated);
                         emu.gb_mut().button_release(button);
-                        continue
+                        continue;
                     }
                 },
             }
@@ -246,11 +258,20 @@ impl EmulatorInner {
 }
 
 #[allow(clippy::ptr_arg)]
-pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Handle {
+pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Image {
     const SCALE: usize = 4;
     let (width, height, image) = screen_to_image_scaled(screen, SCALE);
     assert_eq!(width * height * 4, image.len() as u32);
-    Handle::from_rgba(width, height, image)
+
+    let image = ImageData {
+        data: Blob::from(image),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::Alpha,
+        width,
+        height,
+    };
+
+    Image(image)
 }
 
 impl Emulator {
@@ -262,7 +283,7 @@ impl Emulator {
         }
     }
 
-    pub fn just_pixels(&self) -> Handle {
+    pub fn just_pixels(&self) -> Image {
         create_image(&self.gb.gb().ppu.screen)
     }
 

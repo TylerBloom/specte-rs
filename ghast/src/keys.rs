@@ -3,14 +3,15 @@ use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use iced::keyboard::Event;
-use iced::keyboard::Key;
-use iced::keyboard::key::Named;
 use spirit::ButtonInput;
 use spirit::JoypadInput;
 use spirit::SsabInput;
 use tokio::time::Duration;
 use tokio::time::Instant;
+use winit::event::ElementState;
+use winit::event::KeyEvent;
+use winit::keyboard::Key;
+use winit::keyboard::NamedKey;
 
 use crate::state::UiMessage;
 
@@ -50,7 +51,7 @@ impl KeyWatcher {
         Self::default()
     }
 
-    pub fn register_event(&self, event: Event) -> Option<UiMessage> {
+    pub fn register_event(&self, event: &KeyEvent) -> Option<UiMessage> {
         self.0.lock().unwrap().register_event(event)
     }
 }
@@ -83,15 +84,14 @@ impl KeyWatcherInner {
         Self::default()
     }
 
-    fn register_event(&mut self, event: Event) -> Option<UiMessage> {
-        match event {
-            Event::KeyPressed { key, .. } => self.register_press(key),
-            Event::KeyReleased { key, .. } => self.register_release(key),
-            _ => None,
+    fn register_event(&mut self, event: &KeyEvent) -> Option<UiMessage> {
+        match event.state {
+            ElementState::Pressed => self.register_press(&event.logical_key),
+            ElementState::Released => self.register_release(&event.logical_key),
         }
     }
 
-    fn register_press(&mut self, key: Key) -> Option<UiMessage> {
+    fn register_press(&mut self, key: &Key) -> Option<UiMessage> {
         match self.mapper.map(key)? {
             IntermediateKeystroke::Escape => Some(UiMessage::Escape),
             IntermediateKeystroke::Control(signal) => Some(Keystroke::Control(signal).into()),
@@ -108,7 +108,7 @@ impl KeyWatcherInner {
         }
     }
 
-    fn register_release(&mut self, key: Key) -> Option<UiMessage> {
+    fn register_release(&mut self, key: &Key) -> Option<UiMessage> {
         let IntermediateKeystroke::Button(button) = self.mapper.map(key)? else {
             return None;
         };
@@ -135,16 +135,16 @@ impl KeyWatcherInner {
 pub struct KeyMapper {}
 
 impl KeyMapper {
-    fn map(&self, event: Key) -> Option<IntermediateKeystroke> {
+    fn map(&self, event: &Key) -> Option<IntermediateKeystroke> {
         match event {
-            Key::Named(Named::Escape) => {
+            Key::Named(NamedKey::Escape) => {
                 Some(IntermediateKeystroke::Escape)
             }
-            Key::Named(Named::Space) => Some(IntermediateKeystroke::Control(ControlSignal::Pause)),
-            Key::Named(Named::ArrowRight) => {
+            Key::Named(NamedKey::Space) => Some(IntermediateKeystroke::Control(ControlSignal::Pause)),
+            Key::Named(NamedKey::ArrowRight) => {
                 Some(IntermediateKeystroke::Control(ControlSignal::NextFrame))
             }
-            Key::Named(Named::Enter) => Some(IntermediateKeystroke::Button(ButtonInput::Ssab(
+            Key::Named(NamedKey::Enter) => Some(IntermediateKeystroke::Button(ButtonInput::Ssab(
                 SsabInput::Start,
             ))),
             Key::Character(c) => match c.as_str() {

@@ -1,21 +1,15 @@
 use std::env::home_dir;
 
-use bytes::Bytes;
-use iced::Element;
-use iced::Subscription;
-use iced::keyboard::listen;
-use iced::widget::Button;
-use iced::widget::Image;
-use iced::widget::Text;
-use iced::widget::column;
-use iced::widget::image::Handle;
-use spirit::ButtonInput;
-use spirit::JoypadInput;
-use spirit::SsabInput;
+use xilem::AnyWidgetView;
+use xilem::WidgetView;
+use xilem::view::flex_col;
+use xilem::view::image;
+use xilem::view::label;
+use xilem::view::text_button;
 
 use crate::config::Config;
 use crate::emu_core::EmuSend;
-use crate::keys::KeyWatcher;
+use crate::emu_core::Image;
 use crate::keys::Keystroke;
 use crate::trove::Trove;
 
@@ -39,7 +33,7 @@ pub struct HomeState {
 }
 
 pub struct InGameState {
-    image: Handle,
+    image: Image,
     frames: usize,
 }
 
@@ -63,7 +57,7 @@ pub enum HomeMessage {
 
 #[derive(Debug)]
 pub enum InGameMessage {
-    NextFrame((Handle, usize)),
+    NextFrame((Image, usize)),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -72,7 +66,7 @@ pub enum SettingsMessage {}
 impl UiState {
     pub fn new(config: Config, send: EmuSend) -> Self {
         let trove = config.get_trove();
-        let image = Handle::from_rgba(160, 144, Bytes::from(vec![0; 160 * 144]));
+        let image = Image::empty();
         Self {
             send,
             cursor: StateCursor::Home,
@@ -80,6 +74,10 @@ impl UiState {
             game: InGameState { image, frames: 0 },
             settings: SettingsState {},
         }
+    }
+
+    pub fn app_logic(&mut self) -> impl WidgetView<UiState> + use<> {
+        self.view()
     }
 
     pub fn update(&mut self, msg: UiMessage) {
@@ -111,19 +109,12 @@ impl UiState {
         }
     }
 
-    pub fn view(&self) -> Element<'_, UiMessage> {
+    pub fn view(&self) -> Box<AnyWidgetView<UiState>> {
         match self.cursor {
-            StateCursor::Home => self.home.view().map(UiMessage::HomeMessage),
-            StateCursor::InGame => self.game.view().map(UiMessage::InGameMessage),
-            StateCursor::Settings => self.settings.view().map(UiMessage::SettingsMessage),
+            StateCursor::Home => self.home.view().boxed(),
+            StateCursor::InGame => self.game.view().boxed(),
+            StateCursor::Settings => self.settings.view().boxed(),
         }
-    }
-
-    pub fn subscription(&self) -> Subscription<UiMessage> {
-        let mapper = KeyWatcher::new();
-        listen()
-            .with(mapper)
-            .filter_map(|(mapper, event)| mapper.register_event(event))
     }
 }
 
@@ -146,16 +137,12 @@ impl HomeState {
         }
     }
 
-    pub fn view(&self) -> Element<'_, HomeMessage> {
-        column![self.settings_button(), self.trove.display()].into()
+    pub fn view(&self) -> impl WidgetView<UiState> + use<> {
+        flex_col((self.settings_button(), self.trove.display()))
     }
 
-    pub fn subscription(&self) -> Subscription<HomeMessage> {
-        Subscription::none()
-    }
-
-    fn settings_button(&self) -> Element<'static, HomeMessage> {
-        Button::new("Settings").into()
+    fn settings_button(&self) -> impl WidgetView<UiState> + use<> {
+        text_button("Settings", |_: &mut UiState| {})
     }
 }
 
@@ -170,12 +157,11 @@ impl InGameState {
         None
     }
 
-    pub fn view(&self) -> Element<'_, InGameMessage> {
-        column![
-            Text::from(&*format!("Frame #{}", self.frames).leak()),
-            Image::new(self.image.clone())
-        ]
-        .into()
+    pub fn view(&self) -> impl WidgetView<UiState> + use<> {
+        flex_col((
+            label(format!("Frame #{}", self.frames)),
+            image(self.image.0.clone())
+        ))
     }
 }
 
@@ -184,7 +170,7 @@ impl SettingsState {
         todo!()
     }
 
-    pub fn view(&self) -> Element<'_, SettingsMessage> {
-        todo!()
+    pub fn view(&self) -> impl WidgetView<UiState> + use<> {
+        label("UNDER CONSTRUCTION!!!")
     }
 }
