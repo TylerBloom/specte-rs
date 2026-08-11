@@ -15,8 +15,9 @@ path = "src/main.rs"
 bytes = "1.12.1"
 clap = { version = "4.5.21", features = ["derive"] }
 homedir = "0.3.4"
-iced = { version = "0.14.0", features = ["advanced", "canvas", "image", "tokio"] }
 itertools = "0.13.0"
+masonry = "0.4.0"
+masonry_winit = "0.4.0"
 png = "0.18.0"
 postcard = { version = "1.1.1", features = ["alloc"] }
 rfd = "0.17.2"
@@ -27,3 +28,6 @@ tokio = { version = "1.47.1", features = ["full"] }
 tokio-stream = "0.1.17"
 toml = "1.1.2"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+winit = "0.30.13"
+xilem = "0.4.0"
+xilem_core = "0.4.0"
