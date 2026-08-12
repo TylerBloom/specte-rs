@@ -2,9 +2,14 @@ use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
 
+use accesskit::Action;
+use accesskit::ActionRequest;
+use accesskit::NodeId;
+use accesskit_winit::WindowEvent;
 use masonry::peniko::ImageAlphaType;
 use masonry::peniko::ImageData;
-use spirit::ButtonInput;
+use masonry_winit::app::EventLoopProxy;
+use masonry_winit::app::MasonryUserEvent;
 use spirit::Gameboy;
 use spirit::StartUpSequence;
 use spirit::ppu::Pixel;
@@ -20,12 +25,14 @@ use tokio::time::Instant;
 use tokio::time::interval;
 use tokio_stream::Stream;
 use tokio_stream::wrappers::ReceiverStream;
+use winit::window::WindowId;
 use xilem::Blob;
 use xilem::ImageFormat;
 
 use crate::keys::ButtonInteration;
 use crate::keys::ControlSignal;
 use crate::keys::Keystroke;
+use crate::utils::pixel_to_bytes;
 use crate::utils::screen_to_image_scaled;
 
 pub struct EmuHandle {
@@ -36,6 +43,8 @@ pub struct EmuHandle {
 #[derive(Debug)]
 pub struct Image(pub ImageData);
 
+pub type Frame = (Image, usize);
+
 impl Image {
     pub fn empty() -> Self {
         create_image(&vec![vec![Pixel::WHITE; 160]; 144])
@@ -44,9 +53,9 @@ impl Image {
 
 pub struct EmuSend(UnboundedSender<EmuMessage>);
 
-pub struct EmuRecv(Receiver<(Image, usize)>);
+pub struct EmuRecv(Receiver<Frame>);
 
-pub struct EmuStream(Pin<Box<ReceiverStream<(Image, usize)>>>);
+pub struct EmuStream(Pin<Box<ReceiverStream<Frame>>>);
 
 impl EmuHandle {
     // TODO: This will need a trove handle to pull in setting and configs
@@ -76,7 +85,7 @@ impl EmuHandle {
         self.send.start_game(game)
     }
 
-    pub async fn next_frame(&mut self) -> (Image, usize) {
+    pub async fn next_frame(&mut self) -> Frame {
         self.recv.next_frame().await
     }
 }
@@ -100,8 +109,40 @@ impl EmuSend {
 }
 
 impl EmuRecv {
-    pub async fn next_frame(&mut self) -> (Image, usize) {
+    pub async fn next_frame(&mut self) -> Frame {
         self.0.recv().await.unwrap()
+    }
+
+    pub fn try_next_frame(&mut self) -> Option<Frame> {
+        match self.0.try_recv() {
+            Ok(val) => Some(val),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => panic!(),
+        }
+    }
+
+    /// Takes this recv and spawns it in a new task to be listened to. Using the provided event loop proxy,
+    /// a message is sent to trigger the Xilem state to update the UI state.
+    ///
+    /// In short, messages from this receiver are listened to and forwards to another receiver. For
+    /// each message, the event loop proxy is envoked so the UI can process its message.
+    pub fn split_and_proxy(mut self, win_id: WindowId, proxy: EventLoopProxy) -> Self {
+        let (send, recv) = channel(10);
+        tokio::spawn(async move {
+            while let Some(msg) = self.0.recv().await {
+                println!("Frame {} recv-ed", msg.1);
+                send.send(msg).await.unwrap();
+                let action = ActionRequest {
+                    action: Action::CustomAction,
+                    target: NodeId(0),
+                    data: None,
+                };
+                let event = WindowEvent::ActionRequested(action);
+                let event = MasonryUserEvent::AccessKit(win_id, event);
+                proxy.send_event(event).unwrap();
+            }
+        });
+        Self(recv)
     }
 
     pub fn into_stream(self) -> EmuStream {
@@ -110,7 +151,7 @@ impl EmuRecv {
 }
 
 impl Stream for EmuStream {
-    type Item = (Image, usize);
+    type Item = Frame;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::get_mut(self).0.as_mut().poll_next(cx)
@@ -122,7 +163,7 @@ impl Stream for EmuStream {
 struct EmuCore {
     recv: UnboundedReceiver<EmuMessage>,
     frame_send: EmuSend,
-    send: Sender<(Image, usize)>,
+    send: Sender<Frame>,
 }
 
 enum EmuMessage {
@@ -185,15 +226,17 @@ impl EmuCore {
                 }
                 EmuMessage::Keystroke(Keystroke::Button(button)) => match button {
                     ButtonInteration::ButtonPress(button) => {
-                        last_updated = Instant::now();
-                        step_duration(emu.gb_mut(), last_updated - last_updated);
+                        let now = Instant::now();
+                        step_duration(emu.gb_mut(), now - last_updated);
                         emu.gb_mut().button_press(button);
+                        last_updated = now;
                         continue;
                     }
                     ButtonInteration::ButtonRelease(button) => {
-                        last_updated = Instant::now();
-                        step_duration(emu.gb_mut(), last_updated - last_updated);
+                        let now = Instant::now();
+                        step_duration(emu.gb_mut(), now - last_updated);
                         emu.gb_mut().button_release(button);
+                        last_updated = now;
                         continue;
                     }
                 },
@@ -259,7 +302,7 @@ impl EmulatorInner {
 
 #[allow(clippy::ptr_arg)]
 pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Image {
-    const SCALE: usize = 4;
+    const SCALE: usize = 3;
     let (width, height, image) = screen_to_image_scaled(screen, SCALE);
     assert_eq!(width * height * 4, image.len() as u32);
 
