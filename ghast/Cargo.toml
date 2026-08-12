@@ -12,6 +12,8 @@ name = "ghast"
 path = "src/main.rs"
 
 [dependencies]
+accesskit = "0.21.1"
+accesskit_winit = "0.29.2"
 bytes = "1.12.1"
 clap = { version = "4.5.21", features = ["derive"] }
 homedir = "0.3.4"

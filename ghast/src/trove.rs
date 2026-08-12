@@ -24,6 +24,7 @@ use xilem::view::text_button;
 
 use crate::config::CONFIG_PATH;
 use crate::state::HomeMessage;
+use crate::state::UiMessage;
 use crate::state::UiState;
 
 // TODO: To get an MVP working, the trove will just contain a copy of each can. Later, layers like
@@ -102,7 +103,9 @@ impl Trove {
     }
 
     pub fn add_game_set_button(&self) -> impl WidgetView<UiState> + use<> {
-        text_button("Add Game Set", |_: &mut UiState| todo!())
+        text_button("Add Game Set", |state: &mut UiState| {
+            state.update(UiMessage::HomeMessage(HomeMessage::AddGame));
+        })
     }
 
     pub fn display_games(&self) -> impl WidgetView<UiState> + use<> {
@@ -117,7 +120,14 @@ impl Trove {
 
         let col = files
             .into_iter()
-            .map(|file_name| text_button(file_name, |_: &mut UiState| todo!()))
+            .map(|file_name| {
+                let file_name: &'static str = file_name.leak();
+                text_button(file_name, move |state: &mut UiState| {
+                    state.update(UiMessage::HomeMessage(HomeMessage::StartGame(
+                        file_name.to_owned(),
+                    )));
+                })
+            })
             .collect::<Vec<_>>();
 
         flex_col(col)

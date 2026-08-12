@@ -1,5 +1,7 @@
 use clap::Parser;
+use masonry_winit::app::Window;
 use winit::event::WindowEvent;
+use winit::window::WindowId;
 
 use std::sync::Arc;
 
@@ -133,10 +135,15 @@ fn main() -> Result<(), EventLoopError> {
     let fut = {
         let rt = rt.clone();
         async move {
+            let event_loop = EventLoop::with_user_event().build().unwrap();
+            let proxy = event_loop.create_proxy();
+
             let conf = Config::read();
             let (send, recv) = EmuHandle::contruct_and_launch().split();
 
-            let state = UiState::new(conf, send);
+            let recv = recv.split_and_proxy(WindowId::dummy(), proxy);
+
+            let state = UiState::new(conf, send, recv);
 
             let window_size = winit::dpi::LogicalSize::new(800.0, 800.0);
             let window_options =
@@ -144,10 +151,10 @@ fn main() -> Result<(), EventLoopError> {
 
             let xilem = Xilem::new_simple_with_tokio(state, UiState::app_logic, window_options, rt);
 
-            let event_loop = EventLoop::with_user_event().build().unwrap();
             let proxy = event_loop.create_proxy();
             let (driver, windows) = xilem
                 .into_driver_and_windows(move |event| proxy.send_event(event).map_err(|err| err.0));
+
             let masonry_state = masonry_winit::app::MasonryState::new(
                 event_loop.create_proxy(),
                 windows,
