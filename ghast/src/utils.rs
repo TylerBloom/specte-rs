@@ -9,19 +9,34 @@ pub fn screen_to_image(screen: &[Vec<Pixel>]) -> (u32, u32, Vec<u8>) {
 pub fn screen_to_image_scaled(screen: &[impl AsRef<[Pixel]>], scale: usize) -> (u32, u32, Vec<u8>) {
     let width = screen[0].as_ref().len();
     let height = screen.len();
-    let mut digest = vec![0; width * scale * 4 * height * scale];
-    for offset in 0..scale {
-        for (i, row) in screen.iter().enumerate() {
-            let index = (i * scale + offset) * (4 * width * scale);
-            row.as_ref()
-                .iter()
-                .copied()
-                .flat_map(|pixel| std::iter::repeat_n(pixel, scale))
-                .flat_map(pixel_to_bytes)
-                .enumerate()
-                .for_each(|(j, b)| digest[index + j] = b);
+    let mut digest = vec![0; 4 * width * scale * height * scale];
+
+    let line_width = 4 * width * scale;
+
+    for (i, row) in screen.iter().enumerate() {
+        let index = i * scale * line_width;
+        let (_, after) = digest.split_at_mut(index);
+        let (row_slice, after) = after.split_at_mut(line_width);
+
+        for (j, pixel) in row.as_ref().iter().enumerate() {
+            let index = j * 4 * scale;
+            for x_offset in 0..scale {
+                let index = index + (4 * x_offset);
+                let [r, g, b, a] = pixel_to_bytes(*pixel);
+                row_slice[index] = r;
+                row_slice[index + 1] = g;
+                row_slice[index + 2] = b;
+                row_slice[index + 3] = a;
+            }
+        }
+
+        // copy row_slice into subsequent the slices scale - 1 times
+        for i in 1..scale {
+            let next_row_slice = &mut after[((i - 1) * line_width)..(i * line_width)];
+            next_row_slice.copy_from_slice(row_slice);
         }
     }
+
     ((width * scale) as u32, (height * scale) as u32, digest)
 }
 
