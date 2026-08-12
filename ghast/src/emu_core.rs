@@ -302,7 +302,7 @@ impl EmulatorInner {
 
 #[allow(clippy::ptr_arg)]
 pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Image {
-    const SCALE: usize = 3;
+    const SCALE: usize = 4;
     let (width, height, image) = screen_to_image_scaled(screen, SCALE);
     assert_eq!(width * height * 4, image.len() as u32);
 
