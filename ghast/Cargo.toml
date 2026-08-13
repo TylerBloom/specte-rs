@@ -28,6 +28,7 @@ masonry_winit = "0.4.0"
 png = "0.18.0"
 postcard = { version = "1.1.1", features = ["alloc"] }
 rfd = "0.17.2"
+rusqlite = { version = "0.40.2", features = ["bundled", "serialize"] }
 serde = { version = "1.0.219", features = ["derive"] }
 spirit = { path = "../spirit" }
 time = { version = "0.3.36", features = ["local-offset"] }
