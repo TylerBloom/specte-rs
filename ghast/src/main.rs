@@ -1,20 +1,18 @@
 use clap::Parser;
-use masonry_winit::app::Window;
+use ghast::emu_core::EmuSend;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::unbounded_channel;
 use winit::event::WindowEvent;
-use winit::window::WindowId;
 
 use std::sync::Arc;
 
 use ghast::keys::KeyWatcher;
-use tokio_stream::StreamExt;
 
 use ghast::config::Config;
 use ghast::emu_core::EmuHandle;
-use ghast::state::InGameMessage;
 use ghast::state::UiMessage;
 use ghast::state::UiState;
 use tracing_subscriber::EnvFilter;
-use tracing_subscriber::util::SubscriberInitExt;
 
 use masonry::theme::default_property_set;
 use masonry_winit::app::{AppDriver, MasonryUserEvent};
@@ -22,9 +20,7 @@ use winit::application::ApplicationHandler;
 use winit::error::EventLoopError;
 use winit::event::ElementState;
 use winit::keyboard::{KeyCode, PhysicalKey};
-use xilem::style::Style;
-use xilem::view::{Label, button, flex_row, label, sized_box};
-use xilem::{EventLoop, WidgetView, WindowOptions, Xilem};
+use xilem::{EventLoop, WindowOptions, Xilem};
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -36,6 +32,8 @@ struct ExternalApp {
     masonry_state: masonry_winit::app::MasonryState<'static>,
     app_driver: Box<dyn AppDriver>,
     keys: KeyWatcher,
+    key_proxy_send: UnboundedSender<UiMessage>,
+    send: EmuSend,
 }
 
 impl ApplicationHandler<MasonryUserEvent> for ExternalApp {
@@ -58,9 +56,13 @@ impl ApplicationHandler<MasonryUserEvent> for ExternalApp {
         window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
-        if let WindowEvent::KeyboardInput { event, .. } = &event {
-            if let Some(_msg) = self.keys.register_event(event) {
-                todo!()
+        if let WindowEvent::KeyboardInput { event, .. } = &event
+            && let Some(msg) = self.keys.register_event(event)
+        {
+            match msg {
+                UiMessage::Keystroke(key) => self.send.keystroke(key),
+                UiMessage::Escape => self.key_proxy_send.send(UiMessage::Escape).unwrap(),
+                _ => panic!(),
             }
         }
         self.masonry_state.handle_window_event(
@@ -136,14 +138,13 @@ fn main() -> Result<(), EventLoopError> {
         let rt = rt.clone();
         async move {
             let event_loop = EventLoop::with_user_event().build().unwrap();
-            let proxy = event_loop.create_proxy();
 
             let conf = Config::read();
             let (send, recv) = EmuHandle::contruct_and_launch().split();
 
-            let recv = recv.split_and_proxy(WindowId::dummy(), proxy);
+            let (key_proxy_send, key_proxy_recv) = unbounded_channel();
 
-            let state = UiState::new(conf, send, recv);
+            let state = UiState::new(conf, send.clone(), recv, key_proxy_recv);
 
             let window_size = winit::dpi::LogicalSize::new(800.0, 800.0);
             let window_options =
@@ -165,6 +166,8 @@ fn main() -> Result<(), EventLoopError> {
                 masonry_state,
                 app_driver: Box::new(driver),
                 keys: KeyWatcher::new(),
+                send,
+                key_proxy_send,
             };
             event_loop.run_app(&mut app)
         }

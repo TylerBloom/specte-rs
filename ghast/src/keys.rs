@@ -1,4 +1,3 @@
-use std::cell::Cell;
 use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -6,8 +5,6 @@ use std::sync::Mutex;
 use spirit::ButtonInput;
 use spirit::JoypadInput;
 use spirit::SsabInput;
-use tokio::time::Duration;
-use tokio::time::Instant;
 use winit::event::ElementState;
 use winit::event::KeyEvent;
 use winit::keyboard::Key;
@@ -80,10 +77,6 @@ struct KeyWatcherInner {
 }
 
 impl KeyWatcherInner {
-    fn new() -> Self {
-        Self::default()
-    }
-
     fn register_event(&mut self, event: &KeyEvent) -> Option<UiMessage> {
         match event.state {
             ElementState::Pressed => self.register_press(&event.logical_key),
@@ -98,7 +91,7 @@ impl KeyWatcherInner {
             IntermediateKeystroke::Button(button) => {
                 let field = self.button_ref(button);
                 match field {
-                    true => return None,
+                    true => None,
                     false => {
                         *field = true;
                         Some(Keystroke::Button(ButtonInteration::ButtonPress(button)).into())
@@ -137,10 +130,10 @@ pub struct KeyMapper {}
 impl KeyMapper {
     fn map(&self, event: &Key) -> Option<IntermediateKeystroke> {
         match event {
-            Key::Named(NamedKey::Escape) => {
-                Some(IntermediateKeystroke::Escape)
+            Key::Named(NamedKey::Escape) => Some(IntermediateKeystroke::Escape),
+            Key::Named(NamedKey::Space) => {
+                Some(IntermediateKeystroke::Control(ControlSignal::Pause))
             }
-            Key::Named(NamedKey::Space) => Some(IntermediateKeystroke::Control(ControlSignal::Pause)),
             Key::Named(NamedKey::ArrowRight) => {
                 Some(IntermediateKeystroke::Control(ControlSignal::NextFrame))
             }

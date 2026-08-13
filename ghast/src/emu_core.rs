@@ -32,7 +32,6 @@ use xilem::ImageFormat;
 use crate::keys::ButtonInteration;
 use crate::keys::ControlSignal;
 use crate::keys::Keystroke;
-use crate::utils::pixel_to_bytes;
 use crate::utils::screen_to_image_scaled;
 
 pub struct EmuHandle {
@@ -51,6 +50,7 @@ impl Image {
     }
 }
 
+#[derive(Clone)]
 pub struct EmuSend(UnboundedSender<EmuMessage>);
 
 pub struct EmuRecv(Receiver<Frame>);
