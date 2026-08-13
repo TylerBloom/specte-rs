@@ -1,4 +1,8 @@
+use std::fmt::Debug;
+
 use spirit::ppu::Pixel;
+use tokio::sync::mpsc::UnboundedReceiver;
+use xilem_core::MessageProxy;
 
 /// Given the emulator's screen, this function returns the data for creating an image.
 pub fn screen_to_image(screen: &[Vec<Pixel>]) -> (u32, u32, Vec<u8>) {
@@ -56,4 +60,17 @@ pub fn screen_to_image_scaled_asymmetric(
 
 pub fn pixel_to_bytes(Pixel { r, g, b }: Pixel) -> [u8; 4] {
     [r * 8, g * 8, b * 8, 255]
+}
+
+/// Used in combination with Xilem `worker`s. The `proxy` "wakes up" the
+/// UI state via a message. The `recv` is being used to simply relay the message from another task
+/// to the event loop's `proxy`.
+pub async fn identity_proxy<T: 'static + Debug + Send>(
+    proxy: MessageProxy<T>,
+    mut recv: UnboundedReceiver<T>,
+) {
+    loop {
+        let msg = recv.recv().await.unwrap();
+        proxy.message(msg).unwrap();
+    }
 }

@@ -21,11 +21,15 @@ use xilem::WidgetView;
 use xilem::view::flex_col;
 use xilem::view::label;
 use xilem::view::text_button;
+use xilem::view::worker;
+use xilem_core::fork;
 
 use crate::config::CONFIG_PATH;
+use crate::state::AddGameMessage;
 use crate::state::HomeMessage;
 use crate::state::UiMessage;
 use crate::state::UiState;
+use crate::utils::identity_proxy;
 
 // TODO: To get an MVP working, the trove will just contain a copy of each can. Later, layers like
 // the game sets will be added.
@@ -58,11 +62,8 @@ impl Trove {
         Self { path, trove_data }
     }
 
-    pub fn add_game(&mut self, path: PathBuf) {
-        // Copy and trim the file name
-        let mut dir = self.path.clone();
-        dir.push(path.file_name().unwrap());
-        std::fs::copy(path, dir).unwrap();
+    pub fn add_game(&mut self, path: String, rom: Vec<u8>) {
+        todo!()
     }
 
     /// Given the name of a game in the trove, reads the file and returns the contents
@@ -103,9 +104,22 @@ impl Trove {
     }
 
     pub fn add_game_set_button(&self) -> impl WidgetView<UiState> + use<> {
-        text_button("Add Game Set", |state: &mut UiState| {
-            state.update(UiMessage::HomeMessage(HomeMessage::AddGame));
-        })
+        let button = text_button("Add Game Set", |state: &mut UiState| {
+            state.add_game_send.send(AddGameMessage::AddGame).unwrap();
+        });
+        let worker = worker(
+            identity_proxy,
+            |state: &mut UiState, send| {
+                state
+                    .add_game_send
+                    .send(AddGameMessage::NewSender(send))
+                    .unwrap()
+            },
+            |state: &mut UiState, (file_name, rom): (String, Vec<u8>)| {
+                state.home.trove.add_game(file_name, rom);
+            },
+        );
+        fork(button, worker)
     }
 
     pub fn display_games(&self) -> impl WidgetView<UiState> + use<> {
