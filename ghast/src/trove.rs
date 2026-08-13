@@ -12,9 +12,10 @@
 // TODO: When ROM patching is supported, ROM "recipes" will be added so users can create new game
 // directories as new versions of the patch get released.
 
-use std::path::Path;
 use std::path::PathBuf;
 
+use rusqlite::Connection;
+use rusqlite::OptionalExtension;
 use serde::Deserialize;
 use serde::Serialize;
 use xilem::WidgetView;
@@ -35,43 +36,38 @@ use crate::utils::identity_proxy;
 // the game sets will be added.
 #[allow(dead_code)]
 pub struct Trove {
-    /// The trove carries around a path as the trove is largely an interface into the expected file
-    /// structure of the trove.
-    pub(crate) path: PathBuf,
-    /// The trove data at the base of the trove.
-    pub(crate) trove_data: TroveData,
+    pub(crate) conn: Connection,
 }
 
 impl Trove {
-    /// Optionally takes a path to the trove directory as an argument. If one isn't supplied, we
-    /// assume that it exists next to the config file.
-    pub fn parse_or_default(path: Option<PathBuf>) -> Self {
-        let mut trove_toml = path.unwrap_or_else(|| {
-            let mut path = (*CONFIG_PATH).clone();
-            path.pop();
-            path.push("trove");
-            path
-        });
-        let path = trove_toml.clone();
-        trove_toml.push(".trove.toml");
-        println!("Looking for trove at {trove_toml:?}");
-        if !trove_toml.exists() {
-            std::fs::write(&trove_toml, b"").unwrap();
-        }
-        let trove_data = toml::from_str(&std::fs::read_to_string(trove_toml).unwrap()).unwrap();
-        Self { path, trove_data }
+    pub fn new(conn: Connection) -> Self {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS games (
+            name   STRING PRIMARY KEY,
+            rom BLOB
+        )",
+            (),
+        )
+        .unwrap();
+        Self { conn }
     }
 
-    pub fn add_game(&mut self, path: String, rom: Vec<u8>) {
-        todo!()
+    pub fn add_game(&mut self, name: String, rom: Vec<u8>) {
+        self.conn
+            .execute("INSERT INTO games (name, rom) VALUES (?1, ?2)", (name, rom))
+            .unwrap();
     }
 
     /// Given the name of a game in the trove, reads the file and returns the contents
-    pub fn fetch_game(&self, game: impl AsRef<Path>) -> Vec<u8> {
-        let mut path = self.path.clone();
-        path.push(game);
-        println!("Looking for game rom at {path:?}");
-        std::fs::read(path).unwrap()
+    pub fn fetch_game(&self, name: &str) -> Vec<u8> {
+        println!("Looking for game: {name:?}");
+        self.conn
+            .query_row("SELECT rom FROM games WHERE name = ?1", (name,), |row| {
+                row.get(0)
+            })
+            .optional()
+            .unwrap()
+            .unwrap()
     }
 
     /*
@@ -123,16 +119,19 @@ impl Trove {
     }
 
     pub fn display_games(&self) -> impl WidgetView<UiState> + use<> {
-        let mut files: Vec<_> = std::fs::read_dir(&self.path)
+        let mut games = self
+            .conn
+            .prepare("SELECT name FROM games")
             .unwrap()
-            .map(Result::unwrap)
-            .filter(|item| item.file_type().unwrap().is_file())
-            .map(|item| item.file_name().to_str().unwrap().to_owned())
-            .collect();
+            .query([])
+            .unwrap()
+            .mapped(|row| row.get(0))
+            .collect::<Result<Vec<String>, _>>()
+            .unwrap();
 
-        files.sort();
+        games.sort();
 
-        let col = files
+        let col = games
             .into_iter()
             .map(|file_name| {
                 let file_name: &'static str = file_name.leak();

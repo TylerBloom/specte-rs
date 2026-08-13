@@ -313,7 +313,7 @@ impl HomeState {
                 None
             }
             HomeMessage::StartGame(file) => {
-                let game = self.trove.fetch_game(file);
+                let game = self.trove.fetch_game(&file);
                 send.start_game(game);
                 Some(StateCursor::InGame)
             }

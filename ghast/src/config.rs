@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
+use rusqlite::Connection;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -41,6 +42,15 @@ impl Config {
     }
 
     pub fn get_trove(&self) -> Trove {
-        Trove::parse_or_default(self.trove_path.clone())
+        let conn = match self.trove_path.as_ref() {
+            Some(path) => Connection::open(path).unwrap(),
+            None => {
+                let mut path = CONFIG_PATH.clone();
+                path.pop();
+                path.push("trove.db3");
+                Connection::open(path).unwrap()
+            }
+        };
+        Trove::new(conn)
     }
 }
