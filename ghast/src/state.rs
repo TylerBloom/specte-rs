@@ -25,7 +25,8 @@ use crate::trove::Trove;
 pub struct UiState {
     send: EmuSend,
     /// Used to communicate with the emulator proxy
-    proxy_send: UnboundedSender<UnboundedSender<Frame>>,
+    emu_proxy_send: UnboundedSender<UnboundedSender<Frame>>,
+    key_proxy_send: UnboundedSender<UnboundedSender<UiMessage>>,
     cursor: StateCursor,
     home: HomeState,
     game: InGameState,
@@ -75,15 +76,21 @@ pub enum InGameMessage {
 pub enum SettingsMessage {}
 
 impl UiState {
-    pub fn new(config: Config, send: EmuSend, recv: EmuRecv) -> Self {
+    pub fn new(config: Config, send: EmuSend, emu_recv: EmuRecv, key_recv: UnboundedReceiver<UiMessage>) -> Self {
         let trove = config.get_trove();
         let image = Image::empty();
-        let (proxy_send, proxy_recv) = unbounded_channel();
-        let proxy = EmulatorProxy::new(recv, proxy_recv);
-        tokio::spawn(proxy.run());
+        let (emu_proxy_send, emu_proxy_recv) = unbounded_channel();
+        let emu_proxy = EmulatorProxy::new(emu_recv, emu_proxy_recv);
+        tokio::spawn(emu_proxy.run());
+
+        let (key_proxy_send, key_proxy_recv) = unbounded_channel();
+        let key_proxy = KeyboardProxy::new(key_recv, key_proxy_recv);
+        tokio::spawn(key_proxy.run());
+
         Self {
             send,
-            proxy_send,
+            emu_proxy_send,
+            key_proxy_send,
             cursor: StateCursor::Home,
             home: HomeState { trove },
             game: InGameState { image, frames: 0 },
@@ -131,12 +138,17 @@ impl UiState {
             StateCursor::InGame => self.game.view().boxed(),
             StateCursor::Settings => self.settings.view().boxed(),
         };
-        let worker = worker(
+        let emu_worker = worker(
             Self::emu_proxy_worker,
-            Self::update_proxy_sender,
+            Self::update_emu_proxy_sender,
             Self::process_next_frame,
         );
-        fork(main_widget, worker).boxed()
+        let key_worker = worker(
+            Self::key_proxy_worker,
+            Self::update_key_proxy_sender,
+            Self::update,
+        );
+        fork(fork(main_widget, emu_worker), key_worker).boxed()
     }
 
     async fn emu_proxy_worker(proxy: MessageProxy<Frame>, mut recv: UnboundedReceiver<Frame>) {
@@ -146,8 +158,22 @@ impl UiState {
         }
     }
 
-    fn update_proxy_sender(&mut self, send: UnboundedSender<Frame>) {
-        self.proxy_send.send(send).unwrap();
+    async fn key_proxy_worker(
+        proxy: MessageProxy<UiMessage>,
+        mut recv: UnboundedReceiver<UiMessage>,
+    ) {
+        loop {
+            let msg = recv.recv().await.unwrap();
+            proxy.message(msg).unwrap();
+        }
+    }
+
+    fn update_emu_proxy_sender(&mut self, send: UnboundedSender<Frame>) {
+        self.emu_proxy_send.send(send).unwrap();
+    }
+
+    fn update_key_proxy_sender(&mut self, send: UnboundedSender<UiMessage>) {
+        self.key_proxy_send.send(send).unwrap();
     }
 
     fn process_next_frame(&mut self, (image, count): Frame) {
@@ -197,6 +223,45 @@ impl EmulatorProxy {
                         send = new_send;
                     }
                     send.send(frame).unwrap();
+                }
+            }
+        }
+    }
+}
+
+/// Fuctions very similarly to the `EmulatorProxy` but for keyboard events not meant for the
+/// emulator core.
+pub struct KeyboardProxy {
+    key_recv: UnboundedReceiver<UiMessage>,
+    worker_send_recv: UnboundedReceiver<UnboundedSender<UiMessage>>,
+}
+
+impl KeyboardProxy {
+    fn new(
+        key_recv: UnboundedReceiver<UiMessage>,
+        worker_send_recv: UnboundedReceiver<UnboundedSender<UiMessage>>,
+    ) -> Self {
+        Self {
+            key_recv,
+            worker_send_recv,
+        }
+    }
+
+    async fn run(mut self) {
+        let Self {
+            key_recv,
+            worker_send_recv: work_send_recv,
+        } = &mut self;
+        let mut send = work_send_recv.recv().await.unwrap();
+        loop {
+            let msg = key_recv.recv().await.unwrap();
+            match send.send(msg) {
+                Ok(()) => {}
+                Err(SendError(msg)) => {
+                    while let Some(new_send) = work_send_recv.recv().await {
+                        send = new_send;
+                    }
+                    send.send(msg).unwrap();
                 }
             }
         }
