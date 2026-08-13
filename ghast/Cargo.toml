@@ -8,8 +8,12 @@ name = "ghast"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ghast"
-path = "src/main.rs"
+name = "ghast-native"
+path = "src/bin/native.rs"
+
+[[bin]]
+name = "ghast-web"
+path = "src/bin/web.rs"
 
 [dependencies]
 accesskit = "0.21.1"
