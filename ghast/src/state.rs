@@ -12,7 +12,6 @@ use xilem::view::image;
 use xilem::view::label;
 use xilem::view::text_button;
 use xilem::view::worker;
-use xilem_core::MessageProxy;
 
 use crate::config::Config;
 use crate::emu_core::EmuRecv;
@@ -21,14 +20,16 @@ use crate::emu_core::Frame;
 use crate::emu_core::Image;
 use crate::keys::Keystroke;
 use crate::trove::Trove;
+use crate::utils::identity_proxy;
 
 pub struct UiState {
     send: EmuSend,
     /// Used to communicate with the emulator proxy
     emu_proxy_send: UnboundedSender<UnboundedSender<Frame>>,
     key_proxy_send: UnboundedSender<UnboundedSender<UiMessage>>,
+    pub(crate) add_game_send: UnboundedSender<AddGameMessage>,
     cursor: StateCursor,
-    home: HomeState,
+    pub(crate) home: HomeState,
     game: InGameState,
     settings: SettingsState,
 }
@@ -41,7 +42,7 @@ pub enum StateCursor {
 }
 
 pub struct HomeState {
-    trove: Trove,
+    pub(crate) trove: Trove,
 }
 
 pub struct InGameState {
@@ -63,7 +64,7 @@ pub enum UiMessage {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HomeMessage {
-    AddGame,
+    AddGame(String, Vec<u8>),
     StartGame(String),
 }
 
@@ -76,7 +77,12 @@ pub enum InGameMessage {
 pub enum SettingsMessage {}
 
 impl UiState {
-    pub fn new(config: Config, send: EmuSend, emu_recv: EmuRecv, key_recv: UnboundedReceiver<UiMessage>) -> Self {
+    pub fn new(
+        config: Config,
+        send: EmuSend,
+        emu_recv: EmuRecv,
+        key_recv: UnboundedReceiver<UiMessage>,
+    ) -> Self {
         let trove = config.get_trove();
         let image = Image::empty();
         let (emu_proxy_send, emu_proxy_recv) = unbounded_channel();
@@ -87,6 +93,10 @@ impl UiState {
         let key_proxy = KeyboardProxy::new(key_recv, key_proxy_recv);
         tokio::spawn(key_proxy.run());
 
+        let (add_game_send, add_game_recv) = unbounded_channel();
+        let key_proxy = AddGameWorker::new(add_game_recv);
+        tokio::spawn(key_proxy.run());
+
         Self {
             send,
             emu_proxy_send,
@@ -95,6 +105,7 @@ impl UiState {
             home: HomeState { trove },
             game: InGameState { image, frames: 0 },
             settings: SettingsState {},
+            add_game_send,
         }
     }
 
@@ -139,33 +150,16 @@ impl UiState {
             StateCursor::Settings => self.settings.view().boxed(),
         };
         let emu_worker = worker(
-            Self::emu_proxy_worker,
+            identity_proxy,
             Self::update_emu_proxy_sender,
             Self::process_next_frame,
         );
         let key_worker = worker(
-            Self::key_proxy_worker,
+            identity_proxy,
             Self::update_key_proxy_sender,
             Self::update,
         );
         fork(fork(main_widget, emu_worker), key_worker).boxed()
-    }
-
-    async fn emu_proxy_worker(proxy: MessageProxy<Frame>, mut recv: UnboundedReceiver<Frame>) {
-        loop {
-            let msg = recv.recv().await.unwrap();
-            proxy.message(msg).unwrap();
-        }
-    }
-
-    async fn key_proxy_worker(
-        proxy: MessageProxy<UiMessage>,
-        mut recv: UnboundedReceiver<UiMessage>,
-    ) {
-        loop {
-            let msg = recv.recv().await.unwrap();
-            proxy.message(msg).unwrap();
-        }
     }
 
     fn update_emu_proxy_sender(&mut self, send: UnboundedSender<Frame>) {
@@ -268,15 +262,54 @@ impl KeyboardProxy {
     }
 }
 
+pub struct AddGameWorker {
+    add_game_recv: UnboundedReceiver<AddGameMessage>,
+}
+
+#[derive(Debug)]
+pub enum AddGameMessage {
+    AddGame,
+    NewSender(UnboundedSender<(String, Vec<u8>)>),
+}
+
+impl AddGameWorker {
+    fn new(add_game_recv: UnboundedReceiver<AddGameMessage>) -> Self {
+        Self { add_game_recv }
+    }
+
+    async fn run(mut self) {
+        let Self { add_game_recv } = &mut self;
+        let mut send = loop {
+            match add_game_recv.recv().await.unwrap() {
+                AddGameMessage::AddGame => continue,
+                AddGameMessage::NewSender(send) => break send,
+            }
+        };
+        loop {
+            match add_game_recv.recv().await.unwrap() {
+                AddGameMessage::AddGame => {
+                    let dialog = rfd::AsyncFileDialog::new();
+                    #[cfg(not(target_family = "wasm"))]
+                    let dialog = dialog.set_directory(home_dir().unwrap());
+
+                    let Some(handle) = dialog.pick_file().await else {
+                        continue;
+                    };
+
+                    send.send((handle.file_name(), handle.read().await))
+                        .unwrap();
+                }
+                AddGameMessage::NewSender(new_send) => send = new_send,
+            }
+        }
+    }
+}
+
 impl HomeState {
     fn update(&mut self, send: &EmuSend, msg: HomeMessage) -> Option<StateCursor> {
         match msg {
-            HomeMessage::AddGame => {
-                let path = home_dir().unwrap();
-                let game = rfd::FileDialog::new().set_directory(&path).pick_file();
-                if let Some(file) = game {
-                    self.trove.add_game(file);
-                }
+            HomeMessage::AddGame(name, rom) => {
+                self.trove.add_game(name, rom);
                 None
             }
             HomeMessage::StartGame(file) => {
