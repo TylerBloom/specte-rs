@@ -1,4 +1,15 @@
+use std::hash::Hash;
+use std::sync::Arc;
+use std::sync::Mutex;
+
 use spirit::ButtonInput;
+use spirit::JoypadInput;
+use spirit::SsabInput;
+
+use winit::event::ElementState;
+use winit::event::KeyEvent;
+use winit::keyboard::Key;
+use winit::keyboard::NamedKey;
 
 use crate::state::UiMessage;
 
@@ -21,170 +32,143 @@ pub enum ButtonInteration {
     ButtonRelease(ButtonInput),
 }
 
-/// Keyboard-to-input mapping backed by `winit` events. Not yet implemented for the WASM target;
-/// see `KeyWatcher`'s usages in `bin/native.rs`.
-#[cfg(not(target_family = "wasm"))]
-mod native {
-    use std::hash::Hash;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+/// Encodes the outputs from the `KeyMapper`. Similar to `Keystroke` but stripped of press/release
+/// notices.
+#[derive(Debug, Clone, Copy)]
+enum IntermediateKeystroke {
+    Escape,
+    Control(ControlSignal),
+    Button(ButtonInput),
+}
 
-    use spirit::ButtonInput;
-    use spirit::JoypadInput;
-    use spirit::SsabInput;
-    use winit::event::ElementState;
-    use winit::event::KeyEvent;
-    use winit::keyboard::Key;
-    use winit::keyboard::NamedKey;
+#[derive(Default, Clone)]
+pub struct KeyWatcher(Arc<Mutex<KeyWatcherInner>>);
 
-    use super::ButtonInteration;
-    use super::ControlSignal;
-    use super::Keystroke;
-    use crate::state::UiMessage;
-
-    /// Encodes the outputs from the `KeyMapper`. Similar to `Keystroke` but stripped of press/release
-    /// notices.
-    #[derive(Debug, Clone, Copy)]
-    enum IntermediateKeystroke {
-        Escape,
-        Control(ControlSignal),
-        Button(ButtonInput),
+impl KeyWatcher {
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    #[derive(Default, Clone)]
-    pub struct KeyWatcher(Arc<Mutex<KeyWatcherInner>>);
+    pub fn register_event(&self, event: &KeyEvent) -> Option<UiMessage> {
+        self.0.lock().unwrap().register_event(event)
+    }
+}
 
-    impl KeyWatcher {
-        pub fn new() -> Self {
-            Self::default()
-        }
+impl Hash for KeyWatcher {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.lock().unwrap().hash(state);
+    }
+}
 
-        pub fn register_event(&self, event: &KeyEvent) -> Option<UiMessage> {
-            self.0.lock().unwrap().register_event(event)
+/// Contains all of the state needed to map keyboard inputs to GBC button inputs.
+///
+/// Each field contains a simple state machine for tracking the time between initial button press
+/// and release.
+#[derive(Hash, Default)]
+struct KeyWatcherInner {
+    mapper: KeyMapper,
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+    a: bool,
+    b: bool,
+    start: bool,
+    select: bool,
+}
+
+impl KeyWatcherInner {
+    fn register_event(&mut self, event: &KeyEvent) -> Option<UiMessage> {
+        match event.state {
+            ElementState::Pressed => self.register_press(&event.logical_key),
+            ElementState::Released => self.register_release(&event.logical_key),
         }
     }
 
-    impl Hash for KeyWatcher {
-        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-            self.0.lock().unwrap().hash(state);
-        }
-    }
-
-    /// Contains all of the state needed to map keyboard inputs to GBC button inputs.
-    ///
-    /// Each field contains a simple state machine for tracking the time between initial button press
-    /// and release.
-    #[derive(Hash, Default)]
-    struct KeyWatcherInner {
-        mapper: KeyMapper,
-        up: bool,
-        down: bool,
-        left: bool,
-        right: bool,
-        a: bool,
-        b: bool,
-        start: bool,
-        select: bool,
-    }
-
-    impl KeyWatcherInner {
-        fn register_event(&mut self, event: &KeyEvent) -> Option<UiMessage> {
-            match event.state {
-                ElementState::Pressed => self.register_press(&event.logical_key),
-                ElementState::Released => self.register_release(&event.logical_key),
-            }
-        }
-
-        fn register_press(&mut self, key: &Key) -> Option<UiMessage> {
-            match self.mapper.map(key)? {
-                IntermediateKeystroke::Escape => Some(UiMessage::Escape),
-                IntermediateKeystroke::Control(signal) => Some(Keystroke::Control(signal).into()),
-                IntermediateKeystroke::Button(button) => {
-                    let field = self.button_ref(button);
-                    match field {
-                        true => None,
-                        false => {
-                            *field = true;
-                            Some(Keystroke::Button(ButtonInteration::ButtonPress(button)).into())
-                        }
+    fn register_press(&mut self, key: &Key) -> Option<UiMessage> {
+        match self.mapper.map(key)? {
+            IntermediateKeystroke::Escape => Some(UiMessage::Escape),
+            IntermediateKeystroke::Control(signal) => Some(Keystroke::Control(signal).into()),
+            IntermediateKeystroke::Button(button) => {
+                let field = self.button_ref(button);
+                match field {
+                    true => None,
+                    false => {
+                        *field = true;
+                        Some(Keystroke::Button(ButtonInteration::ButtonPress(button)).into())
                     }
                 }
             }
         }
-
-        fn register_release(&mut self, key: &Key) -> Option<UiMessage> {
-            let IntermediateKeystroke::Button(button) = self.mapper.map(key)? else {
-                return None;
-            };
-            *self.button_ref(button) = false;
-            Some(Keystroke::Button(ButtonInteration::ButtonRelease(button)).into())
-        }
-
-        pub fn button_ref(&mut self, button: ButtonInput) -> &mut bool {
-            match button {
-                ButtonInput::Joypad(JoypadInput::Up) => &mut self.up,
-                ButtonInput::Joypad(JoypadInput::Down) => &mut self.down,
-                ButtonInput::Joypad(JoypadInput::Left) => &mut self.left,
-                ButtonInput::Joypad(JoypadInput::Right) => &mut self.right,
-                ButtonInput::Ssab(SsabInput::A) => &mut self.a,
-                ButtonInput::Ssab(SsabInput::B) => &mut self.b,
-                ButtonInput::Ssab(SsabInput::Start) => &mut self.start,
-                ButtonInput::Ssab(SsabInput::Select) => &mut self.select,
-            }
-        }
     }
 
-    /// Maps raw keyboard input into messages for the core emulator.
-    #[derive(Hash, Default)]
-    pub struct KeyMapper {}
+    fn register_release(&mut self, key: &Key) -> Option<UiMessage> {
+        let IntermediateKeystroke::Button(button) = self.mapper.map(key)? else {
+            return None;
+        };
+        *self.button_ref(button) = false;
+        Some(Keystroke::Button(ButtonInteration::ButtonRelease(button)).into())
+    }
 
-    impl KeyMapper {
-        fn map(&self, event: &Key) -> Option<IntermediateKeystroke> {
-            match event {
-                Key::Named(NamedKey::Escape) => Some(IntermediateKeystroke::Escape),
-                Key::Named(NamedKey::Space) => {
-                    Some(IntermediateKeystroke::Control(ControlSignal::Pause))
-                }
-                Key::Named(NamedKey::ArrowRight) => {
-                    Some(IntermediateKeystroke::Control(ControlSignal::NextFrame))
-                }
-                Key::Named(NamedKey::Enter) => Some(IntermediateKeystroke::Button(
-                    ButtonInput::Ssab(SsabInput::Start),
-                )),
-                Key::Character(c) => match c.as_str() {
-                    "w" => Some(IntermediateKeystroke::Button(ButtonInput::Joypad(
-                        JoypadInput::Up,
-                    ))),
-                    "s" => Some(IntermediateKeystroke::Button(ButtonInput::Joypad(
-                        JoypadInput::Down,
-                    ))),
-                    "a" => Some(IntermediateKeystroke::Button(ButtonInput::Joypad(
-                        JoypadInput::Left,
-                    ))),
-                    "d" => Some(IntermediateKeystroke::Button(ButtonInput::Joypad(
-                        JoypadInput::Right,
-                    ))),
-                    "e" => Some(IntermediateKeystroke::Button(ButtonInput::Ssab(
-                        SsabInput::A,
-                    ))),
-                    "f" => Some(IntermediateKeystroke::Button(ButtonInput::Ssab(
-                        SsabInput::B,
-                    ))),
-                    "v" => Some(IntermediateKeystroke::Button(ButtonInput::Ssab(
-                        SsabInput::Select,
-                    ))),
-                    _ => None,
-                },
-                _ => None,
-            }
+    pub fn button_ref(&mut self, button: ButtonInput) -> &mut bool {
+        match button {
+            ButtonInput::Joypad(JoypadInput::Up) => &mut self.up,
+            ButtonInput::Joypad(JoypadInput::Down) => &mut self.down,
+            ButtonInput::Joypad(JoypadInput::Left) => &mut self.left,
+            ButtonInput::Joypad(JoypadInput::Right) => &mut self.right,
+            ButtonInput::Ssab(SsabInput::A) => &mut self.a,
+            ButtonInput::Ssab(SsabInput::B) => &mut self.b,
+            ButtonInput::Ssab(SsabInput::Start) => &mut self.start,
+            ButtonInput::Ssab(SsabInput::Select) => &mut self.select,
         }
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
-pub use native::KeyMapper;
-#[cfg(not(target_family = "wasm"))]
-pub use native::KeyWatcher;
+/// Maps raw keyboard input into messages for the core emulator.
+#[derive(Hash, Default)]
+pub struct KeyMapper {}
+
+impl KeyMapper {
+    fn map(&self, event: &Key) -> Option<IntermediateKeystroke> {
+        match event {
+            Key::Named(NamedKey::Escape) => Some(IntermediateKeystroke::Escape),
+            Key::Named(NamedKey::Space) => {
+                Some(IntermediateKeystroke::Control(ControlSignal::Pause))
+            }
+            Key::Named(NamedKey::ArrowRight) => {
+                Some(IntermediateKeystroke::Control(ControlSignal::NextFrame))
+            }
+            Key::Named(NamedKey::Enter) => Some(IntermediateKeystroke::Button(ButtonInput::Ssab(
+                SsabInput::Start,
+            ))),
+            Key::Character(c) => match c.as_str() {
+                "w" => Some(IntermediateKeystroke::Button(ButtonInput::Joypad(
+                    JoypadInput::Up,
+                ))),
+                "s" => Some(IntermediateKeystroke::Button(ButtonInput::Joypad(
+                    JoypadInput::Down,
+                ))),
+                "a" => Some(IntermediateKeystroke::Button(ButtonInput::Joypad(
+                    JoypadInput::Left,
+                ))),
+                "d" => Some(IntermediateKeystroke::Button(ButtonInput::Joypad(
+                    JoypadInput::Right,
+                ))),
+                "e" => Some(IntermediateKeystroke::Button(ButtonInput::Ssab(
+                    SsabInput::A,
+                ))),
+                "f" => Some(IntermediateKeystroke::Button(ButtonInput::Ssab(
+                    SsabInput::B,
+                ))),
+                "v" => Some(IntermediateKeystroke::Button(ButtonInput::Ssab(
+                    SsabInput::Select,
+                ))),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
 
 impl From<Keystroke> for UiMessage {
     fn from(value: Keystroke) -> Self {

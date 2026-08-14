@@ -53,5 +53,6 @@ xilem = "0.4.0"
 base64 = "0.22"
 instant = { version = "0.1", features = ["wasm-bindgen"] }
 wasm-bindgen-futures = "0.4.54"
-web-sys = { version = "0.3.104", features = ["Window", "Storage", "CanvasRenderingContext2d", "ImageData"] }
+web-sys = { version = "0.3.104", features = ["Window", "Storage", "CanvasRenderingContext2d", "ImageData", "CssStyleDeclaration", "Document", "Element", "EventTarget", "HtmlCanvasElement", "HtmlElement"] }
+winit = "0.30.13"
 xilem_web = "0.4.0"
