@@ -43,6 +43,20 @@ impl Trove {
         self.conn
             .execute("INSERT INTO games (name, rom) VALUES (?1, ?2)", (name, rom))
             .unwrap();
+        #[cfg(target_family = "wasm")]
+        self.save_db();
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub fn save_db(&self) {
+        use base64::Engine;
+
+        let blob = self.conn.serialize("main").unwrap();
+        let encode = base64::engine::general_purpose::STANDARD.encode(&*blob);
+        let storage = web_sys::window().unwrap().local_storage().unwrap().unwrap();
+        storage
+            .set_item(crate::config::wasm::TROVE_KEY, encode.as_str())
+            .unwrap();
     }
 
     /// Given the name of a game in the trove, reads the file and returns the contents
@@ -57,27 +71,6 @@ impl Trove {
             .unwrap()
     }
 
-    /*
-    pub fn add_game(&mut self, path: PathBuf) -> GameSet {
-        // Copy and trim the file name
-        let mut dir = self.path.clone();
-        dir.push(path.file_stem().unwrap());
-        // Create a directory with the file name
-        if dir.exists() && dir.is_dir() {
-            return GameSet {
-                path: dir,
-            };
-        }
-        println!("Creating GameSet at: {dir:?}");
-        std::fs::create_dir(&dir).unwrap();
-
-        // Copy the file into the new directory
-        let set_dir = dir.clone();
-        dir.push(path.file_name().unwrap());
-        std::fs::copy(path, dir).unwrap();
-        GameSet { path: set_dir }
-    }
-    */
     /// Reads back the sorted list of game names currently stored in the trove.
     fn game_names(&self) -> Vec<String> {
         let mut games = self
