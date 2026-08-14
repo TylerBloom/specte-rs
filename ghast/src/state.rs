@@ -1,9 +1,16 @@
 use std::env::home_dir;
 
+use futures::StreamExt;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::mpsc::error::SendError;
-use tokio::sync::mpsc::unbounded_channel;
+use tokio_stream::wrappers::UnboundedReceiverStream;
+use troupe::ActorBuilder;
+use troupe::ActorState;
+use troupe::Permanent;
+use troupe::Scheduler;
+use troupe::async_trait;
+use troupe::sink::SinkActor;
+use troupe::sink::SinkClient;
 use xilem::AnyWidgetView;
 use xilem::WidgetView;
 use xilem::core::fork;
@@ -25,9 +32,9 @@ use crate::utils::identity_proxy;
 pub struct UiState {
     send: EmuSend,
     /// Used to communicate with the emulator proxy
-    emu_proxy_send: UnboundedSender<UnboundedSender<Frame>>,
-    key_proxy_send: UnboundedSender<UnboundedSender<UiMessage>>,
-    pub(crate) add_game_send: UnboundedSender<AddGameMessage>,
+    emu_proxy_client: SinkClient<Permanent, EmulatorProxyMessage>,
+    key_proxy_client: SinkClient<Permanent, KeyboardProxyMessage>,
+    pub(crate) add_game_client: SinkClient<Permanent, AddGameMessage>,
     cursor: StateCursor,
     pub(crate) home: HomeState,
     game: InGameState,
@@ -85,27 +92,25 @@ impl UiState {
     ) -> Self {
         let trove = config.get_trove();
         let image = Image::empty();
-        let (emu_proxy_send, emu_proxy_recv) = unbounded_channel();
-        let emu_proxy = EmulatorProxy::new(emu_recv, emu_proxy_recv);
-        tokio::spawn(emu_proxy.run());
+        let mut builder = ActorBuilder::new(EmulatorProxy::default());
+        builder.attach_stream(emu_recv.into_stream().fuse());
+        let emu_proxy_client = builder.launch();
 
-        let (key_proxy_send, key_proxy_recv) = unbounded_channel();
-        let key_proxy = KeyboardProxy::new(key_recv, key_proxy_recv);
-        tokio::spawn(key_proxy.run());
+        let mut builder = ActorBuilder::new(KeyboardProxy::default());
+        builder.attach_stream(UnboundedReceiverStream::new(key_recv).fuse());
+        let key_proxy_client = builder.launch();
 
-        let (add_game_send, add_game_recv) = unbounded_channel();
-        let key_proxy = AddGameWorker::new(add_game_recv);
-        tokio::spawn(key_proxy.run());
+        let add_game_client= ActorBuilder::new(AddGameWorker::default()).launch();
 
         Self {
             send,
-            emu_proxy_send,
-            key_proxy_send,
+            emu_proxy_client,
+            key_proxy_client,
+            add_game_client,
             cursor: StateCursor::Home,
             home: HomeState { trove },
             game: InGameState { image, frames: 0 },
             settings: SettingsState {},
-            add_game_send,
         }
     }
 
@@ -154,20 +159,16 @@ impl UiState {
             Self::update_emu_proxy_sender,
             Self::process_next_frame,
         );
-        let key_worker = worker(
-            identity_proxy,
-            Self::update_key_proxy_sender,
-            Self::update,
-        );
+        let key_worker = worker(identity_proxy, Self::update_key_proxy_sender, Self::update);
         fork(fork(main_widget, emu_worker), key_worker).boxed()
     }
 
     fn update_emu_proxy_sender(&mut self, send: UnboundedSender<Frame>) {
-        self.emu_proxy_send.send(send).unwrap();
+        self.emu_proxy_client.send(send);
     }
 
     fn update_key_proxy_sender(&mut self, send: UnboundedSender<UiMessage>) {
-        self.key_proxy_send.send(send).unwrap();
+        self.key_proxy_client.send(send);
     }
 
     fn process_next_frame(&mut self, (image, count): Frame) {
@@ -189,33 +190,29 @@ impl UiState {
 /// widgets's task. Since the worker widget can appear and come back (e.g. you're in game, go to the
 /// home menu, and go back in game), the output channel might need to be swapped for a new channel.
 /// That new channel is received from the second input channel.
+#[derive(Default)]
 pub struct EmulatorProxy {
-    emu_recv: EmuRecv,
-    worker_send_recv: UnboundedReceiver<UnboundedSender<Frame>>,
+    sender: Option<UnboundedSender<Frame>>,
 }
 
-impl EmulatorProxy {
-    fn new(emu_recv: EmuRecv, worker_send_recv: UnboundedReceiver<UnboundedSender<Frame>>) -> Self {
-        Self {
-            emu_recv,
-            worker_send_recv,
-        }
-    }
+#[derive(derive_more::From)]
+pub enum EmulatorProxyMessage {
+    NewSender(UnboundedSender<Frame>),
+    Frame(Frame),
+}
 
-    async fn run(mut self) {
-        let Self {
-            emu_recv,
-            worker_send_recv: work_send_recv,
-        } = &mut self;
-        let mut send = work_send_recv.recv().await.unwrap();
-        loop {
-            let frame = emu_recv.next_frame().await;
-            match send.send(frame) {
-                Ok(()) => {}
-                Err(SendError(frame)) => {
-                    while let Some(new_send) = work_send_recv.recv().await {
-                        send = new_send;
-                    }
+#[async_trait]
+impl ActorState for EmulatorProxy {
+    type ActorType = SinkActor;
+    type Permanence = Permanent;
+    type Message = EmulatorProxyMessage;
+    type Output = ();
+
+    async fn process(&mut self, _scheduler: &mut Scheduler<Self>, msg: Self::Message) {
+        match msg {
+            EmulatorProxyMessage::NewSender(send) => self.sender = Some(send),
+            EmulatorProxyMessage::Frame(frame) => {
+                if let Some(send) = self.sender.as_ref() {
                     send.send(frame).unwrap();
                 }
             }
@@ -225,36 +222,29 @@ impl EmulatorProxy {
 
 /// Fuctions very similarly to the `EmulatorProxy` but for keyboard events not meant for the
 /// emulator core.
+#[derive(Default)]
 pub struct KeyboardProxy {
-    key_recv: UnboundedReceiver<UiMessage>,
-    worker_send_recv: UnboundedReceiver<UnboundedSender<UiMessage>>,
+    sender: Option<UnboundedSender<UiMessage>>,
 }
 
-impl KeyboardProxy {
-    fn new(
-        key_recv: UnboundedReceiver<UiMessage>,
-        worker_send_recv: UnboundedReceiver<UnboundedSender<UiMessage>>,
-    ) -> Self {
-        Self {
-            key_recv,
-            worker_send_recv,
-        }
-    }
+#[derive(derive_more::From)]
+pub enum KeyboardProxyMessage {
+    NewSender(UnboundedSender<UiMessage>),
+    Message(UiMessage),
+}
 
-    async fn run(mut self) {
-        let Self {
-            key_recv,
-            worker_send_recv: work_send_recv,
-        } = &mut self;
-        let mut send = work_send_recv.recv().await.unwrap();
-        loop {
-            let msg = key_recv.recv().await.unwrap();
-            match send.send(msg) {
-                Ok(()) => {}
-                Err(SendError(msg)) => {
-                    while let Some(new_send) = work_send_recv.recv().await {
-                        send = new_send;
-                    }
+#[async_trait]
+impl ActorState for KeyboardProxy {
+    type ActorType = SinkActor;
+    type Permanence = Permanent;
+    type Message = KeyboardProxyMessage;
+    type Output = ();
+
+    async fn process(&mut self, _scheduler: &mut Scheduler<Self>, msg: Self::Message) {
+        match msg {
+            KeyboardProxyMessage::NewSender(send) => self.sender = Some(send),
+            KeyboardProxyMessage::Message(msg) => {
+                if let Some(send) = self.sender.as_ref() {
                     send.send(msg).unwrap();
                 }
             }
@@ -262,44 +252,40 @@ impl KeyboardProxy {
     }
 }
 
+#[derive(Default)]
 pub struct AddGameWorker {
-    add_game_recv: UnboundedReceiver<AddGameMessage>,
+    sender: Option<UnboundedSender<(String, Vec<u8>)>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum AddGameMessage {
     AddGame,
     NewSender(UnboundedSender<(String, Vec<u8>)>),
 }
 
-impl AddGameWorker {
-    fn new(add_game_recv: UnboundedReceiver<AddGameMessage>) -> Self {
-        Self { add_game_recv }
-    }
+#[async_trait]
+impl ActorState for AddGameWorker {
+    type ActorType = SinkActor;
+    type Permanence = Permanent;
+    type Message = AddGameMessage;
+    type Output = ();
 
-    async fn run(mut self) {
-        let Self { add_game_recv } = &mut self;
-        let mut send = loop {
-            match add_game_recv.recv().await.unwrap() {
-                AddGameMessage::AddGame => continue,
-                AddGameMessage::NewSender(send) => break send,
-            }
-        };
-        loop {
-            match add_game_recv.recv().await.unwrap() {
-                AddGameMessage::AddGame => {
+    async fn process(&mut self, _scheduler: &mut Scheduler<Self>, msg: Self::Message) {
+        match msg {
+            AddGameMessage::NewSender(send) => self.sender = Some(send),
+            AddGameMessage::AddGame => {
+                if let Some(send) = self.sender.as_ref() {
                     let dialog = rfd::AsyncFileDialog::new();
                     #[cfg(not(target_family = "wasm"))]
                     let dialog = dialog.set_directory(home_dir().unwrap());
 
                     let Some(handle) = dialog.pick_file().await else {
-                        continue;
+                        return;
                     };
 
                     send.send((handle.file_name(), handle.read().await))
                         .unwrap();
                 }
-                AddGameMessage::NewSender(new_send) => send = new_send,
             }
         }
     }

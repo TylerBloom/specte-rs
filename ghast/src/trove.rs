@@ -25,7 +25,6 @@ use xilem::view::text_button;
 use xilem::view::worker;
 use xilem_core::fork;
 
-use crate::config::CONFIG_PATH;
 use crate::state::AddGameMessage;
 use crate::state::HomeMessage;
 use crate::state::UiMessage;
@@ -101,15 +100,12 @@ impl Trove {
 
     pub fn add_game_set_button(&self) -> impl WidgetView<UiState> + use<> {
         let button = text_button("Add Game Set", |state: &mut UiState| {
-            state.add_game_send.send(AddGameMessage::AddGame).unwrap();
+            state.add_game_client.send(AddGameMessage::AddGame);
         });
         let worker = worker(
             identity_proxy,
             |state: &mut UiState, send| {
-                state
-                    .add_game_send
-                    .send(AddGameMessage::NewSender(send))
-                    .unwrap()
+                state.add_game_client.send(send);
             },
             |state: &mut UiState, (file_name, rom): (String, Vec<u8>)| {
                 state.home.trove.add_game(file_name, rom);
