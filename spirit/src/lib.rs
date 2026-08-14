@@ -223,7 +223,7 @@ where
     pub(crate) mem: &'a mut M,
     pub(crate) ppu: &'a mut Ppu,
     pub(crate) cpu: &'a mut Cpu,
-    cycles: &'a mut usize
+    cycles: &'a mut usize,
 }
 
 impl<M: MemoryLike> GameboyState<'_, M> {

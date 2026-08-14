@@ -113,7 +113,9 @@ impl MBC5 {
             // The lower 8 bits of the ROM bank number.
             0x2000..0x3000 => self.rom_bank = (self.rom_bank & 0x0100) | value as u16,
             // The 9th bit of the ROM bank number.
-            0x3000..0x4000 => self.rom_bank = (self.rom_bank & 0x00FF) | ((value as u16 & 0x1) << 8),
+            0x3000..0x4000 => {
+                self.rom_bank = (self.rom_bank & 0x00FF) | ((value as u16 & 0x1) << 8)
+            }
             // The RAM bank number. Bit 3 drives the rumble motor on rumble carts, so we mask to the
             // lower 4 bits and rely on the RAM index mask to discard unused bits.
             0x4000..0x6000 => self.ram_bank = value & 0x0F,
