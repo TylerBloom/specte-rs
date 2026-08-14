@@ -2,7 +2,7 @@ name: Specte-rs CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, mvp ]
   pull_request:
     branches: [ main ]
 
@@ -48,3 +48,40 @@ jobs:
         run: trunk build
       - run: cargo build
       - run: cargo test
+  deploy_pages:
+    name: Deploy ghast (WASM) to GitHub Pages
+    needs: tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/mvp'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Setup Rust
+        uses: hecrj/setup-rust-action@v2
+        with:
+          rust-version: stable
+          targets: wasm32-unknown-unknown
+      - uses: actions/checkout@v6
+      - name: Fetch Trunk
+        uses: jetli/trunk-action@v0.5.1
+        with:
+          version: 'latest'
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Build ghast (WASM, release)
+        working-directory: ghast
+        run: trunk build --release
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ghast/dist
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
