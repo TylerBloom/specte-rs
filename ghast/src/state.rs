@@ -92,7 +92,7 @@ impl UiState {
         builder.attach_stream(UnboundedReceiverStream::new(key_recv).fuse());
         let key_proxy_client = builder.launch();
 
-        let add_game_client= ActorBuilder::new(AddGameWorker::default()).launch();
+        let add_game_client = ActorBuilder::new(AddGameWorker::default()).launch();
 
         Self {
             send,

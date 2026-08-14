@@ -15,12 +15,16 @@ use ghast::state::UiState;
 use tracing_subscriber::EnvFilter;
 
 use masonry::theme::default_property_set;
-use masonry_winit::app::{AppDriver, MasonryUserEvent};
+use masonry_winit::app::AppDriver;
+use masonry_winit::app::MasonryUserEvent;
 use winit::application::ApplicationHandler;
 use winit::error::EventLoopError;
 use winit::event::ElementState;
-use winit::keyboard::{KeyCode, PhysicalKey};
-use xilem::{EventLoop, WindowOptions, Xilem};
+use winit::keyboard::KeyCode;
+use winit::keyboard::PhysicalKey;
+use xilem::EventLoop;
+use xilem::WindowOptions;
+use xilem::Xilem;
 
 #[derive(Debug, Parser)]
 struct Args {
