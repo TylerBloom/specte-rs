@@ -63,14 +63,14 @@ mod native {
 }
 
 #[cfg(target_family = "wasm")]
-mod wasm {
+pub mod wasm {
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD as BASE64;
 
     use super::*;
 
     const CONFIG_KEY: &str = "ghast-config";
-    const TROVE_KEY: &str = "ghast-trove";
+    pub const TROVE_KEY: &str = "ghast-trove";
 
     fn local_storage() -> web_sys::Storage {
         web_sys::window()
