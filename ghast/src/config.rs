@@ -73,18 +73,17 @@ pub mod wasm {
     pub const TROVE_KEY: &str = "ghast-trove";
 
     fn local_storage() -> web_sys::Storage {
-        web_sys::window()
-            .unwrap()
-            .local_storage()
-            .unwrap()
-            .unwrap()
+        web_sys::window().unwrap().local_storage().unwrap().unwrap()
     }
 
     impl super::Config {
         pub fn read() -> Self {
             // Mirrors the native target: an absent config is treated the same as the empty
             // `ghast.toml` checked into the repo, relying on every field's `#[serde(default)]`.
-            let value = local_storage().get_item(CONFIG_KEY).unwrap().unwrap_or_default();
+            let value = local_storage()
+                .get_item(CONFIG_KEY)
+                .unwrap()
+                .unwrap_or_default();
             toml::from_str(&value).unwrap()
         }
 
