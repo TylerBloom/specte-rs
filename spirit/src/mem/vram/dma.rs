@@ -1,6 +1,9 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
-use crate::{cpu::check_bit_const, instruction::Instruction, mem::vram::PpuMode};
+use crate::cpu::check_bit_const;
+use crate::instruction::Instruction;
+use crate::mem::vram::PpuMode;
 
 #[derive(Default, Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct VramDma {
@@ -123,7 +126,9 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use super::VramDma;
-    use crate::{cpu::check_bit_const, instruction::Instruction, mem::vram::PpuMode};
+    use crate::cpu::check_bit_const;
+    use crate::instruction::Instruction;
+    use crate::mem::vram::PpuMode;
 
     /// The source and destination registers (FF51-FF54) are all write-only. Reads should return
     /// 0xFF

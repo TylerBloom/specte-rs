@@ -606,7 +606,9 @@ impl MemoryLike for Vec<u8> {
 
     fn vram_transfer(&mut self) {}
 
-    fn tick(&mut self, _ppu: &mut Ppu) -> usize { 0 }
+    fn tick(&mut self, _ppu: &mut Ppu) -> usize {
+        0
+    }
 
     fn switch_speeds(&mut self) {}
 

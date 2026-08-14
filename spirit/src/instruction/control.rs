@@ -1,4 +1,5 @@
-use crate::cpu::{CpuState, check_bit_const};
+use crate::cpu::CpuState;
+use crate::cpu::check_bit_const;
 
 use super::*;
 
