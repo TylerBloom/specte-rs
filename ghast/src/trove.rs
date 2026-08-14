@@ -18,18 +18,6 @@ use rusqlite::Connection;
 use rusqlite::OptionalExtension;
 use serde::Deserialize;
 use serde::Serialize;
-use xilem::WidgetView;
-use xilem::view::flex_col;
-use xilem::view::label;
-use xilem::view::text_button;
-use xilem::view::worker;
-use xilem_core::fork;
-
-use crate::state::AddGameMessage;
-use crate::state::HomeMessage;
-use crate::state::UiMessage;
-use crate::state::UiState;
-use crate::utils::identity_proxy;
 
 // TODO: To get an MVP working, the trove will just contain a copy of each can. Later, layers like
 // the game sets will be added.
@@ -90,31 +78,8 @@ impl Trove {
         GameSet { path: set_dir }
     }
     */
-    pub fn display(&self) -> impl WidgetView<UiState> + use<> {
-        flex_col((
-            label("Trove"),
-            self.add_game_set_button(),
-            self.display_games(),
-        ))
-    }
-
-    pub fn add_game_set_button(&self) -> impl WidgetView<UiState> + use<> {
-        let button = text_button("Add Game Set", |state: &mut UiState| {
-            state.add_game_client.send(AddGameMessage::AddGame);
-        });
-        let worker = worker(
-            identity_proxy,
-            |state: &mut UiState, send| {
-                state.add_game_client.send(send);
-            },
-            |state: &mut UiState, (file_name, rom): (String, Vec<u8>)| {
-                state.home.trove.add_game(file_name, rom);
-            },
-        );
-        fork(button, worker)
-    }
-
-    pub fn display_games(&self) -> impl WidgetView<UiState> + use<> {
+    /// Reads back the sorted list of game names currently stored in the trove.
+    fn game_names(&self) -> Vec<String> {
         let mut games = self
             .conn
             .prepare("SELECT name FROM games")
@@ -124,22 +89,140 @@ impl Trove {
             .mapped(|row| row.get(0))
             .collect::<Result<Vec<String>, _>>()
             .unwrap();
-
         games.sort();
+        games
+    }
+}
 
-        let col = games
-            .into_iter()
-            .map(|file_name| {
-                let file_name: &'static str = file_name.leak();
-                text_button(file_name, move |state: &mut UiState| {
-                    state.update(UiMessage::HomeMessage(HomeMessage::StartGame(
-                        file_name.to_owned(),
-                    )));
+#[cfg(not(target_family = "wasm"))]
+mod native {
+    use xilem::WidgetView;
+    use xilem::view::flex_col;
+    use xilem::view::label;
+    use xilem::view::text_button;
+    use xilem::view::worker;
+    use xilem_core::fork;
+
+    use crate::state::AddGameMessage;
+    use crate::state::HomeMessage;
+    use crate::state::UiMessage;
+    use crate::state::UiState;
+    use crate::utils::identity_proxy;
+
+    impl super::Trove {
+        pub fn display(&self) -> impl WidgetView<UiState> + use<> {
+            flex_col((
+                label("Trove"),
+                self.add_game_set_button(),
+                self.display_games(),
+            ))
+        }
+
+        pub fn add_game_set_button(&self) -> impl WidgetView<UiState> + use<> {
+            let button = text_button("Add Game Set", |state: &mut UiState| {
+                state.add_game_client.send(AddGameMessage::AddGame);
+            });
+            let worker = worker(
+                identity_proxy,
+                |state: &mut UiState, send| {
+                    state.add_game_client.send(send);
+                },
+                |state: &mut UiState, (file_name, rom): (String, Vec<u8>)| {
+                    state.home.trove.add_game(file_name, rom);
+                },
+            );
+            fork(button, worker)
+        }
+
+        pub fn display_games(&self) -> impl WidgetView<UiState> + use<> {
+            let col = self
+                .game_names()
+                .into_iter()
+                .map(|file_name| {
+                    let file_name: &'static str = file_name.leak();
+                    text_button(file_name, move |state: &mut UiState| {
+                        state.update(UiMessage::HomeMessage(HomeMessage::StartGame(
+                            file_name.to_owned(),
+                        )));
+                    })
                 })
-            })
-            .collect::<Vec<_>>();
+                .collect::<Vec<_>>();
 
-        flex_col(col)
+            flex_col(col)
+        }
+    }
+}
+
+#[cfg(target_family = "wasm")]
+mod wasm {
+    use tokio::sync::mpsc::UnboundedSender;
+    use tokio::sync::mpsc::unbounded_channel;
+    use xilem_web::DomView;
+    use xilem_web::concurrent::ShutdownSignal;
+    use xilem_web::concurrent::TaskProxy;
+    use xilem_web::concurrent::task;
+    use xilem_web::core::fork;
+    use xilem_web::elements::html::button;
+    use xilem_web::elements::html::div;
+    use xilem_web::elements::html::p;
+    use xilem_web::interfaces::Element as _;
+
+    use crate::state::AddGameMessage;
+    use crate::state::HomeMessage;
+    use crate::state::UiMessage;
+    use crate::state::UiState;
+
+    impl super::Trove {
+        pub fn display(&self) -> impl DomView<UiState> + use<> {
+            div((p("Trove"), self.add_game_set_button(), self.display_games()))
+        }
+
+        pub fn add_game_set_button(&self) -> impl DomView<UiState> + use<> {
+            let button = button("Add Game Set").on_click(|state: &mut UiState, _| {
+                state.add_game_client.send(AddGameMessage::AddGame);
+            });
+            fork(button, task(add_game_task_init, add_game_task_event))
+        }
+
+        pub fn display_games(&self) -> impl DomView<UiState> + use<> {
+            let col = self
+                .game_names()
+                .into_iter()
+                .map(|file_name| {
+                    let file_name: &'static str = file_name.leak();
+                    button(file_name).on_click(move |state: &mut UiState, _| {
+                        state.update(UiMessage::HomeMessage(HomeMessage::StartGame(
+                            file_name.to_owned(),
+                        )));
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            div(col)
+        }
+    }
+
+    #[derive(Debug)]
+    enum AddGameTaskMessage {
+        NewSender(UnboundedSender<(String, Vec<u8>)>),
+        Added(String, Vec<u8>),
+    }
+
+    async fn add_game_task_init(proxy: TaskProxy, _shutdown: ShutdownSignal) {
+        let (send, mut recv) = unbounded_channel();
+        proxy.send_message(AddGameTaskMessage::NewSender(send));
+        while let Some((name, rom)) = recv.recv().await {
+            proxy.send_message(AddGameTaskMessage::Added(name, rom));
+        }
+    }
+
+    fn add_game_task_event(state: &mut UiState, msg: AddGameTaskMessage) {
+        match msg {
+            AddGameTaskMessage::NewSender(send) => {
+                state.add_game_client.send(AddGameMessage::NewSender(send));
+            }
+            AddGameTaskMessage::Added(name, rom) => state.home.trove.add_game(name, rom),
+        }
     }
 }
 

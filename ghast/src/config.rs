@@ -82,7 +82,9 @@ mod wasm {
 
     impl super::Config {
         pub fn read() -> Self {
-            let value = local_storage().get_item(CONFIG_KEY).unwrap().unwrap();
+            // Mirrors the native target: an absent config is treated the same as the empty
+            // `ghast.toml` checked into the repo, relying on every field's `#[serde(default)]`.
+            let value = local_storage().get_item(CONFIG_KEY).unwrap().unwrap_or_default();
             toml::from_str(&value).unwrap()
         }
 
@@ -95,12 +97,14 @@ mod wasm {
         pub fn get_trove(&self) -> Trove {
             // The trove is stored as a base64-encoded, serialized SQLite database, since
             // `localStorage` only holds strings.
-            let encoded = local_storage().get_item(TROVE_KEY).unwrap().unwrap();
-            let bytes = BASE64.decode(encoded).unwrap();
-
             let mut conn = Connection::open_in_memory().unwrap();
-            conn.deserialize_read_exact("main", bytes.as_slice(), bytes.len(), false)
-                .unwrap();
+            // Mirrors the native target: `Connection::open` creates the database file when it's
+            // missing, so a first run with no stored trove yet just gets a fresh, empty database.
+            if let Some(encoded) = local_storage().get_item(TROVE_KEY).unwrap() {
+                let bytes = BASE64.decode(encoded).unwrap();
+                conn.deserialize_read_exact("main", bytes.as_slice(), bytes.len(), false)
+                    .unwrap();
+            }
             Trove::new(conn)
         }
     }

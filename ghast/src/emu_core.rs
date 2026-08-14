@@ -2,15 +2,11 @@ use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
 
-use accesskit::Action;
-use accesskit::ActionRequest;
-use accesskit::NodeId;
-use accesskit_winit::WindowEvent;
+use std::future::Future;
+use std::time::Duration;
+
 use futures::stream::FusedStream;
-use masonry::peniko::ImageAlphaType;
-use masonry::peniko::ImageData;
-use masonry_winit::app::EventLoopProxy;
-use masonry_winit::app::MasonryUserEvent;
+use instant::Instant;
 use spirit::Gameboy;
 use spirit::StartUpSequence;
 use spirit::ppu::Pixel;
@@ -21,34 +17,89 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::unbounded_channel;
-use tokio::time::Duration;
-use tokio::time::Instant;
-use tokio::time::interval;
 use tokio_stream::Stream;
 use tokio_stream::wrappers::ReceiverStream;
 use troupe::compat::SendableFusedStream;
-use winit::window::WindowId;
-use xilem::Blob;
-use xilem::ImageFormat;
+use troupe::compat::sleep_for;
 
 use crate::keys::ButtonInteration;
 use crate::keys::ControlSignal;
 use crate::keys::Keystroke;
 use crate::utils::screen_to_image_scaled;
 
+/// Spawns a future in the background. `tokio::spawn` requires an actively-running Tokio runtime
+/// to poll the task, which native builds provide via `Runtime::block_on` in `main`. WASM has no
+/// such runtime (blocking the browser's single thread to drive one isn't viable), so tasks are
+/// driven by the browser's own event loop via `wasm-bindgen-futures` instead.
+#[cfg(not(target_family = "wasm"))]
+fn spawn<F: Future<Output = ()> + Send + 'static>(fut: F) {
+    tokio::spawn(fut);
+}
+
+#[cfg(target_family = "wasm")]
+fn spawn<F: Future<Output = ()> + 'static>(fut: F) {
+    wasm_bindgen_futures::spawn_local(fut);
+}
+
 pub struct EmuHandle {
     send: EmuSend,
     recv: EmuRecv,
 }
-
-#[derive(Debug)]
-pub struct Image(pub ImageData);
 
 pub type Frame = (Image, usize);
 
 impl Image {
     pub fn empty() -> Self {
         create_image(&vec![vec![Pixel::WHITE; 160]; 144])
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[derive(Debug)]
+pub struct Image(pub masonry::peniko::ImageData);
+
+#[cfg(not(target_family = "wasm"))]
+#[allow(clippy::ptr_arg)]
+pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Image {
+    use masonry::peniko::ImageAlphaType;
+    use masonry::peniko::ImageData;
+    use xilem::Blob;
+    use xilem::ImageFormat;
+
+    const SCALE: usize = 4;
+    let (width, height, image) = screen_to_image_scaled(screen, SCALE);
+    assert_eq!(width * height * 4, image.len() as u32);
+
+    let image = ImageData {
+        data: Blob::from(image),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::Alpha,
+        width,
+        height,
+    };
+
+    Image(image)
+}
+
+/// A decoded, scaled-up RGBA8 frame from the emulator's screen, ready to be painted onto a
+/// `<canvas>` via `CanvasRenderingContext2d::put_image_data`.
+#[cfg(target_family = "wasm")]
+#[derive(Debug, Clone)]
+pub struct Image {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<u8>,
+}
+
+#[cfg(target_family = "wasm")]
+#[allow(clippy::ptr_arg)]
+pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Image {
+    const SCALE: usize = 4;
+    let (width, height, pixels) = screen_to_image_scaled(screen, SCALE);
+    Image {
+        width,
+        height,
+        pixels,
     }
 }
 
@@ -71,7 +122,7 @@ impl EmuHandle {
             send: frame_send,
             frame_send: EmuSend(msg_send.clone()),
         };
-        tokio::task::spawn(core.run());
+        spawn(core.run());
         Self {
             recv: EmuRecv(frame_recv),
             send: EmuSend(msg_send),
@@ -123,30 +174,6 @@ impl EmuRecv {
         }
     }
 
-    /// Takes this recv and spawns it in a new task to be listened to. Using the provided event loop proxy,
-    /// a message is sent to trigger the Xilem state to update the UI state.
-    ///
-    /// In short, messages from this receiver are listened to and forwards to another receiver. For
-    /// each message, the event loop proxy is envoked so the UI can process its message.
-    pub fn split_and_proxy(mut self, win_id: WindowId, proxy: EventLoopProxy) -> Self {
-        let (send, recv) = channel(10);
-        tokio::spawn(async move {
-            while let Some(msg) = self.0.recv().await {
-                println!("Frame {} recv-ed", msg.1);
-                send.send(msg).await.unwrap();
-                let action = ActionRequest {
-                    action: Action::CustomAction,
-                    target: NodeId(0),
-                    data: None,
-                };
-                let event = WindowEvent::ActionRequested(action);
-                let event = MasonryUserEvent::AccessKit(win_id, event);
-                proxy.send_event(event).unwrap();
-            }
-        });
-        Self(recv)
-    }
-
     pub fn into_stream(self) -> EmuStream {
         EmuStream(Box::pin(ReceiverStream::new(self.0)))
     }
@@ -182,11 +209,9 @@ impl EmuCore {
             send,
             frame_send,
         } = self;
-        tokio::spawn(async move {
-            let mut timer = interval(tokio::time::Duration::from_secs(1) / 60);
-            timer.tick().await;
+        spawn(async move {
             loop {
-                timer.tick().await;
+                sleep_for(Duration::from_secs(1) / 60).await;
                 frame_send.next_frame();
             }
         });
@@ -300,23 +325,6 @@ impl EmulatorInner {
             }
         }
     }
-}
-
-#[allow(clippy::ptr_arg)]
-pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Image {
-    const SCALE: usize = 4;
-    let (width, height, image) = screen_to_image_scaled(screen, SCALE);
-    assert_eq!(width * height * 4, image.len() as u32);
-
-    let image = ImageData {
-        data: Blob::from(image),
-        format: ImageFormat::Rgba8,
-        alpha_type: ImageAlphaType::Alpha,
-        width,
-        height,
-    };
-
-    Image(image)
 }
 
 impl Emulator {
