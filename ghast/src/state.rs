@@ -1,3 +1,4 @@
+#[cfg(not(target_family = "wasm"))]
 use std::env::home_dir;
 
 use futures::StreamExt;
@@ -11,14 +12,6 @@ use troupe::Scheduler;
 use troupe::async_trait;
 use troupe::sink::SinkActor;
 use troupe::sink::SinkClient;
-use xilem::AnyWidgetView;
-use xilem::WidgetView;
-use xilem::core::fork;
-use xilem::view::flex_col;
-use xilem::view::image;
-use xilem::view::label;
-use xilem::view::text_button;
-use xilem::view::worker;
 
 use crate::config::Config;
 use crate::emu_core::EmuRecv;
@@ -27,7 +20,6 @@ use crate::emu_core::Frame;
 use crate::emu_core::Image;
 use crate::keys::Keystroke;
 use crate::trove::Trove;
-use crate::utils::identity_proxy;
 
 pub struct UiState {
     send: EmuSend,
@@ -114,11 +106,6 @@ impl UiState {
         }
     }
 
-    pub fn app_logic(&mut self) -> impl WidgetView<UiState> + use<> {
-        println!("Running app logic...");
-        self.view()
-    }
-
     pub fn update(&mut self, msg: UiMessage) {
         let cursor = match msg {
             UiMessage::HomeMessage(msg) if matches!(self.cursor, StateCursor::Home) => {
@@ -146,21 +133,6 @@ impl UiState {
         if let Some(cursor) = cursor {
             self.cursor = cursor;
         }
-    }
-
-    pub fn view(&self) -> Box<AnyWidgetView<UiState>> {
-        let main_widget = match self.cursor {
-            StateCursor::Home => self.home.view().boxed(),
-            StateCursor::InGame => self.game.view().boxed(),
-            StateCursor::Settings => self.settings.view().boxed(),
-        };
-        let emu_worker = worker(
-            identity_proxy,
-            Self::update_emu_proxy_sender,
-            Self::process_next_frame,
-        );
-        let key_worker = worker(identity_proxy, Self::update_key_proxy_sender, Self::update);
-        fork(fork(main_widget, emu_worker), key_worker).boxed()
     }
 
     fn update_emu_proxy_sender(&mut self, send: UnboundedSender<Frame>) {
@@ -273,12 +245,26 @@ impl ActorState for AddGameWorker {
     async fn process(&mut self, _scheduler: &mut Scheduler<Self>, msg: Self::Message) {
         match msg {
             AddGameMessage::NewSender(send) => self.sender = Some(send),
+            // The file dialog's future isn't `Send` on the WASM target (it holds JS handles
+            // internally), but `#[async_trait]` requires `process`'s future to be `Send`. Since
+            // `spawn_local` doesn't require its future to be `Send`, the dialog is driven to
+            // completion off to the side instead of being awaited directly here.
+            #[cfg(target_family = "wasm")]
+            AddGameMessage::AddGame => {
+                if let Some(send) = self.sender.clone() {
+                    wasm_bindgen_futures::spawn_local(async move {
+                        let Some(handle) = rfd::AsyncFileDialog::new().pick_file().await else {
+                            return;
+                        };
+                        send.send((handle.file_name(), handle.read().await))
+                            .unwrap();
+                    });
+                }
+            }
+            #[cfg(not(target_family = "wasm"))]
             AddGameMessage::AddGame => {
                 if let Some(send) = self.sender.as_ref() {
-                    let dialog = rfd::AsyncFileDialog::new();
-                    #[cfg(not(target_family = "wasm"))]
-                    let dialog = dialog.set_directory(home_dir().unwrap());
-
+                    let dialog = rfd::AsyncFileDialog::new().set_directory(home_dir().unwrap());
                     let Some(handle) = dialog.pick_file().await else {
                         return;
                     };
@@ -305,14 +291,6 @@ impl HomeState {
             }
         }
     }
-
-    pub fn view(&self) -> impl WidgetView<UiState> + use<> {
-        flex_col((self.settings_button(), self.trove.display()))
-    }
-
-    fn settings_button(&self) -> impl WidgetView<UiState> + use<> {
-        text_button("Settings", |_: &mut UiState| {})
-    }
 }
 
 impl InGameState {
@@ -325,21 +303,173 @@ impl InGameState {
         }
         None
     }
-
-    pub fn view(&self) -> impl WidgetView<UiState> + use<> {
-        flex_col((
-            label(format!("Frame #{}", self.frames)),
-            image(self.image.0.clone()),
-        ))
-    }
 }
 
 impl SettingsState {
     fn update(&mut self, _msg: SettingsMessage) -> Option<StateCursor> {
         todo!()
     }
+}
 
-    pub fn view(&self) -> impl WidgetView<UiState> + use<> {
-        label("UNDER CONSTRUCTION!!!")
+#[cfg(not(target_family = "wasm"))]
+mod native {
+    use xilem::AnyWidgetView;
+    use xilem::WidgetView;
+    use xilem::core::fork;
+    use xilem::view::flex_col;
+    use xilem::view::image;
+    use xilem::view::label;
+    use xilem::view::text_button;
+    use xilem::view::worker;
+
+    use super::*;
+    use crate::utils::identity_proxy;
+
+    impl super::UiState {
+        pub fn app_logic(&mut self) -> impl WidgetView<UiState> + use<> {
+            self.view()
+        }
+
+        pub fn view(&self) -> Box<AnyWidgetView<UiState>> {
+            let main_widget = match self.cursor {
+                StateCursor::Home => self.home.view().boxed(),
+                StateCursor::InGame => self.game.view().boxed(),
+                StateCursor::Settings => self.settings.view().boxed(),
+            };
+            let emu_worker = worker(
+                identity_proxy,
+                Self::update_emu_proxy_sender,
+                Self::process_next_frame,
+            );
+            let key_worker = worker(identity_proxy, Self::update_key_proxy_sender, Self::update);
+            fork(fork(main_widget, emu_worker), key_worker).boxed()
+        }
+    }
+
+    impl super::HomeState {
+        pub fn view(&self) -> impl WidgetView<UiState> + use<> {
+            flex_col((self.settings_button(), self.trove.display()))
+        }
+
+        fn settings_button(&self) -> impl WidgetView<UiState> + use<> {
+            text_button("Settings", |_: &mut UiState| {})
+        }
+    }
+
+    impl super::InGameState {
+        pub fn view(&self) -> impl WidgetView<UiState> + use<> {
+            flex_col((
+                label(format!("Frame #{}", self.frames)),
+                image(self.image.0.clone()),
+            ))
+        }
+    }
+
+    impl super::SettingsState {
+        pub fn view(&self) -> impl WidgetView<UiState> + use<> {
+            label("UNDER CONSTRUCTION!!!")
+        }
+    }
+}
+
+#[cfg(target_family = "wasm")]
+mod wasm {
+    use tokio::sync::mpsc::UnboundedSender;
+    use tokio::sync::mpsc::unbounded_channel;
+    use web_sys::wasm_bindgen::Clamped;
+    use web_sys::wasm_bindgen::JsCast;
+    use xilem_web::DomView;
+    use xilem_web::concurrent::ShutdownSignal;
+    use xilem_web::concurrent::TaskProxy;
+    use xilem_web::concurrent::task;
+    use xilem_web::core::fork;
+    use xilem_web::elements::html::button;
+    use xilem_web::elements::html::canvas;
+    use xilem_web::elements::html::div;
+    use xilem_web::elements::html::p;
+    use xilem_web::interfaces::Element as _;
+
+    use super::*;
+
+    impl super::UiState {
+        pub fn app_logic(&mut self) -> impl DomView<UiState> + use<> {
+            self.view()
+        }
+
+        pub fn view(&self) -> impl DomView<UiState> + use<> {
+            let main_widget = match self.cursor {
+                StateCursor::Home => self.home.view().boxed(),
+                StateCursor::InGame => self.game.view().boxed(),
+                StateCursor::Settings => self.settings.view().boxed(),
+            };
+            fork(main_widget, task(emu_frame_task_init, emu_frame_task_event))
+        }
+    }
+
+    impl super::HomeState {
+        pub fn view(&self) -> impl DomView<UiState> + use<> {
+            div((self.settings_button(), self.trove.display()))
+        }
+
+        fn settings_button(&self) -> impl DomView<UiState> + use<> {
+            button("Settings").on_click(|_: &mut UiState, _| {})
+        }
+    }
+
+    impl super::InGameState {
+        pub fn view(&self) -> impl DomView<UiState> + use<> {
+            let image = self.image.clone();
+            div((
+                p(format!("Frame #{}", self.frames)),
+                canvas(())
+                    .attr("width", image.width.to_string())
+                    .attr("height", image.height.to_string())
+                    .after_rebuild(move |el: &web_sys::HtmlCanvasElement| paint_frame(el, &image)),
+            ))
+        }
+    }
+
+    impl super::SettingsState {
+        pub fn view(&self) -> impl DomView<UiState> + use<> {
+            p("UNDER CONSTRUCTION!!!")
+        }
+    }
+
+    /// Paints a decoded emulator frame onto the given canvas element via the 2D canvas API.
+    fn paint_frame(canvas: &web_sys::HtmlCanvasElement, image: &Image) {
+        let ctx = canvas
+            .get_context("2d")
+            .unwrap()
+            .unwrap()
+            .dyn_into::<web_sys::CanvasRenderingContext2d>()
+            .unwrap();
+        let data = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
+            Clamped(&image.pixels),
+            image.width,
+            image.height,
+        )
+        .unwrap();
+        ctx.put_image_data(&data, 0.0, 0.0).unwrap();
+    }
+
+    #[derive(Debug)]
+    enum EmuFrameTaskMessage {
+        NewSender(UnboundedSender<Frame>),
+        Frame(Frame),
+    }
+
+    async fn emu_frame_task_init(proxy: TaskProxy, _shutdown: ShutdownSignal) {
+        let (send, mut recv) = unbounded_channel();
+        proxy.send_message(EmuFrameTaskMessage::NewSender(send));
+        while let Some(frame) = recv.recv().await {
+            proxy.send_message(EmuFrameTaskMessage::Frame(frame));
+        }
+    }
+
+    fn emu_frame_task_event(state: &mut UiState, msg: EmuFrameTaskMessage) {
+        match msg {
+            EmuFrameTaskMessage::NewSender(send) => state.update_emu_proxy_sender(send),
+            EmuFrameTaskMessage::Frame(frame) => state.process_next_frame(frame),
+        }
     }
 }
