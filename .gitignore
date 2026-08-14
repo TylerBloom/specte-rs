@@ -1,5 +1,6 @@
 /target
 /Cargo.lock
+/ghast/dist
 roms/*
 /ghast/trove/*
 /ghast/trove.db3

@@ -41,5 +41,10 @@ jobs:
           version: 'latest'
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+      - name: Check ghast (native)
+        run: cargo check -p ghast --bin ghast-native
+      - name: Check ghast (WASM)
+        working-directory: ghast
+        run: trunk build
       - run: cargo build
       - run: cargo test
