@@ -67,7 +67,7 @@ fn sweep_mem(mem: &MemoryMap, mmu: &mut MMU) -> bool {
     let mut digest = 0;
     for i in 0u16..=u16::MAX {
         if (0xFF10..=0xFF3F).contains(&i) {
-            continue
+            continue;
         }
         let a = mem.read_byte(i);
         let b = mmu.rb(i);
