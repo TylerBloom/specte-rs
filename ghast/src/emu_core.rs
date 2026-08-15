@@ -5,7 +5,6 @@ use std::task::Poll;
 use std::future::Future;
 use std::time::Duration;
 
-use futures::stream::FusedStream;
 use instant::Instant;
 use spirit::Gameboy;
 use spirit::StartUpSequence;
@@ -19,7 +18,6 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio_stream::Stream;
 use tokio_stream::wrappers::ReceiverStream;
-use troupe::compat::SendableFusedStream;
 use troupe::compat::sleep_for;
 
 use crate::keys::ButtonInteration;

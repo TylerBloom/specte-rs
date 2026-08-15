@@ -221,6 +221,7 @@ mod wasm {
 
 /// Contains data about usage, such as the last game played.
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub(crate) struct TroveData {
     #[serde(default)]
     last_game: Option<String>,
