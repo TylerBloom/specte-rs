@@ -8,8 +8,6 @@ accesskit = "0.21.1"
 bytes = "1.12.1"
 clap = { version = "4.5.21", features = ["derive"] }
 itertools = "0.15.0"
-masonry = "0.4.0"
-masonry_winit = "0.4.0"
 derive_more = { version = "2.1.1", features = ["from"] }
 futures = "0.3.34"
 instant = "0.1"
