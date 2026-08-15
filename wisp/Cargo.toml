@@ -1,5 +1,5 @@
 [package]
-name = "ghast"
+name = "wisp"
 version = "0.1.0"
 edition = "2024"
 
@@ -9,7 +9,6 @@ bytes = "1.12.1"
 clap = { version = "4.5.21", features = ["derive"] }
 derive_more = { version = "2.1.1", features = ["from"] }
 futures = "0.3.34"
-instant = "0.1"
 itertools = "0.13.0"
 png = "0.18.0"
 postcard = { version = "1.1.1", features = ["alloc"] }
@@ -17,6 +16,7 @@ rfd = "0.17.2"
 rusqlite = { version = "0.40.2", features = ["bundled", "serialize"] }
 serde = { version = "1.0.219", features = ["derive"] }
 spirit = { path = "../spirit" }
+ghast = { path = "../ghast" }
 time = { version = "0.3.36", features = ["local-offset"] }
 tokio = { version = "1.47.1", default-features = false, features = ["sync", "rt", "time", "macros"] }
 tokio-stream = "0.1.17"
@@ -24,17 +24,6 @@ toml = "1.1.2"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 troupe = "0.1.0"
 xilem_core = "0.4.0"
-
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-accesskit_winit = { version = "0.29.2", default-features = false, features = ["accesskit_unix", "rwh_06", "tokio"] }
-homedir = "0.3.4"
-masonry = "0.4.0"
-masonry_winit = "0.4.0"
-tokio = { version = "1.47.1", features = ["full"] }
-winit = "0.30.13"
-xilem = "0.4.0"
-
-[target.wasm32-unknown-unknown.dependencies]
 base64 = "0.22"
 instant = { version = "0.1", features = ["wasm-bindgen"] }
 wasm-bindgen-futures = "0.4.54"
