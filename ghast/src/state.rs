@@ -402,7 +402,10 @@ mod wasm {
                 StateCursor::InGame => self.game.view().boxed(),
                 StateCursor::Settings => self.settings.view().boxed(),
             };
-            fork(main_widget, task(emu_frame_task_init, emu_frame_task_event))
+            fork(
+                fork(main_widget, task(emu_frame_task_init, emu_frame_task_event)),
+                task(keyboard_task_init, keyboard_task_event),
+            )
         }
     }
 
@@ -458,10 +461,17 @@ mod wasm {
         Frame(Frame),
     }
 
+    #[derive(Debug)]
+    enum KeyboardTaskMessage {
+        NewSender(UnboundedSender<UiMessage>),
+        Keyboard(UiMessage),
+    }
+
     async fn emu_frame_task_init(proxy: TaskProxy, _shutdown: ShutdownSignal) {
         let (send, mut recv) = unbounded_channel();
         proxy.send_message(EmuFrameTaskMessage::NewSender(send));
-        while let Some(frame) = recv.recv().await {
+        loop {
+            let frame = recv.recv().await.unwrap();
             proxy.send_message(EmuFrameTaskMessage::Frame(frame));
         }
     }
@@ -470,6 +480,22 @@ mod wasm {
         match msg {
             EmuFrameTaskMessage::NewSender(send) => state.update_emu_proxy_sender(send),
             EmuFrameTaskMessage::Frame(frame) => state.process_next_frame(frame),
+        }
+    }
+
+    async fn keyboard_task_init(proxy: TaskProxy, _shutdown: ShutdownSignal) {
+        let (send, mut recv) = unbounded_channel();
+        proxy.send_message(KeyboardTaskMessage::NewSender(send));
+        loop {
+            let msg = recv.recv().await.unwrap();
+            proxy.send_message(KeyboardTaskMessage::Keyboard(msg));
+        }
+    }
+
+    fn keyboard_task_event(state: &mut UiState, msg: KeyboardTaskMessage) {
+        match msg {
+            KeyboardTaskMessage::NewSender(send) => state.update_key_proxy_sender(send),
+            KeyboardTaskMessage::Keyboard(msg) => state.update(msg),
         }
     }
 }
