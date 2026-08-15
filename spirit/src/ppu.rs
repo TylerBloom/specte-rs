@@ -212,7 +212,7 @@ impl ObjectFiFo {
 
         // Prioritize objects with the lower X value for non-GBC games.
         if mem.io().dmg_mode() {
-            digest.sort_by(|a, b| a.x.cmp(&b.x));
+            digest.sort_by_key(|a| a.x);
         }
 
         digest.into_iter().rev()

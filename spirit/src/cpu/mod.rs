@@ -199,15 +199,6 @@ const fn bit_select<const B: u8>() -> u8 {
     }
 }
 
-const fn u16_bit_select<const B: u8>() -> u16 {
-    const {
-        match B {
-            n @ 0..=15 => 0x1 << n,
-            _ => panic!("You must select between the 0th and 7th bit!"),
-        }
-    }
-}
-
 const fn bool_to_mask<const B: u8>(val: bool) -> u8 {
     (val as u8) << B
 }
@@ -223,10 +214,6 @@ const fn select_bit<const B: u8>(src: u8) -> u8 {
 
 pub const fn check_bit_const<const B: u8>(src: u8) -> bool {
     (src & bit_select::<B>()) == bit_select::<B>()
-}
-
-pub(crate) const fn u16_check_bit_const<const B: u8>(src: u16) -> bool {
-    (src & u16_bit_select::<B>()) == u16_bit_select::<B>()
 }
 
 /// Takes a byte that is in standard binary representation and converts it to binary coded decimal.

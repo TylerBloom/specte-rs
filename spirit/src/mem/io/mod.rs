@@ -235,7 +235,7 @@ struct AudioRegisters {
 /// information on when inputs are selected. A group is selected when the 4th or 5th bits of the
 /// register are set, which are the only two writable bits.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
-struct Joypad {
+pub(crate) struct Joypad {
     selection: u8,
     dpad_state: u8,
     ssab_state: u8,
