@@ -5,7 +5,7 @@ use crate::cpu::check_bit_const;
 use crate::instruction::Instruction;
 use crate::mem::vram::PpuMode;
 
-#[derive(Default, Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct VramDma {
     src_hi: u8,
     src_lo: u8,
@@ -13,6 +13,21 @@ pub(crate) struct VramDma {
     dest_lo: u8,
     trigger: u8,
     state: Option<TransferState>,
+}
+
+impl Default for VramDma {
+    fn default() -> Self {
+        Self {
+            src_hi: 0,
+            src_lo: 0,
+            dest_hi: 0,
+            dest_lo: 0,
+            // FF55 powers up as 0xFF. Bit 7 reads as 1 to signal that no transfer is active,
+            // and 0xFF is also the value that signals a completed transfer.
+            trigger: 0xFF,
+            state: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,7 +97,9 @@ impl VramDma {
                 let state = TransferState {
                     src: u16::from_be_bytes([self.src_hi, 0xF0 & self.src_lo]),
                     dest: u16::from_be_bytes([dest_hi, 0xF0 & self.dest_lo]),
-                    length: 0x7F & value, // Ignore to the top bit
+                    // The low 7 bits hold the transfer length divided by 0x10, minus 1, so
+                    // values 0x00..=0x7F describe 1..=128 blocks (0x10..=0x800 bytes).
+                    length: (0x7F & value) + 1,
                     kind,
                 };
                 self.state = Some(state);
@@ -139,7 +156,8 @@ mod tests {
         assert_eq!(dma.read_byte(0xFF52), 0xFF);
         assert_eq!(dma.read_byte(0xFF53), 0xFF);
         assert_eq!(dma.read_byte(0xFF54), 0xFF);
-        assert_eq!(dma.read_byte(0xFF55), 0);
+        // FF55 powers up as 0xFF: no transfer is active.
+        assert_eq!(dma.read_byte(0xFF55), 0xFF);
 
         dma.write_byte(0xFF51, 0x80);
         assert_eq!(dma.read_byte(0xFF51), 0xFF);
@@ -149,8 +167,12 @@ mod tests {
         assert_eq!(dma.read_byte(0xFF53), 0xFF);
         dma.write_byte(0xFF54, 0x80);
         assert_eq!(dma.read_byte(0xFF54), 0xFF);
+
+        // Bit 7 set starts an HBlank transfer, and the low 7 bits (0 here) request a single
+        // 0x10-byte block. While a transfer is active bit 7 reads back as 0, and the low bits
+        // hold the number of blocks remaining minus one.
         dma.write_byte(0xFF55, 0x80);
-        assert_eq!(dma.read_byte(0xFF55), 0x80);
+        assert_eq!(dma.read_byte(0xFF55), 0x00);
     }
 
     /// Once triggered, the OAM produce a sequence of src/dest indices for reading and writing data
@@ -164,16 +186,17 @@ mod tests {
         let mut dma = VramDma::default();
 
         let [src_hi, src_lo] = 0x5000u16.to_be_bytes();
-        dma.write_byte(0xFF51, src_lo);
-        dma.write_byte(0xFF52, src_hi);
+        dma.write_byte(0xFF51, src_hi);
+        dma.write_byte(0xFF52, src_lo);
 
         let [dest_hi, dest_lo] = 0x8000u16.to_be_bytes();
-        dma.write_byte(0xFF53, dest_lo);
-        dma.write_byte(0xFF54, dest_hi);
+        dma.write_byte(0xFF53, dest_hi);
+        dma.write_byte(0xFF54, dest_lo);
 
-        // Trigger
+        // Trigger. FF55 encodes the length as (bytes / 0x10) - 1, so to transfer `length`
+        // blocks we write `length - 1`.
         let length = 0x10;
-        dma.write_byte(0xFF55, length);
+        dma.write_byte(0xFF55, length - 1);
 
         // Check that DMA is primed (read FF55 and check that get_op returns an op)
         let trigger_reg = dma.read_byte(0xFF55);
@@ -227,20 +250,21 @@ mod tests {
         let mut dma = VramDma::default();
 
         let [src_hi, src_lo] = 0x5000u16.to_be_bytes();
-        dma.write_byte(0xFF51, src_lo);
-        dma.write_byte(0xFF52, src_hi);
+        dma.write_byte(0xFF51, src_hi);
+        dma.write_byte(0xFF52, src_lo);
 
         let [dest_hi, dest_lo] = 0x8000u16.to_be_bytes();
-        dma.write_byte(0xFF53, dest_lo);
-        dma.write_byte(0xFF54, dest_hi);
+        dma.write_byte(0xFF53, dest_hi);
+        dma.write_byte(0xFF54, dest_lo);
 
         // Trigger a HBlank transfer
         let length = 0b1011_0000;
         dma.write_byte(0xFF55, length);
 
-        let length = 0x7F & length;
+        // FF55 stores (blocks - 1), so the transfer is one block longer than the low 7 bits.
+        let length = (0x7F & length) + 1;
         let diff = 10;
-        for i in 0..(length - diff) {
+        for _ in 0..(length - diff) {
             dma.next_addrs().unwrap();
         }
         // Check that the transfer is running
@@ -297,12 +321,12 @@ mod tests {
         let mut dma = VramDma::default();
 
         let [src_hi, src_lo] = 0x5000u16.to_be_bytes();
-        dma.write_byte(0xFF51, src_lo);
-        dma.write_byte(0xFF52, src_hi);
+        dma.write_byte(0xFF51, src_hi);
+        dma.write_byte(0xFF52, src_lo);
 
         let [dest_hi, dest_lo] = 0x8000u16.to_be_bytes();
-        dma.write_byte(0xFF53, dest_lo);
-        dma.write_byte(0xFF54, dest_hi);
+        dma.write_byte(0xFF53, dest_hi);
+        dma.write_byte(0xFF54, dest_lo);
 
         // Trigger a HBlank transfer
         let length = 0b1011_0000;

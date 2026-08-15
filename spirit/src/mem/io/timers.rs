@@ -235,20 +235,25 @@ mod test {
 
     #[test]
     fn divider_register() {
+        /// The number of `tick`s (M-cycles) it takes for DIV to increment once.
+        const TICKS_PER_DIV: usize = 64;
+        /// DIV is the high byte of a 16-bit counter, so it wraps after 256 increments.
+        const TICKS_PER_WRAP: usize = TICKS_PER_DIV * 256;
+
         let mut regs = TimerRegisters::new();
-        assert!((0..0x100).all(|_| !regs.tick(SpeedMode::Standard)));
+        assert!((0..TICKS_PER_DIV).all(|_| !regs.tick(SpeedMode::Standard)));
         assert_eq!(regs.divider_reg, 1);
         assert_eq!(regs.divider_counter, 0);
+
         let mut regs = TimerRegisters::new();
         // We want to tick right up until the register resets. At no point should there be an
         // interupt request since the timer counter is disabled
-        let digest = std::iter::repeat_n(0..0x100, u8::MAX as usize)
-            .chain(std::iter::once(0..0xFF))
-            .flatten()
-            .all(|_| !regs.tick(SpeedMode::Standard));
+        let digest = (0..TICKS_PER_WRAP - 1).all(|_| !regs.tick(SpeedMode::Standard));
         assert!(digest);
         assert_eq!(regs.divider_reg, 0xFF);
-        assert_eq!(regs.divider_counter, 0xFF);
+        // The last tick before the wrap leaves the internal counter one M-cycle (4 T-cycles)
+        // short of overflowing.
+        assert_eq!(regs.divider_counter, 0xFC);
         assert!(!regs.tick(SpeedMode::Standard));
         assert_eq!(regs.divider_reg, 0);
         assert_eq!(regs.divider_counter, 0);

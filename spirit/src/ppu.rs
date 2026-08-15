@@ -699,6 +699,7 @@ pub fn zip_bits(hi: u8, lo: u8) -> impl Iterator<Item = u8> {
 mod tests {
     use crate::mem::MemoryLike;
     use crate::mem::MemoryMap;
+    use crate::mem::SpeedMode;
     use crate::mem::vram::PpuMode;
     use crate::ppu::ObjectPixel;
     use crate::ppu::Pixel;
@@ -748,8 +749,15 @@ mod tests {
         assert!(!buffer.is_empty(), "{fetcher:?}");
     }
 
+    /// Per the PanDocs, a scanline is 456 dots long: mode 2 always takes 80 dots, and modes 3
+    /// and 0 together always take the remaining 376.
+    ///
+    /// Note that `Ppu::tick` advances the PPU by one *M-cycle*, not one dot. At normal speed
+    /// there are 4 dots per M-cycle, so a scanline takes 456 / 4 = 114 ticks.
     #[test]
     fn test_scan_line_timing() {
+        const DOTS_PER_SCANLINE: usize = 456;
+
         let mut mem = MemoryMap::construct();
         // Turns on PPU
         mem.write_byte(0xFF40, 0x80);
@@ -764,11 +772,18 @@ mod tests {
             state = next_state;
             digest
         } {}
-        assert_eq!(counter, 456);
+        assert_eq!(counter * (SpeedMode::Standard as usize), DOTS_PER_SCANLINE);
     }
 
+    /// Per the PanDocs, a frame is 154 scanlines: 144 drawn scanlines followed by 10 scanlines
+    /// (4560 dots) of VBlank. At 456 dots per scanline that is 154 * 456 = 70224 dots.
+    ///
+    /// As in `test_scan_line_timing`, `Ppu::tick` advances one M-cycle (4 dots at normal
+    /// speed), so a frame takes 70224 / 4 = 17556 ticks.
     #[test]
     fn test_frame_render_timing() {
+        const DOTS_PER_FRAME: usize = 154 * 456;
+
         let mut mem = MemoryMap::construct();
         // Turns on PPU
         mem.write_byte(0xFF40, 0x80);
@@ -783,7 +798,8 @@ mod tests {
             state = next_state;
             digest
         } {}
-        assert_eq!(counter, 70224);
+        assert_eq!(DOTS_PER_FRAME, 70224);
+        assert_eq!(counter * (SpeedMode::Standard as usize), DOTS_PER_FRAME);
     }
 
     #[test]
