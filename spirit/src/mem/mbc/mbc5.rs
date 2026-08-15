@@ -95,13 +95,9 @@ impl MBC5 {
                 let bank = (self.rom_bank & self.rom_index_mask) as usize;
                 self.rom[bank][(index - 0x4000) as usize]
             }
-            0xA000..0xC000 => {
-                if self.ram_enabled {
-                    let bank = (self.ram_bank & self.ram_index_mask) as usize;
-                    self.ram[bank][(index - 0xA000) as usize]
-                } else {
-                    0xFF
-                }
+            0xA000..0xC000 if self.ram_enabled => {
+                let bank = (self.ram_bank & self.ram_index_mask) as usize;
+                self.ram[bank][(index - 0xA000) as usize]
             }
             _ => 0xFF,
         }
@@ -121,11 +117,9 @@ impl MBC5 {
             0x4000..0x6000 => self.ram_bank = value & 0x0F,
             // MBC5 has no banking-mode register; writes here are ignored.
             0x6000..0x8000 => {}
-            0xA000..0xC000 => {
-                if self.ram_enabled {
-                    let bank = (self.ram_bank & self.ram_index_mask) as usize;
-                    self.ram[bank][(index - 0xA000) as usize] = value;
-                }
+            0xA000..0xC000 if self.ram_enabled => {
+                let bank = (self.ram_bank & self.ram_index_mask) as usize;
+                self.ram[bank][(index - 0xA000) as usize] = value;
             }
             _ => {}
         }

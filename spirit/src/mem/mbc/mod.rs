@@ -132,7 +132,7 @@ impl MemoryBankController {
             // communicated to the constructor via `ram_size` (derived from the cartridge header),
             // and battery-backed persistence is handled by serializing the whole emulator state, so
             // no additional info needs to be passed to the constructor.
-            0x01 | 0x02 | 0x03 => Self::MBC1(MBC1::new(rom_size, ram_size as usize, &cart)),
+            0x01..=0x03 => Self::MBC1(MBC1::new(rom_size, ram_size as usize, &cart)),
             // 0x06 is MBC2+BATTERY. Battery-backed persistence is handled by serializing the whole
             // emulator state, so no extra info needs to be passed to the constructor.
             0x05 | 0x06 => Self::MBC2(MBC2::new(rom_size, &cart)),

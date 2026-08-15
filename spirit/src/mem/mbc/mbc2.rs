@@ -77,15 +77,11 @@ impl MBC2 {
                 let bank = (self.rom_bank & self.rom_index_mask) as usize;
                 self.rom[bank][(index - 0x4000) as usize]
             }
-            0xA000..0xC000 => {
-                if self.ram_enabled {
-                    // Only the bottom 9 bits of the address index into the built-in RAM, so the
-                    // region echoes every 512 bytes. Only the lower 4 bits of each byte are
-                    // meaningful; the upper 4 bits are undefined and are returned as set.
-                    self.ram[(index & 0x01FF) as usize] | 0xF0
-                } else {
-                    0xFF
-                }
+            0xA000..0xC000 if self.ram_enabled => {
+                // Only the bottom 9 bits of the address index into the built-in RAM, so the
+                // region echoes every 512 bytes. Only the lower 4 bits of each byte are
+                // meaningful; the upper 4 bits are undefined and are returned as set.
+                self.ram[(index & 0x01FF) as usize] | 0xF0
             }
             _ => 0xFF,
         }
@@ -103,10 +99,8 @@ impl MBC2 {
                     self.rom_bank = std::cmp::max(value & 0x0F, 1);
                 }
             }
-            0xA000..0xC000 => {
-                if self.ram_enabled {
-                    self.ram[(index & 0x01FF) as usize] = value & 0x0F;
-                }
+            0xA000..0xC000 if self.ram_enabled => {
+                self.ram[(index & 0x01FF) as usize] = value & 0x0F;
             }
             _ => {}
         }
