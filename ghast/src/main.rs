@@ -1,25 +1,26 @@
-use clap::Parser;
-use ghast::emu_core::EmuSend;
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::mpsc::unbounded_channel;
-use winit::event::WindowEvent;
-
 use std::sync::Arc;
 
-use ghast::keys::KeyWatcher;
-
 use ghast::config::Config;
-use ghast::emu_core::EmuHandle;
+use ghast::emu_core::EmuCore;
+use ghast::emu_core::EmuMessage;
+use ghast::keys::KeyWatcher;
 use ghast::state::UiMessage;
 use ghast::state::UiState;
-use tracing_subscriber::EnvFilter;
 
+use clap::Parser;
 use masonry::theme::default_property_set;
 use masonry_winit::app::AppDriver;
 use masonry_winit::app::MasonryUserEvent;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::unbounded_channel;
+use tracing_subscriber::EnvFilter;
+use troupe::ActorBuilder;
+use troupe::Permanent;
+use troupe::sink::SinkClient;
 use winit::application::ApplicationHandler;
 use winit::error::EventLoopError;
 use winit::event::ElementState;
+use winit::event::WindowEvent;
 use winit::keyboard::KeyCode;
 use winit::keyboard::PhysicalKey;
 use xilem::EventLoop;
@@ -37,7 +38,7 @@ struct ExternalApp {
     app_driver: Box<dyn AppDriver>,
     keys: KeyWatcher,
     key_proxy_send: UnboundedSender<UiMessage>,
-    send: EmuSend,
+    send: SinkClient<Permanent, EmuMessage>,
 }
 
 impl ApplicationHandler<MasonryUserEvent> for ExternalApp {
@@ -64,7 +65,9 @@ impl ApplicationHandler<MasonryUserEvent> for ExternalApp {
             && let Some(msg) = self.keys.register_event(event)
         {
             match msg {
-                UiMessage::Keystroke(key) => self.send.keystroke(key),
+                UiMessage::Keystroke(key) => {
+                    self.send.send(key);
+                }
                 UiMessage::Escape => self.key_proxy_send.send(UiMessage::Escape).unwrap(),
                 _ => panic!(),
             }
@@ -144,11 +147,12 @@ fn main() -> Result<(), EventLoopError> {
             let event_loop = EventLoop::with_user_event().build().unwrap();
 
             let conf = Config::read();
-            let (send, recv) = EmuHandle::contruct_and_launch().split();
+
+            let emu_client = ActorBuilder::new(EmuCore::new()).launch();
 
             let (key_proxy_send, key_proxy_recv) = unbounded_channel();
 
-            let state = UiState::new(conf, send.clone(), recv, key_proxy_recv);
+            let state = UiState::new(conf, emu_client.clone(), key_proxy_recv);
 
             let window_size = winit::dpi::LogicalSize::new(800.0, 800.0);
             let window_options =
@@ -170,7 +174,7 @@ fn main() -> Result<(), EventLoopError> {
                 masonry_state,
                 app_driver: Box::new(driver),
                 keys: KeyWatcher::new(),
-                send,
+                send: emu_client.sink(),
                 key_proxy_send,
             };
             event_loop.run_app(&mut app)

@@ -10,19 +10,21 @@ use troupe::ActorState;
 use troupe::Permanent;
 use troupe::Scheduler;
 use troupe::async_trait;
+use troupe::joint::JointClient;
 use troupe::sink::SinkActor;
 use troupe::sink::SinkClient;
 
 use crate::config::Config;
-use crate::emu_core::EmuRecv;
-use crate::emu_core::EmuSend;
+use crate::emu_core::EmuMessage;
+use crate::emu_core::EmuOutput;
 use crate::emu_core::Frame;
 use crate::emu_core::Image;
+use crate::keys::ControlSignal;
 use crate::keys::Keystroke;
 use crate::trove::Trove;
 
 pub struct UiState {
-    send: EmuSend,
+    emu_client: JointClient<Permanent, EmuMessage, EmuOutput>,
     /// Used to communicate with the emulator proxy
     emu_proxy_client: SinkClient<Permanent, EmulatorProxyMessage>,
     key_proxy_client: SinkClient<Permanent, KeyboardProxyMessage>,
@@ -78,14 +80,13 @@ pub enum SettingsMessage {}
 impl UiState {
     pub fn new(
         config: Config,
-        send: EmuSend,
-        emu_recv: EmuRecv,
+        emu_client: JointClient<Permanent, EmuMessage, EmuOutput>,
         key_recv: UnboundedReceiver<UiMessage>,
     ) -> Self {
         let trove = config.get_trove();
-        let image = Image::empty();
+        let image = Image::blank();
         let mut builder = ActorBuilder::new(EmulatorProxy::default());
-        builder.attach_stream(emu_recv.into_stream().fuse());
+        builder.attach_stream(emu_client.stream().map(Result::unwrap).fuse());
         let emu_proxy_client = builder.launch();
 
         let mut builder = ActorBuilder::new(KeyboardProxy::default());
@@ -95,7 +96,7 @@ impl UiState {
         let add_game_client = ActorBuilder::new(AddGameWorker::default()).launch();
 
         Self {
-            send,
+            emu_client,
             emu_proxy_client,
             key_proxy_client,
             add_game_client,
@@ -109,7 +110,7 @@ impl UiState {
     pub fn update(&mut self, msg: UiMessage) {
         let cursor = match msg {
             UiMessage::HomeMessage(msg) if matches!(self.cursor, StateCursor::Home) => {
-                self.home.update(&self.send, msg)
+                self.home.update(&self.emu_client, msg)
             }
             UiMessage::HomeMessage(_) => unreachable!(),
             UiMessage::InGameMessage(msg) if matches!(self.cursor, StateCursor::InGame) => {
@@ -122,11 +123,11 @@ impl UiState {
             UiMessage::SettingsMessage(_) => unreachable!(),
             UiMessage::SwitchToSettings => Some(StateCursor::Settings),
             UiMessage::Escape => {
-                self.send.pause();
+                self.emu_client.send(Keystroke::Control(ControlSignal::Pause));
                 Some(StateCursor::Home)
             }
             UiMessage::Keystroke(key) => {
-                self.send.keystroke(key);
+                self.emu_client.send(key);
                 None
             }
         };
@@ -170,7 +171,7 @@ pub struct EmulatorProxy {
 #[derive(derive_more::From)]
 pub enum EmulatorProxyMessage {
     NewSender(UnboundedSender<Frame>),
-    Frame(Frame),
+    EmuMessage(EmuOutput),
 }
 
 #[async_trait]
@@ -183,10 +184,14 @@ impl ActorState for EmulatorProxy {
     async fn process(&mut self, _scheduler: &mut Scheduler<Self>, msg: Self::Message) {
         match msg {
             EmulatorProxyMessage::NewSender(send) => self.sender = Some(send),
-            EmulatorProxyMessage::Frame(frame) => {
-                if let Some(send) = self.sender.as_ref() {
-                    send.send(frame).unwrap();
+            EmulatorProxyMessage::EmuMessage(msg) => match msg {
+                EmuOutput::Frame(frame) => {
+                    if let Some(send) = self.sender.as_ref() {
+                        send.send(frame).unwrap();
+                    }
                 }
+                EmuOutput::Snapshot(_, _) => todo!(),
+                EmuOutput::SaveState(_, _) => todo!(),
             }
         }
     }
@@ -278,7 +283,11 @@ impl ActorState for AddGameWorker {
 }
 
 impl HomeState {
-    fn update(&mut self, send: &EmuSend, msg: HomeMessage) -> Option<StateCursor> {
+    fn update(
+        &mut self,
+        send: &JointClient<Permanent, EmuMessage, EmuOutput>,
+        msg: HomeMessage,
+    ) -> Option<StateCursor> {
         match msg {
             HomeMessage::AddGame(name, rom) => {
                 self.trove.add_game(name, rom);
@@ -286,7 +295,7 @@ impl HomeState {
             }
             HomeMessage::StartGame(file) => {
                 let game = self.trove.fetch_game(&file);
-                send.start_game(game);
+                send.send(game);
                 Some(StateCursor::InGame)
             }
         }
@@ -313,11 +322,14 @@ impl SettingsState {
 
 #[cfg(not(target_family = "wasm"))]
 mod native {
+    use masonry::peniko::ImageAlphaType;
+    use masonry::peniko::ImageData;
     use xilem::AnyWidgetView;
+    use xilem::Blob;
+    use xilem::ImageFormat;
     use xilem::WidgetView;
     use xilem::core::fork;
     use xilem::view::flex_col;
-    use xilem::view::image;
     use xilem::view::label;
     use xilem::view::text_button;
     use xilem::view::worker;
@@ -358,9 +370,16 @@ mod native {
 
     impl super::InGameState {
         pub fn view(&self) -> impl WidgetView<UiState> + use<> {
+            let image = ImageData {
+                data: Blob::from(self.image.pixels.clone()),
+                format: ImageFormat::Rgba8,
+                alpha_type: ImageAlphaType::Alpha,
+                width: self.image.width,
+                height: self.image.height,
+            };
             flex_col((
                 label(format!("Frame #{}", self.frames)),
-                image(self.image.0.clone()),
+                xilem::view::image(image),
             ))
         }
     }
