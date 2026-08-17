@@ -69,11 +69,10 @@ impl ActorState for EmuCore {
 
     async fn start_up(&mut self, scheduler: &mut Scheduler<Self>) {
         scheduler.attach_stream(futures::stream::repeat(EmuMessage::NextFrame).then(|msg| {
-            async move {
+            Box::pin(async move {
                 sleep_for(Duration::from_secs(1) / 60).await;
                 msg
-            }
-            .boxed()
+            })
         }));
     }
 

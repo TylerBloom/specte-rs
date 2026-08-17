@@ -123,7 +123,8 @@ impl UiState {
             UiMessage::SettingsMessage(_) => unreachable!(),
             UiMessage::SwitchToSettings => Some(StateCursor::Settings),
             UiMessage::Escape => {
-                self.emu_client.send(Keystroke::Control(ControlSignal::Pause));
+                self.emu_client
+                    .send(Keystroke::Control(ControlSignal::Pause));
                 Some(StateCursor::Home)
             }
             UiMessage::Keystroke(key) => {
@@ -192,7 +193,7 @@ impl ActorState for EmulatorProxy {
                 }
                 EmuOutput::Snapshot(_, _) => todo!(),
                 EmuOutput::SaveState(_, _) => todo!(),
-            }
+            },
         }
     }
 }
