@@ -1,11 +1,14 @@
 use ghast::config::Config;
-use ghast::emu_core::EmuHandle;
-use ghast::emu_core::EmuSend;
+use ghast::emu_core::EmuCore;
+use ghast::emu_core::EmuMessage;
 use ghast::keys::KeyWatcher;
 use ghast::state::UiMessage;
 use ghast::state::UiState;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::unbounded_channel;
+use troupe::ActorBuilder;
+use troupe::Permanent;
+use troupe::sink::SinkClient;
 use web_sys::wasm_bindgen::JsCast;
 use web_sys::wasm_bindgen::closure::Closure;
 use winit::application::ApplicationHandler;
@@ -24,7 +27,7 @@ use xilem_web::document_body;
 struct KeyCaptureApp {
     window: Option<Window>,
     keys: KeyWatcher,
-    send: EmuSend,
+    emu_client: SinkClient<Permanent, EmuMessage>,
     key_proxy_send: UnboundedSender<UiMessage>,
 }
 
@@ -50,7 +53,9 @@ impl ApplicationHandler for KeyCaptureApp {
             && let Some(msg) = self.keys.register_event(event)
         {
             match msg {
-                UiMessage::Keystroke(key) => self.send.keystroke(key),
+                UiMessage::Keystroke(key) => {
+                    self.emu_client.send(key);
+                }
                 UiMessage::Escape => self.key_proxy_send.send(UiMessage::Escape).unwrap(),
                 _ => unreachable!(),
             }
@@ -89,16 +94,16 @@ fn focus_sink_canvas() -> web_sys::HtmlCanvasElement {
 
 pub fn main() {
     let conf = Config::read();
-    let (send, recv) = EmuHandle::contruct_and_launch().split();
+    let emu_client = ActorBuilder::new(EmuCore::new()).launch();
 
     let (key_proxy_send, key_proxy_recv) = unbounded_channel();
 
-    let state = UiState::new(conf, send.clone(), recv, key_proxy_recv);
+    let state = UiState::new(conf, emu_client.clone(), key_proxy_recv);
 
     let key_capture = KeyCaptureApp {
         window: None,
         keys: KeyWatcher::new(),
-        send,
+        emu_client: emu_client.sink(),
         key_proxy_send,
     };
     EventLoop::new().unwrap().spawn_app(key_capture);
