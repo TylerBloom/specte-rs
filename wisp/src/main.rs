@@ -7,7 +7,6 @@ use ghast::state::UiState;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::unbounded_channel;
 use troupe::ActorBuilder;
-use troupe::Permanent;
 use troupe::sink::SinkClient;
 use web_sys::wasm_bindgen::JsCast;
 use web_sys::wasm_bindgen::closure::Closure;
@@ -27,7 +26,7 @@ use xilem_web::document_body;
 struct KeyCaptureApp {
     window: Option<Window>,
     keys: KeyWatcher,
-    emu_client: SinkClient<Permanent, EmuMessage>,
+    emu_client: SinkClient<EmuMessage>,
     key_proxy_send: UnboundedSender<UiMessage>,
 }
 
@@ -94,7 +93,7 @@ fn focus_sink_canvas() -> web_sys::HtmlCanvasElement {
 
 pub fn main() {
     let conf = Config::read();
-    let emu_client = ActorBuilder::new(EmuCore::new()).launch();
+    let emu_client = ActorBuilder::new(EmuCore::new()).spawn();
 
     let (key_proxy_send, key_proxy_recv) = unbounded_channel();
 
