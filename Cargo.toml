@@ -8,5 +8,8 @@ members = [
 
 resolver = "2"
 
+[workspace.dependencies]
+troupe = { git = "https://github.com/TylerBloom/troupe.git", branch = "actor_kind" }
+
 [profile.release]
 lto = true

@@ -15,7 +15,6 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::unbounded_channel;
 use tracing_subscriber::EnvFilter;
 use troupe::ActorBuilder;
-use troupe::Permanent;
 use troupe::sink::SinkClient;
 use winit::application::ApplicationHandler;
 use winit::error::EventLoopError;
@@ -38,7 +37,7 @@ struct ExternalApp {
     app_driver: Box<dyn AppDriver>,
     keys: KeyWatcher,
     key_proxy_send: UnboundedSender<UiMessage>,
-    send: SinkClient<Permanent, EmuMessage>,
+    send: SinkClient<EmuMessage>,
 }
 
 impl ApplicationHandler<MasonryUserEvent> for ExternalApp {
@@ -148,7 +147,7 @@ fn main() -> Result<(), EventLoopError> {
 
             let conf = Config::read();
 
-            let emu_client = ActorBuilder::new(EmuCore::new()).launch();
+            let emu_client = ActorBuilder::new(EmuCore::new()).spawn();
 
             let (key_proxy_send, key_proxy_recv) = unbounded_channel();
 

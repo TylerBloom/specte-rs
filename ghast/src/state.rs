@@ -7,9 +7,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use troupe::ActorBuilder;
 use troupe::ActorState;
-use troupe::Permanent;
 use troupe::Scheduler;
-use troupe::async_trait;
 use troupe::joint::JointClient;
 use troupe::sink::SinkActor;
 use troupe::sink::SinkClient;
@@ -24,11 +22,11 @@ use crate::keys::Keystroke;
 use crate::trove::Trove;
 
 pub struct UiState {
-    emu_client: JointClient<Permanent, EmuMessage, EmuOutput>,
+    emu_client: JointClient<EmuMessage, EmuOutput>,
     /// Used to communicate with the emulator proxy
-    emu_proxy_client: SinkClient<Permanent, EmulatorProxyMessage>,
-    key_proxy_client: SinkClient<Permanent, KeyboardProxyMessage>,
-    pub(crate) add_game_client: SinkClient<Permanent, AddGameMessage>,
+    emu_proxy_client: SinkClient<EmulatorProxyMessage>,
+    key_proxy_client: SinkClient<KeyboardProxyMessage>,
+    pub(crate) add_game_client: SinkClient<AddGameMessage>,
     cursor: StateCursor,
     pub(crate) home: HomeState,
     game: InGameState,
@@ -80,20 +78,20 @@ pub enum SettingsMessage {}
 impl UiState {
     pub fn new(
         config: Config,
-        emu_client: JointClient<Permanent, EmuMessage, EmuOutput>,
+        emu_client: JointClient<EmuMessage, EmuOutput>,
         key_recv: UnboundedReceiver<UiMessage>,
     ) -> Self {
         let trove = config.get_trove();
         let image = Image::blank();
-        let mut builder = ActorBuilder::new(EmulatorProxy::default());
-        builder.attach_stream(emu_client.stream().map(Result::unwrap).fuse());
-        let emu_proxy_client = builder.launch();
+        let emu_proxy_client = ActorBuilder::new(EmulatorProxy::default())
+            .attach_stream(emu_client.stream().map(Result::unwrap).fuse())
+            .spawn();
 
-        let mut builder = ActorBuilder::new(KeyboardProxy::default());
-        builder.attach_stream(UnboundedReceiverStream::new(key_recv).fuse());
-        let key_proxy_client = builder.launch();
+        let key_proxy_client = ActorBuilder::new(KeyboardProxy::default())
+            .attach_stream(UnboundedReceiverStream::new(key_recv).fuse())
+            .spawn();
 
-        let add_game_client = ActorBuilder::new(AddGameWorker::default()).launch();
+        let add_game_client = ActorBuilder::new(AddGameWorker::default()).spawn();
 
         Self {
             emu_client,
@@ -175,12 +173,9 @@ pub enum EmulatorProxyMessage {
     EmuMessage(EmuOutput),
 }
 
-#[async_trait]
 impl ActorState for EmulatorProxy {
-    type ActorType = SinkActor;
-    type Permanence = Permanent;
+    type ActorKind = SinkActor;
     type Message = EmulatorProxyMessage;
-    type Output = ();
 
     async fn process(&mut self, _scheduler: &mut Scheduler<Self>, msg: Self::Message) {
         match msg {
@@ -211,12 +206,9 @@ pub enum KeyboardProxyMessage {
     Message(UiMessage),
 }
 
-#[async_trait]
 impl ActorState for KeyboardProxy {
-    type ActorType = SinkActor;
-    type Permanence = Permanent;
+    type ActorKind = SinkActor;
     type Message = KeyboardProxyMessage;
-    type Output = ();
 
     async fn process(&mut self, _scheduler: &mut Scheduler<Self>, msg: Self::Message) {
         match msg {
@@ -241,12 +233,9 @@ pub enum AddGameMessage {
     NewSender(UnboundedSender<(String, Vec<u8>)>),
 }
 
-#[async_trait]
 impl ActorState for AddGameWorker {
-    type ActorType = SinkActor;
-    type Permanence = Permanent;
+    type ActorKind = SinkActor;
     type Message = AddGameMessage;
-    type Output = ();
 
     async fn process(&mut self, _scheduler: &mut Scheduler<Self>, msg: Self::Message) {
         match msg {
@@ -286,7 +275,7 @@ impl ActorState for AddGameWorker {
 impl HomeState {
     fn update(
         &mut self,
-        send: &JointClient<Permanent, EmuMessage, EmuOutput>,
+        send: &JointClient<EmuMessage, EmuOutput>,
         msg: HomeMessage,
     ) -> Option<StateCursor> {
         match msg {

@@ -1,15 +1,12 @@
 use std::time::Duration;
 
-use futures::FutureExt;
 use futures::stream::StreamExt;
 use instant::Instant;
 use spirit::Gameboy;
 use spirit::StartUpSequence;
 use spirit::ppu::Pixel;
 use troupe::ActorState;
-use troupe::Permanent;
 use troupe::Scheduler;
-use troupe::async_trait;
 use troupe::compat::sleep_for;
 use troupe::joint::JointActor;
 
@@ -60,12 +57,9 @@ pub enum EmuOutput {
     SaveState(String, Vec<u8>),
 }
 
-#[async_trait]
 impl ActorState for EmuCore {
-    type ActorType = JointActor;
-    type Permanence = Permanent;
+    type ActorKind = JointActor<EmuOutput>;
     type Message = EmuMessage;
-    type Output = EmuOutput;
 
     async fn start_up(&mut self, scheduler: &mut Scheduler<Self>) {
         scheduler.attach_stream(futures::stream::repeat(EmuMessage::NextFrame).then(|msg| {
