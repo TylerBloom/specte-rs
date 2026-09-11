@@ -12,126 +12,216 @@
 // TODO: When ROM patching is supported, ROM "recipes" will be added so users can create new game
 // directories as new versions of the patch get released.
 
-use std::path::Path;
 use std::path::PathBuf;
 
-use iced::Element;
-use iced::widget::Button;
-use iced::widget::Column;
-use iced::widget::Scrollable;
-use iced::widget::Text;
+use rusqlite::Connection;
+use rusqlite::OptionalExtension;
 use serde::Deserialize;
 use serde::Serialize;
-
-use crate::config::CONFIG_PATH;
-use crate::state::HomeMessage;
 
 // TODO: To get an MVP working, the trove will just contain a copy of each can. Later, layers like
 // the game sets will be added.
 #[allow(dead_code)]
 pub struct Trove {
-    /// The trove carries around a path as the trove is largely an interface into the expected file
-    /// structure of the trove.
-    pub(crate) path: PathBuf,
-    /// The trove data at the base of the trove.
-    pub(crate) trove_data: TroveData,
+    pub(crate) conn: Connection,
 }
 
 impl Trove {
-    /// Optionally takes a path to the trove directory as an argument. If one isn't supplied, we
-    /// assume that it exists next to the config file.
-    pub fn parse_or_default(path: Option<PathBuf>) -> Self {
-        let mut trove_toml = path.unwrap_or_else(|| {
-            let mut path = (*CONFIG_PATH).clone();
-            path.pop();
-            path.push("trove");
-            path
-        });
-        let path = trove_toml.clone();
-        trove_toml.push(".trove.toml");
-        println!("Looking for trove at {trove_toml:?}");
-        if !trove_toml.exists() {
-            std::fs::write(&trove_toml, b"").unwrap();
-        }
-        let trove_data = toml::from_str(&std::fs::read_to_string(trove_toml).unwrap()).unwrap();
-        Self { path, trove_data }
+    pub fn new(conn: Connection) -> Self {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS games (
+            name   STRING PRIMARY KEY,
+            rom BLOB
+        )",
+            (),
+        )
+        .unwrap();
+        Self { conn }
     }
 
-    pub fn add_game(&mut self, path: PathBuf) {
-        // Copy and trim the file name
-        let mut dir = self.path.clone();
-        dir.push(path.file_name().unwrap());
-        std::fs::copy(path, dir).unwrap();
+    pub fn add_game(&mut self, name: String, rom: Vec<u8>) {
+        self.conn
+            .execute("INSERT INTO games (name, rom) VALUES (?1, ?2)", (name, rom))
+            .unwrap();
+        #[cfg(target_family = "wasm")]
+        self.save_db();
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub fn save_db(&self) {
+        use base64::Engine;
+
+        let blob = self.conn.serialize("main").unwrap();
+        let encode = base64::engine::general_purpose::STANDARD.encode(&*blob);
+        let storage = web_sys::window().unwrap().local_storage().unwrap().unwrap();
+        storage
+            .set_item(crate::config::wasm::TROVE_KEY, encode.as_str())
+            .unwrap();
     }
 
     /// Given the name of a game in the trove, reads the file and returns the contents
-    pub fn fetch_game(&self, game: impl AsRef<Path>) -> Vec<u8> {
-        let mut path = self.path.clone();
-        path.push(game);
-        println!("Looking for game rom at {path:?}");
-        std::fs::read(path).unwrap()
-    }
-
-    /*
-    pub fn add_game(&mut self, path: PathBuf) -> GameSet {
-        // Copy and trim the file name
-        let mut dir = self.path.clone();
-        dir.push(path.file_stem().unwrap());
-        // Create a directory with the file name
-        if dir.exists() && dir.is_dir() {
-            return GameSet {
-                path: dir,
-            };
-        }
-        println!("Creating GameSet at: {dir:?}");
-        std::fs::create_dir(&dir).unwrap();
-
-        // Copy the file into the new directory
-        let set_dir = dir.clone();
-        dir.push(path.file_name().unwrap());
-        std::fs::copy(path, dir).unwrap();
-        GameSet { path: set_dir }
-    }
-    */
-    pub fn display(&self) -> Element<'static, HomeMessage> {
-        let children = std::iter::once("Trove".into())
-            .chain(std::iter::once(self.add_game_set_button()))
-            .chain(std::iter::once(
-                Scrollable::new(Column::from_iter(self.display_games()))
-                    .anchor_left()
-                    .into(),
-            ));
-        Column::with_children(children).into()
-    }
-
-    pub fn add_game_set_button(&self) -> Element<'static, HomeMessage> {
-        Button::new("Add Game Set")
-            .on_press(HomeMessage::AddGame)
-            .into()
-    }
-
-    pub fn display_games(&self) -> impl IntoIterator<Item = Element<'static, HomeMessage>> {
-        let mut files: Vec<_> = std::fs::read_dir(&self.path)
-            .unwrap()
-            .map(Result::unwrap)
-            .filter(|item| item.file_type().unwrap().is_file())
-            .map(|item| item.file_name().to_str().unwrap().to_owned())
-            .collect();
-
-        files.sort();
-
-        files
-            .into_iter()
-            .map(|file_name| {
-                Button::new(Text::new(file_name.clone()))
-                    .on_press(HomeMessage::StartGame(file_name))
+    pub fn fetch_game(&self, name: &str) -> Vec<u8> {
+        println!("Looking for game: {name:?}");
+        self.conn
+            .query_row("SELECT rom FROM games WHERE name = ?1", (name,), |row| {
+                row.get(0)
             })
-            .map(Into::into)
+            .optional()
+            .unwrap()
+            .unwrap()
+    }
+
+    /// Reads back the sorted list of game names currently stored in the trove.
+    fn game_names(&self) -> Vec<String> {
+        let mut games = self
+            .conn
+            .prepare("SELECT name FROM games")
+            .unwrap()
+            .query([])
+            .unwrap()
+            .mapped(|row| row.get(0))
+            .collect::<Result<Vec<String>, _>>()
+            .unwrap();
+        games.sort();
+        games
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+mod native {
+    use xilem::WidgetView;
+    use xilem::view::flex_col;
+    use xilem::view::label;
+    use xilem::view::text_button;
+    use xilem::view::worker;
+    use xilem_core::fork;
+
+    use crate::state::AddGameMessage;
+    use crate::state::HomeMessage;
+    use crate::state::UiMessage;
+    use crate::state::UiState;
+    use crate::utils::identity_proxy;
+
+    impl super::Trove {
+        pub fn display(&self) -> impl WidgetView<UiState> + use<> {
+            flex_col((
+                label("Trove"),
+                self.add_game_set_button(),
+                self.display_games(),
+            ))
+        }
+
+        pub fn add_game_set_button(&self) -> impl WidgetView<UiState> + use<> {
+            let button = text_button("Add Game Set", |state: &mut UiState| {
+                state.add_game_client.send(AddGameMessage::AddGame);
+            });
+            let worker = worker(
+                identity_proxy,
+                |state: &mut UiState, send| {
+                    state.add_game_client.send(send);
+                },
+                |state: &mut UiState, (file_name, rom): (String, Vec<u8>)| {
+                    state.home.trove.add_game(file_name, rom);
+                },
+            );
+            fork(button, worker)
+        }
+
+        pub fn display_games(&self) -> impl WidgetView<UiState> + use<> {
+            let col = self
+                .game_names()
+                .into_iter()
+                .map(|file_name| {
+                    let file_name: &'static str = file_name.leak();
+                    text_button(file_name, move |state: &mut UiState| {
+                        state.update(UiMessage::HomeMessage(HomeMessage::StartGame(
+                            file_name.to_owned(),
+                        )));
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            flex_col(col)
+        }
+    }
+}
+
+#[cfg(target_family = "wasm")]
+mod wasm {
+    use tokio::sync::mpsc::UnboundedSender;
+    use tokio::sync::mpsc::unbounded_channel;
+    use xilem_web::DomView;
+    use xilem_web::concurrent::ShutdownSignal;
+    use xilem_web::concurrent::TaskProxy;
+    use xilem_web::concurrent::task;
+    use xilem_web::core::fork;
+    use xilem_web::elements::html::button;
+    use xilem_web::elements::html::div;
+    use xilem_web::elements::html::p;
+    use xilem_web::interfaces::Element as _;
+
+    use crate::state::AddGameMessage;
+    use crate::state::HomeMessage;
+    use crate::state::UiMessage;
+    use crate::state::UiState;
+
+    impl super::Trove {
+        pub fn display(&self) -> impl DomView<UiState> + use<> {
+            div((p("Trove"), self.add_game_set_button(), self.display_games()))
+        }
+
+        pub fn add_game_set_button(&self) -> impl DomView<UiState> + use<> {
+            let button = button("Add Game Set").on_click(|state: &mut UiState, _| {
+                state.add_game_client.send(AddGameMessage::AddGame);
+            });
+            fork(button, task(add_game_task_init, add_game_task_event))
+        }
+
+        pub fn display_games(&self) -> impl DomView<UiState> + use<> {
+            let col = self
+                .game_names()
+                .into_iter()
+                .map(|file_name| {
+                    let file_name: &'static str = file_name.leak();
+                    button(file_name).on_click(move |state: &mut UiState, _| {
+                        state.update(UiMessage::HomeMessage(HomeMessage::StartGame(
+                            file_name.to_owned(),
+                        )));
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            div(col)
+        }
+    }
+
+    #[derive(Debug)]
+    enum AddGameTaskMessage {
+        NewSender(UnboundedSender<(String, Vec<u8>)>),
+        Added(String, Vec<u8>),
+    }
+
+    async fn add_game_task_init(proxy: TaskProxy, _shutdown: ShutdownSignal) {
+        let (send, mut recv) = unbounded_channel();
+        proxy.send_message(AddGameTaskMessage::NewSender(send));
+        while let Some((name, rom)) = recv.recv().await {
+            proxy.send_message(AddGameTaskMessage::Added(name, rom));
+        }
+    }
+
+    fn add_game_task_event(state: &mut UiState, msg: AddGameTaskMessage) {
+        match msg {
+            AddGameTaskMessage::NewSender(send) => {
+                state.add_game_client.send(AddGameMessage::NewSender(send));
+            }
+            AddGameTaskMessage::Added(name, rom) => state.home.trove.add_game(name, rom),
+        }
     }
 }
 
 /// Contains data about usage, such as the last game played.
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub(crate) struct TroveData {
     #[serde(default)]
     last_game: Option<String>,

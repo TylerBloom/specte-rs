@@ -1,0 +1,15 @@
+[package]
+name = "wisp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+spirit = { path = "../spirit" }
+ghast = { path = "../ghast" }
+troupe = { workspace = true }
+tokio = { workspace = true, default-features = false, features = ["sync", "rt", "time", "macros"] }
+xilem_core = { workspace = true }
+wasm-bindgen-futures = { workspace = true}
+web-sys = { workspace = true, features = ["Window", "Storage", "CanvasRenderingContext2d", "ImageData", "CssStyleDeclaration", "Document", "Element", "EventTarget", "HtmlCanvasElement", "HtmlElement"] }
+winit = { workspace = true }
+xilem_web = { workspace = true }
