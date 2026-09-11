@@ -62,6 +62,12 @@ impl ActorState for EmuCore {
     type Message = EmuMessage;
 
     async fn start_up(&mut self, scheduler: &mut Scheduler<Self>) {
+        loop {
+            if let Some(EmuMessage::Start(rom)) = scheduler.next().await {
+                self.emulator = Some(Emulator::new(rom));
+                break;
+            }
+        }
         scheduler.attach_stream(futures::stream::repeat(EmuMessage::NextFrame).then(|msg| {
             Box::pin(async move {
                 sleep_for(Duration::from_secs(1) / 60).await;
@@ -71,57 +77,51 @@ impl ActorState for EmuCore {
     }
 
     async fn process(&mut self, scheduler: &mut Scheduler<Self>, msg: Self::Message) {
-        match self.emulator.as_mut() {
-            None => match msg {
-                EmuMessage::Start(rom) => self.emulator = Some(Emulator::new(rom)),
-                EmuMessage::Keystroke(_) | EmuMessage::NextFrame => {}
-            },
-            Some(emu) => {
-                match msg {
-                    EmuMessage::NextFrame => {
-                        if !self.is_paused {
-                            emu.next_frame();
-                            self.frames += 1;
-                            scheduler.broadcast(EmuOutput::Frame((emu.just_pixels(), self.frames)));
-                        } else {
-                            return;
-                        }
-                    }
-                    EmuMessage::Start(cart) => {
-                        self.frames = 0;
-                        self.is_paused = false;
-                        *emu = Emulator::new(cart);
-                    }
-                    EmuMessage::Keystroke(Keystroke::Control(ControlSignal::Pause)) => {
-                        self.is_paused = !self.is_paused;
-                        return;
-                    }
-                    EmuMessage::Keystroke(Keystroke::Control(ControlSignal::NextFrame)) => {
-                        self.is_paused = true;
-                        emu.next_frame();
-                        self.frames += 1;
-                        scheduler.broadcast(EmuOutput::Frame((emu.just_pixels(), self.frames)));
-                    }
-                    EmuMessage::Keystroke(Keystroke::Button(button)) => match button {
-                        ButtonInteration::ButtonPress(button) => {
-                            let now = Instant::now();
-                            step_duration(emu.gb_mut(), now - self.last_updated);
-                            emu.gb_mut().button_press(button);
-                            self.last_updated = now;
-                            return;
-                        }
-                        ButtonInteration::ButtonRelease(button) => {
-                            let now = Instant::now();
-                            step_duration(emu.gb_mut(), now - self.last_updated);
-                            emu.gb_mut().button_release(button);
-                            self.last_updated = now;
-                            return;
-                        }
-                    },
+        // Start up waits for the ROM, so unwrap won't panic
+        let emu = self.emulator.as_mut().unwrap();
+        match msg {
+            EmuMessage::NextFrame => {
+                if !self.is_paused {
+                    emu.next_frame();
+                    self.frames += 1;
+                    scheduler.broadcast(EmuOutput::Frame((emu.just_pixels(), self.frames)));
+                } else {
+                    return;
                 }
-                self.last_updated = Instant::now()
             }
+            EmuMessage::Start(cart) => {
+                self.frames = 0;
+                self.is_paused = false;
+                *emu = Emulator::new(cart);
+            }
+            EmuMessage::Keystroke(Keystroke::Control(ControlSignal::Pause)) => {
+                self.is_paused = !self.is_paused;
+                return;
+            }
+            EmuMessage::Keystroke(Keystroke::Control(ControlSignal::NextFrame)) => {
+                self.is_paused = true;
+                emu.next_frame();
+                self.frames += 1;
+                scheduler.broadcast(EmuOutput::Frame((emu.just_pixels(), self.frames)));
+            }
+            EmuMessage::Keystroke(Keystroke::Button(button)) => match button {
+                ButtonInteration::ButtonPress(button) => {
+                    let now = Instant::now();
+                    step_duration(emu.gb_mut(), now - self.last_updated);
+                    emu.gb_mut().button_press(button);
+                    self.last_updated = now;
+                    return;
+                }
+                ButtonInteration::ButtonRelease(button) => {
+                    let now = Instant::now();
+                    step_duration(emu.gb_mut(), now - self.last_updated);
+                    emu.gb_mut().button_release(button);
+                    self.last_updated = now;
+                    return;
+                }
+            },
         }
+        self.last_updated = Instant::now()
     }
 }
 
