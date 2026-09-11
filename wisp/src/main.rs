@@ -1,9 +1,3 @@
-use ghast::config::Config;
-use ghast::emu_core::EmuCore;
-use ghast::emu_core::EmuMessage;
-use ghast::keys::KeyWatcher;
-use ghast::state::UiMessage;
-use ghast::state::UiState;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::unbounded_channel;
 use troupe::ActorBuilder;
@@ -20,6 +14,13 @@ use winit::window::Window;
 use winit::window::WindowId;
 use xilem_web::App;
 use xilem_web::document_body;
+
+use ghast::config::Config;
+use ghast::emu_core::EmuCore;
+use ghast::emu_core::EmuMessage;
+use ghast::keys::KeyWatcher;
+use ghast::state::UiMessage;
+use ghast::state::UiState;
 
 /// A `winit` window backed by a canvas that exists only to receive keyboard focus. It isn't
 /// rendered into or shown to the user; `xilem_web` owns the visible DOM.

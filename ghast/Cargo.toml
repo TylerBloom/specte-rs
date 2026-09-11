@@ -6,37 +6,33 @@ edition = "2024"
 [dependencies]
 accesskit = "0.21.1"
 bytes = "1.12.1"
-clap = { version = "4.5.21", features = ["derive"] }
-itertools = "0.15.0"
-derive_more = { version = "2.1.1", features = ["from"] }
+derive_more = { workspace = true, features = ["from"] }
 futures = "0.3.34"
-instant = "0.1"
-png = "0.18.0"
-postcard = { version = "1.1.1", features = ["alloc"] }
 rfd = "0.17.2"
 rusqlite = { version = "0.40.2", features = ["bundled", "serialize"] }
-serde = { version = "1.0.219", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 spirit = { path = "../spirit" }
 time = { version = "0.3.36", features = ["local-offset"] }
-tokio = { version = "1.47.1", default-features = false, features = ["sync", "rt", "time", "macros"] }
 tokio-stream = "0.1.17"
 toml = "1.1.2"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 troupe = { workspace = true }
 xilem_core = "0.4.0"
+winit = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
+clap = { version = "4.5.21", features = ["derive"] }
 accesskit_winit = { version = "0.29.2", default-features = false, features = ["accesskit_unix", "rwh_06", "tokio"] }
 masonry = "0.4.0"
 masonry_winit = "0.4.0"
-tokio = { version = "1.47.1", features = ["full"] }
-winit = "0.30.13"
+tokio = { workspace = true, features = ["full"] }
 xilem = "0.4.0"
+instant = "0.1"
 
 [target.wasm32-unknown-unknown.dependencies]
-base64 = "0.22"
+base64 = "0.23.1"
+tokio = { workspace = true, default-features = false, features = ["sync", "rt", "time", "macros"] }
 instant = { version = "0.1", features = ["wasm-bindgen"] }
 wasm-bindgen-futures = "0.4.54"
 web-sys = { version = "0.3.104", features = ["Window", "Storage", "CanvasRenderingContext2d", "ImageData", "CssStyleDeclaration", "Document", "Element", "EventTarget", "HtmlCanvasElement", "HtmlElement"] }
-winit = "0.30.13"
 xilem_web = "0.4.0"

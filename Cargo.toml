@@ -10,6 +10,16 @@ resolver = "2"
 
 [workspace.dependencies]
 troupe = { git = "https://github.com/TylerBloom/troupe.git", branch = "actor_kind" }
+serde = { version = "1.0" }
+derive_more = { version = "2.0" }
+tracing = { version = "0.1" }
+tracing-subscriber = { version = "0.3.18" }
+tokio = { version = "1.47" }
+xilem_core = "0.4.0"
+winit = "0.30.13"
+xilem_web = "0.4.0"
+wasm-bindgen-futures = "0.4.54"
+web-sys = "0.3.104"
 
 [profile.release]
 lto = true

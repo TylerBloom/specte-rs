@@ -181,6 +181,7 @@ impl Emulator {
 }
 
 enum EmulatorInner {
+    #[allow(dead_code)]
     StartUp(Option<StartUpSequence>),
     Ready(Gameboy),
 }
