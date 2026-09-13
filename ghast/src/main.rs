@@ -3,6 +3,7 @@ use std::sync::Arc;
 use ghast::config::Config;
 use ghast::emu_core::EmuCore;
 use ghast::emu_core::EmuMessage;
+use ghast::emu_core::SinkClient;
 use ghast::keys::KeyWatcher;
 use ghast::state::UiMessage;
 use ghast::state::UiState;
@@ -15,7 +16,6 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::unbounded_channel;
 use tracing_subscriber::EnvFilter;
 use troupe::ActorBuilder;
-use troupe::sink::SinkClient;
 use winit::application::ApplicationHandler;
 use winit::error::EventLoopError;
 use winit::event::ElementState;
@@ -148,10 +148,11 @@ fn main() -> Result<(), EventLoopError> {
             let config = Config::read();
 
             let emu_client = ActorBuilder::new(EmuCore::new(config.get_trove())).spawn();
+            let emu_sink_client = emu_client.sink_client();
 
             let (key_proxy_send, key_proxy_recv) = unbounded_channel();
 
-            let state = UiState::new(config, emu_client.clone(), key_proxy_recv);
+            let state = UiState::new(config, emu_client, key_proxy_recv);
 
             let window_size = winit::dpi::LogicalSize::new(800.0, 800.0);
             let window_options =
@@ -173,7 +174,7 @@ fn main() -> Result<(), EventLoopError> {
                 masonry_state,
                 app_driver: Box::new(driver),
                 keys: KeyWatcher::new(),
-                send: emu_client.sink(),
+                send: emu_sink_client,
                 key_proxy_send,
             };
             event_loop.run_app(&mut app)

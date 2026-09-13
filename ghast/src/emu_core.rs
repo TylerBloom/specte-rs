@@ -4,15 +4,19 @@ use std::env::home_dir;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::stream::StreamExt;
-use instant::Instant;
+use futures::Stream;
 use spirit::Gameboy;
 use spirit::StartUpSequence;
 use spirit::ppu::Pixel;
+
+use futures::stream::StreamExt;
+use instant::Instant;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::UnboundedReceiverStream;
+use troupe::ActorKind;
 use troupe::ActorState;
 use troupe::Scheduler;
 use troupe::compat::sleep_for;
-use troupe::joint::JointActor;
 
 use crate::keys::ButtonInteration;
 use crate::keys::ControlSignal;
@@ -61,7 +65,7 @@ pub enum EmuOutput {
 }
 
 impl ActorState for EmuCore {
-    type ActorKind = JointActor<EmuOutput>;
+    type ActorKind = SinkSendActor<EmuOutput>;
     type Message = EmuMessage;
 
     async fn start_up(&mut self, scheduler: &mut Scheduler<Self>) {
@@ -110,7 +114,7 @@ impl EmuCore {
                 if !self.is_paused {
                     emu.next_frame();
                     self.frames += 1;
-                    scheduler.broadcast(EmuOutput::Frame((emu.just_pixels(), self.frames)));
+                    scheduler.send_message(EmuOutput::Frame((emu.just_pixels(), self.frames)));
                 } else {
                     return;
                 }
@@ -123,7 +127,7 @@ impl EmuCore {
                 self.is_paused = true;
                 emu.next_frame();
                 self.frames += 1;
-                scheduler.broadcast(EmuOutput::Frame((emu.just_pixels(), self.frames)));
+                scheduler.send_message(EmuOutput::Frame((emu.just_pixels(), self.frames)));
             }
             EmuMessage::Keystroke(Keystroke::Button(button)) => match button {
                 ButtonInteration::ButtonPress(button) => {
@@ -174,7 +178,7 @@ impl EmuCore {
     }
 
     fn send_game_list(&self, scheduler: &mut Scheduler<Self>) {
-        scheduler.broadcast(self.trove.game_names());
+        scheduler.send_message(self.trove.game_names());
     }
 }
 
@@ -283,5 +287,72 @@ fn step_duration(gb: &mut Gameboy, dur: Duration) {
     let mut dots = ((70224 * dur.as_micros()) / 17_000) as usize;
     while dots > 0 {
         dots = dots.saturating_sub(gb.step());
+    }
+}
+
+/// An actor that has an MPSC channel as an input stream and an MPSC as output; however, since the
+/// client holds the receiver, the output effectively becomes an SPSC.
+pub struct SinkSendActor<T> {
+    sender: mpsc::UnboundedSender<T>,
+}
+
+impl<A: ActorState, T: 'static + Send> ActorKind<A> for SinkSendActor<T> {
+    type Client = SinkSendClient<A::Message, T>;
+    type Config = ();
+
+    fn construct(
+        (): Self::Config,
+    ) -> (Self, Self::Client, impl 'static + FnOnce(&mut Scheduler<A>)) {
+        let (send_to_client, recv_at_client) = mpsc::unbounded_channel();
+        let (send_to_actor, recv_from_client) = mpsc::unbounded_channel();
+
+        let this = Self {
+            sender: send_to_client,
+        };
+
+        let client = SinkSendClient {
+            send: send_to_actor,
+            recv: recv_at_client,
+        };
+
+        let init_fn = move |scheduler: &mut Scheduler<A>| {
+            scheduler.attach_stream(UnboundedReceiverStream::new(recv_from_client).fuse());
+        };
+        (this, client, init_fn)
+    }
+}
+
+impl<T> SinkSendActor<T> {
+    pub fn send_message(&self, msg: impl Into<T>) {
+        let _ = self.sender.send(msg.into());
+    }
+}
+
+pub struct SinkSendClient<S, R> {
+    send: mpsc::UnboundedSender<S>,
+    recv: mpsc::UnboundedReceiver<R>,
+}
+
+impl<S, R> SinkSendClient<S, R> {
+    pub fn sink_client(&self) -> SinkClient<S> {
+        SinkClient {
+            send: self.send.clone(),
+        }
+    }
+
+    pub fn split(self) -> (SinkClient<S>, impl Stream<Item = R>) {
+        let Self { send, recv } = self;
+        let send = SinkClient { send };
+        (send, UnboundedReceiverStream::new(recv))
+    }
+}
+
+pub struct SinkClient<T> {
+    send: mpsc::UnboundedSender<T>,
+}
+
+impl<T> SinkClient<T> {
+    pub fn send(&self, msg: impl Into<T>) {
+        let _ = self.send.send(msg.into());
     }
 }

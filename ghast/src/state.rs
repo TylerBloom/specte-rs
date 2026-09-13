@@ -2,26 +2,25 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use troupe::ActorBuilder;
 use troupe::ActorState;
 use troupe::Scheduler;
-use troupe::joint::JointClient;
 use troupe::sink::SinkActor;
-use troupe::sink::SinkClient;
 
 use crate::config::Config;
 use crate::emu_core::EmuMessage;
 use crate::emu_core::EmuOutput;
 use crate::emu_core::Image;
+use crate::emu_core::SinkClient;
+use crate::emu_core::SinkSendClient;
 use crate::keys::ControlSignal;
 use crate::keys::Keystroke;
 
 pub struct UiState {
-    pub(crate) emu_client: JointClient<EmuMessage, EmuOutput>,
+    pub(crate) emu_client: SinkClient<EmuMessage>,
     /// Used to communicate with the emulator proxy
-    pub(crate) proxy_client: SinkClient<UiProxyMessage>,
+    pub(crate) proxy_client: troupe::sink::SinkClient<UiProxyMessage>,
     pub(crate) cursor: StateCursor,
     pub(crate) home: HomeState,
     pub(crate) game: InGameState,
@@ -54,7 +53,7 @@ pub enum UiMessage {
     InGameMessage(InGameMessage),
     SettingsMessage(SettingsMessage),
     Keystroke(Keystroke),
-    InitProxy(UnboundedSender<UiMessage>),
+    InitProxy(MessageProxy<UiMessage>),
     SwitchToSettings,
     Escape,
 }
@@ -86,23 +85,25 @@ pub enum SettingsMessage {}
 impl UiState {
     pub fn new(
         config: Config,
-        emu_client: JointClient<EmuMessage, EmuOutput>,
+        emu_client: SinkSendClient<EmuMessage, EmuOutput>,
         key_recv: UnboundedReceiver<UiMessage>,
     ) -> Self {
         let image = Image::blank();
 
         let proxy = UiProxy::Uninit(vec![]);
 
+        let (emu_client, stream) = emu_client.split();
+
         let proxy_client = ActorBuilder::new(proxy)
             .attach_stream(UnboundedReceiverStream::new(key_recv).fuse())
-            .attach_stream(emu_client.stream().map(Result::unwrap).fuse())
+            .attach_stream(stream.fuse())
             .spawn();
 
         emu_client.send(EmuMessage::FetchGameList);
 
         Self {
-            emu_client,
             config,
+            emu_client,
             proxy_client,
             cursor: StateCursor::Home,
             home: HomeState { games: vec![] },
@@ -145,17 +146,13 @@ impl UiState {
         }
     }
 
-    fn update_proxy_sender(&mut self, sender: UnboundedSender<UiMessage>) {
+    fn update_proxy_sender(&mut self, sender: MessageProxy<UiMessage>) {
         self.proxy_client.send(sender);
     }
 }
 
 impl HomeState {
-    fn update(
-        &mut self,
-        send: &JointClient<EmuMessage, EmuOutput>,
-        msg: HomeMessage,
-    ) -> Option<StateCursor> {
+    fn update(&mut self, send: &SinkClient<EmuMessage>, msg: HomeMessage) -> Option<StateCursor> {
         match msg {
             HomeMessage::AddGame => {
                 send.send(EmuMessage::AddGame);
@@ -202,11 +199,11 @@ impl SettingsState {
 /// messages to UI.
 enum UiProxy {
     Uninit(Vec<UiMessage>),
-    Working(UnboundedSender<UiMessage>),
+    Working(MessageProxy<UiMessage>),
 }
 
 pub(crate) enum UiProxyMessage {
-    NewSender(UnboundedSender<UiMessage>),
+    NewProxy(MessageProxy<UiMessage>),
     ProxyMessage(UiMessage),
 }
 
@@ -216,30 +213,30 @@ impl ActorState for UiProxy {
 
     async fn process(&mut self, _scheduler: &mut Scheduler<Self>, msg: Self::Message) {
         match msg {
-            UiProxyMessage::NewSender(sender) => match self {
+            UiProxyMessage::NewProxy(proxy) => match self {
                 UiProxy::Uninit(messages) => {
                     for msg in std::mem::take(messages) {
-                        let _ = sender.send(msg);
+                        proxy.send_message(msg);
                     }
-                    *self = Self::Working(sender);
+                    *self = Self::Working(proxy);
                 }
                 UiProxy::Working(_) => {
-                    *self = Self::Working(sender);
+                    *self = Self::Working(proxy);
                 }
             },
             UiProxyMessage::ProxyMessage(msg) => match self {
                 UiProxy::Uninit(messages) => messages.push(msg),
                 UiProxy::Working(sender) => {
-                    let _ = sender.send(msg);
+                    sender.send_message(msg);
                 }
             },
         }
     }
 }
 
-impl From<UnboundedSender<UiMessage>> for UiProxyMessage {
-    fn from(value: UnboundedSender<UiMessage>) -> Self {
-        UiProxyMessage::NewSender(value)
+impl From<MessageProxy<UiMessage>> for UiProxyMessage {
+    fn from(value: MessageProxy<UiMessage>) -> Self {
+        UiProxyMessage::NewProxy(value)
     }
 }
 
@@ -250,10 +247,17 @@ impl<T: Into<UiMessage>> From<T> for UiProxyMessage {
 }
 
 #[cfg(not(target_family = "wasm"))]
+pub use native::MessageProxy;
+
+#[cfg(target_family = "wasm")]
+pub use wasm::MessageProxy;
+
+#[cfg(not(target_family = "wasm"))]
 mod native {
+    use std::fmt::Debug;
+
     use masonry::peniko::ImageAlphaType;
     use masonry::peniko::ImageData;
-    use tokio::sync::mpsc::unbounded_channel;
     use xilem::AnyWidgetView;
     use xilem::Blob;
     use xilem::ImageFormat;
@@ -263,9 +267,17 @@ mod native {
     use xilem::view::label;
     use xilem::view::task;
     use xilem::view::text_button;
-    use xilem_core::MessageProxy;
 
     use super::*;
+
+    #[derive(Debug)]
+    pub struct MessageProxy<M: 'static + Send + Debug>(xilem_core::MessageProxy<M>);
+
+    impl<M: 'static + Send + Debug> MessageProxy<M> {
+        pub fn send_message(&self, msg: M) {
+            let _ = self.0.message(msg);
+        }
+    }
 
     impl UiState {
         pub fn app_logic(&mut self) -> impl WidgetView<UiState> + use<> {
@@ -283,13 +295,9 @@ mod native {
         }
     }
 
-    async fn ui_proxy_init(proxy: MessageProxy<UiMessage>) {
-        let (send, mut recv) = unbounded_channel();
-        proxy.message(UiMessage::InitProxy(send)).unwrap();
-        loop {
-            let msg = recv.recv().await.unwrap();
-            proxy.message(msg).unwrap();
-        }
+    async fn ui_proxy_init(proxy: xilem_core::MessageProxy<UiMessage>) {
+        let msg_proxy = MessageProxy(proxy.clone());
+        proxy.message(UiMessage::InitProxy(msg_proxy)).unwrap();
     }
 
     impl HomeState {
