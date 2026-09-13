@@ -94,7 +94,7 @@ fn focus_sink_canvas() -> web_sys::HtmlCanvasElement {
 
 pub fn main() {
     let conf = Config::read();
-    let emu_client = ActorBuilder::new(EmuCore::new()).spawn();
+    let emu_client = ActorBuilder::new(EmuCore::new(conf.get_trove())).spawn();
 
     let (key_proxy_send, key_proxy_recv) = unbounded_channel();
 

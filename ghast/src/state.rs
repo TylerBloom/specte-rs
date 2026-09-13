@@ -1,5 +1,4 @@
-#[cfg(not(target_family = "wasm"))]
-use std::env::home_dir;
+use std::sync::Arc;
 
 use futures::StreamExt;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -15,22 +14,20 @@ use troupe::sink::SinkClient;
 use crate::config::Config;
 use crate::emu_core::EmuMessage;
 use crate::emu_core::EmuOutput;
-use crate::emu_core::Frame;
 use crate::emu_core::Image;
 use crate::keys::ControlSignal;
 use crate::keys::Keystroke;
-use crate::trove::Trove;
 
 pub struct UiState {
-    emu_client: JointClient<EmuMessage, EmuOutput>,
+    pub(crate) emu_client: JointClient<EmuMessage, EmuOutput>,
     /// Used to communicate with the emulator proxy
-    emu_proxy_client: SinkClient<EmulatorProxyMessage>,
-    key_proxy_client: SinkClient<KeyboardProxyMessage>,
-    pub(crate) add_game_client: SinkClient<AddGameMessage>,
-    cursor: StateCursor,
+    pub(crate) proxy_client: SinkClient<UiProxyMessage>,
+    pub(crate) cursor: StateCursor,
     pub(crate) home: HomeState,
-    game: InGameState,
-    settings: SettingsState,
+    pub(crate) game: InGameState,
+    pub(crate) settings: SettingsState,
+    #[allow(dead_code)]
+    pub(crate) config: Config,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -41,7 +38,7 @@ pub enum StateCursor {
 }
 
 pub struct HomeState {
-    pub(crate) trove: Trove,
+    games: Vec<Arc<str>>,
 }
 
 pub struct InGameState {
@@ -56,18 +53,29 @@ pub enum UiMessage {
     HomeMessage(HomeMessage),
     InGameMessage(InGameMessage),
     SettingsMessage(SettingsMessage),
-    SwitchToSettings,
     Keystroke(Keystroke),
+    InitProxy(UnboundedSender<UiMessage>),
+    SwitchToSettings,
     Escape,
+}
+
+impl From<EmuOutput> for UiMessage {
+    fn from(msg: EmuOutput) -> Self {
+        match msg {
+            EmuOutput::Frame(frame) => UiMessage::InGameMessage(frame.into()),
+            EmuOutput::TroveGames(games) => UiMessage::HomeMessage(HomeMessage::TroveGames(games)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HomeMessage {
-    AddGame(String, Vec<u8>),
+    AddGame,
     StartGame(String),
+    TroveGames(Vec<Arc<str>>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum InGameMessage {
     NextFrame((Image, usize)),
 }
@@ -81,25 +89,23 @@ impl UiState {
         emu_client: JointClient<EmuMessage, EmuOutput>,
         key_recv: UnboundedReceiver<UiMessage>,
     ) -> Self {
-        let trove = config.get_trove();
         let image = Image::blank();
-        let emu_proxy_client = ActorBuilder::new(EmulatorProxy::default())
+
+        let proxy = UiProxy::Uninit(vec![]);
+
+        let proxy_client = ActorBuilder::new(proxy)
+            .attach_stream(UnboundedReceiverStream::new(key_recv).fuse())
             .attach_stream(emu_client.stream().map(Result::unwrap).fuse())
             .spawn();
 
-        let key_proxy_client = ActorBuilder::new(KeyboardProxy::default())
-            .attach_stream(UnboundedReceiverStream::new(key_recv).fuse())
-            .spawn();
-
-        let add_game_client = ActorBuilder::new(AddGameWorker::default()).spawn();
+        emu_client.send(EmuMessage::FetchGameList);
 
         Self {
             emu_client,
-            emu_proxy_client,
-            key_proxy_client,
-            add_game_client,
+            config,
+            proxy_client,
             cursor: StateCursor::Home,
-            home: HomeState { trove },
+            home: HomeState { games: vec![] },
             game: InGameState { image, frames: 0 },
             settings: SettingsState {},
         }
@@ -129,146 +135,18 @@ impl UiState {
                 self.emu_client.send(key);
                 None
             }
+            UiMessage::InitProxy(sender) => {
+                self.update_proxy_sender(sender);
+                None
+            }
         };
         if let Some(cursor) = cursor {
             self.cursor = cursor;
         }
     }
 
-    fn update_emu_proxy_sender(&mut self, send: UnboundedSender<Frame>) {
-        self.emu_proxy_client.send(send);
-    }
-
-    fn update_key_proxy_sender(&mut self, send: UnboundedSender<UiMessage>) {
-        self.key_proxy_client.send(send);
-    }
-
-    fn process_next_frame(&mut self, (image, count): Frame) {
-        if matches!(self.cursor, StateCursor::InGame) {
-            self.game.image = image;
-            self.game.frames = count;
-        }
-    }
-}
-
-/// Xilem doesn't have a notice of "subscriptions". Async events that occur largely outside of the
-/// state of your UI aren't directly support. It does, however, have a "worker" widget. This widget
-/// handles the nitty-gritty details of proxying the event loop with a message for the correct widget
-/// and ensuring that widget actually exists.
-///
-/// This proxy acts as an intermediary between the emulator task and the UI state's "worker"
-/// widget's task. It consists of two input channels and one output channel. The first input is from
-/// the emulator for streaming frames. The output channel sends the frame data to the worker
-/// widgets's task. Since the worker widget can appear and come back (e.g. you're in game, go to the
-/// home menu, and go back in game), the output channel might need to be swapped for a new channel.
-/// That new channel is received from the second input channel.
-#[derive(Default)]
-pub struct EmulatorProxy {
-    sender: Option<UnboundedSender<Frame>>,
-}
-
-#[derive(derive_more::From)]
-pub enum EmulatorProxyMessage {
-    NewSender(UnboundedSender<Frame>),
-    EmuMessage(EmuOutput),
-}
-
-impl ActorState for EmulatorProxy {
-    type ActorKind = SinkActor;
-    type Message = EmulatorProxyMessage;
-
-    async fn process(&mut self, _scheduler: &mut Scheduler<Self>, msg: Self::Message) {
-        match msg {
-            EmulatorProxyMessage::NewSender(send) => self.sender = Some(send),
-            EmulatorProxyMessage::EmuMessage(msg) => match msg {
-                EmuOutput::Frame(frame) => {
-                    if let Some(send) = self.sender.as_ref() {
-                        send.send(frame).unwrap();
-                    }
-                }
-                EmuOutput::Snapshot(_, _) => todo!(),
-                EmuOutput::SaveState(_, _) => todo!(),
-            },
-        }
-    }
-}
-
-/// Fuctions very similarly to the `EmulatorProxy` but for keyboard events not meant for the
-/// emulator core.
-#[derive(Default)]
-pub struct KeyboardProxy {
-    sender: Option<UnboundedSender<UiMessage>>,
-}
-
-#[derive(derive_more::From)]
-pub enum KeyboardProxyMessage {
-    NewSender(UnboundedSender<UiMessage>),
-    Message(UiMessage),
-}
-
-impl ActorState for KeyboardProxy {
-    type ActorKind = SinkActor;
-    type Message = KeyboardProxyMessage;
-
-    async fn process(&mut self, _scheduler: &mut Scheduler<Self>, msg: Self::Message) {
-        match msg {
-            KeyboardProxyMessage::NewSender(send) => self.sender = Some(send),
-            KeyboardProxyMessage::Message(msg) => {
-                if let Some(send) = self.sender.as_ref() {
-                    send.send(msg).unwrap();
-                }
-            }
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct AddGameWorker {
-    sender: Option<UnboundedSender<(String, Vec<u8>)>>,
-}
-
-#[derive(Debug, derive_more::From)]
-pub enum AddGameMessage {
-    AddGame,
-    NewSender(UnboundedSender<(String, Vec<u8>)>),
-}
-
-impl ActorState for AddGameWorker {
-    type ActorKind = SinkActor;
-    type Message = AddGameMessage;
-
-    async fn process(&mut self, _scheduler: &mut Scheduler<Self>, msg: Self::Message) {
-        match msg {
-            AddGameMessage::NewSender(send) => self.sender = Some(send),
-            // The file dialog's future isn't `Send` on the WASM target (it holds JS handles
-            // internally), but `#[async_trait]` requires `process`'s future to be `Send`. Since
-            // `spawn_local` doesn't require its future to be `Send`, the dialog is driven to
-            // completion off to the side instead of being awaited directly here.
-            #[cfg(target_family = "wasm")]
-            AddGameMessage::AddGame => {
-                if let Some(send) = self.sender.clone() {
-                    wasm_bindgen_futures::spawn_local(async move {
-                        let Some(handle) = rfd::AsyncFileDialog::new().pick_file().await else {
-                            return;
-                        };
-                        send.send((handle.file_name(), handle.read().await))
-                            .unwrap();
-                    });
-                }
-            }
-            #[cfg(not(target_family = "wasm"))]
-            AddGameMessage::AddGame => {
-                if let Some(send) = self.sender.as_ref() {
-                    let dialog = rfd::AsyncFileDialog::new().set_directory(home_dir().unwrap());
-                    let Some(handle) = dialog.pick_file().await else {
-                        return;
-                    };
-
-                    send.send((handle.file_name(), handle.read().await))
-                        .unwrap();
-                }
-            }
-        }
+    fn update_proxy_sender(&mut self, sender: UnboundedSender<UiMessage>) {
+        self.proxy_client.send(sender);
     }
 }
 
@@ -279,14 +157,18 @@ impl HomeState {
         msg: HomeMessage,
     ) -> Option<StateCursor> {
         match msg {
-            HomeMessage::AddGame(name, rom) => {
-                self.trove.add_game(name, rom);
+            HomeMessage::AddGame => {
+                send.send(EmuMessage::AddGame);
+                send.send(EmuMessage::FetchGameList);
                 None
             }
             HomeMessage::StartGame(file) => {
-                let game = self.trove.fetch_game(&file);
-                send.send(game);
+                send.send(EmuMessage::LoadGame(file));
                 Some(StateCursor::InGame)
+            }
+            HomeMessage::TroveGames(games) => {
+                self.games = games;
+                None
             }
         }
     }
@@ -310,10 +192,68 @@ impl SettingsState {
     }
 }
 
+/// State that runs parallel the main UI state. Responsible for sending messages from various
+/// other bits of state (actors) to the main UI state.
+///
+/// Xilem does not imposes two major design constraints. First, it does not have a straightforward
+/// mechanism for delivering messages from async sources. Rather, it provides widgets that provide
+/// an unbounded sender. Sending a message on that sender will trigger a message for the UI state
+/// to response to. Rather than sending this channel to all of the bits of state, this proxies
+/// messages to UI.
+enum UiProxy {
+    Uninit(Vec<UiMessage>),
+    Working(UnboundedSender<UiMessage>),
+}
+
+pub(crate) enum UiProxyMessage {
+    NewSender(UnboundedSender<UiMessage>),
+    ProxyMessage(UiMessage),
+}
+
+impl ActorState for UiProxy {
+    type Message = UiProxyMessage;
+    type ActorKind = SinkActor;
+
+    async fn process(&mut self, _scheduler: &mut Scheduler<Self>, msg: Self::Message) {
+        match msg {
+            UiProxyMessage::NewSender(sender) => match self {
+                UiProxy::Uninit(messages) => {
+                    for msg in std::mem::take(messages) {
+                        let _ = sender.send(msg);
+                    }
+                    *self = Self::Working(sender);
+                }
+                UiProxy::Working(_) => {
+                    *self = Self::Working(sender);
+                }
+            },
+            UiProxyMessage::ProxyMessage(msg) => match self {
+                UiProxy::Uninit(messages) => messages.push(msg),
+                UiProxy::Working(sender) => {
+                    let _ = sender.send(msg);
+                }
+            },
+        }
+    }
+}
+
+impl From<UnboundedSender<UiMessage>> for UiProxyMessage {
+    fn from(value: UnboundedSender<UiMessage>) -> Self {
+        UiProxyMessage::NewSender(value)
+    }
+}
+
+impl<T: Into<UiMessage>> From<T> for UiProxyMessage {
+    fn from(value: T) -> Self {
+        UiProxyMessage::ProxyMessage(value.into())
+    }
+}
+
 #[cfg(not(target_family = "wasm"))]
 mod native {
     use masonry::peniko::ImageAlphaType;
     use masonry::peniko::ImageData;
+    use tokio::sync::mpsc::unbounded_channel;
     use xilem::AnyWidgetView;
     use xilem::Blob;
     use xilem::ImageFormat;
@@ -321,13 +261,13 @@ mod native {
     use xilem::core::fork;
     use xilem::view::flex_col;
     use xilem::view::label;
+    use xilem::view::task;
     use xilem::view::text_button;
-    use xilem::view::worker;
+    use xilem_core::MessageProxy;
 
     use super::*;
-    use crate::utils::identity_proxy;
 
-    impl super::UiState {
+    impl UiState {
         pub fn app_logic(&mut self) -> impl WidgetView<UiState> + use<> {
             self.view()
         }
@@ -338,27 +278,59 @@ mod native {
                 StateCursor::InGame => self.game.view().boxed(),
                 StateCursor::Settings => self.settings.view().boxed(),
             };
-            let emu_worker = worker(
-                identity_proxy,
-                Self::update_emu_proxy_sender,
-                Self::process_next_frame,
-            );
-            let key_worker = worker(identity_proxy, Self::update_key_proxy_sender, Self::update);
-            fork(fork(main_widget, emu_worker), key_worker).boxed()
+            let proxy_task = task(ui_proxy_init, Self::update);
+            fork(main_widget, proxy_task).boxed()
         }
     }
 
-    impl super::HomeState {
+    async fn ui_proxy_init(proxy: MessageProxy<UiMessage>) {
+        let (send, mut recv) = unbounded_channel();
+        proxy.message(UiMessage::InitProxy(send)).unwrap();
+        loop {
+            let msg = recv.recv().await.unwrap();
+            proxy.message(msg).unwrap();
+        }
+    }
+
+    impl HomeState {
         pub fn view(&self) -> impl WidgetView<UiState> + use<> {
-            flex_col((self.settings_button(), self.trove.display()))
+            flex_col((
+                self.settings_button(),
+                label("Trove"),
+                self.add_game_set_button(),
+                self.display_games(),
+            ))
         }
 
         fn settings_button(&self) -> impl WidgetView<UiState> + use<> {
             text_button("Settings", |_: &mut UiState| {})
         }
+
+        pub fn add_game_set_button(&self) -> impl WidgetView<UiState> + use<> {
+            text_button("Add Game Set", |state: &mut UiState| {
+                state.emu_client.send(EmuMessage::AddGame);
+            })
+        }
+
+        pub fn display_games(&self) -> impl WidgetView<UiState> + use<> {
+            let col = self
+                .games
+                .iter()
+                .map(|name| {
+                    let name = name.clone();
+                    text_button(name.clone(), move |state: &mut UiState| {
+                        state.update(UiMessage::HomeMessage(HomeMessage::StartGame(
+                            (&*name).to_owned(),
+                        )));
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            flex_col(col)
+        }
     }
 
-    impl super::InGameState {
+    impl InGameState {
         pub fn view(&self) -> impl WidgetView<UiState> + use<> {
             let image = ImageData {
                 data: Blob::from(self.image.pixels.clone()),
@@ -374,7 +346,7 @@ mod native {
         }
     }
 
-    impl super::SettingsState {
+    impl SettingsState {
         pub fn view(&self) -> impl WidgetView<UiState> + use<> {
             label("UNDER CONSTRUCTION!!!")
         }
@@ -383,7 +355,6 @@ mod native {
 
 #[cfg(target_family = "wasm")]
 mod wasm {
-    use tokio::sync::mpsc::UnboundedSender;
     use tokio::sync::mpsc::unbounded_channel;
     use web_sys::wasm_bindgen::Clamped;
     use web_sys::wasm_bindgen::JsCast;
@@ -400,7 +371,7 @@ mod wasm {
 
     use super::*;
 
-    impl super::UiState {
+    impl UiState {
         pub fn app_logic(&mut self) -> impl DomView<UiState> + use<> {
             self.view()
         }
@@ -411,16 +382,33 @@ mod wasm {
                 StateCursor::InGame => self.game.view().boxed(),
                 StateCursor::Settings => self.settings.view().boxed(),
             };
-            fork(
-                fork(main_widget, task(emu_frame_task_init, emu_frame_task_event)),
-                task(keyboard_task_init, keyboard_task_event),
-            )
+            let proxy_task = task(ui_proxy_init, Self::update);
+            fork(main_widget, proxy_task).boxed()
         }
     }
 
-    impl super::HomeState {
+    async fn ui_proxy_init(proxy: TaskProxy, _shutdown: ShutdownSignal) {
+        let (send, mut recv) = unbounded_channel();
+        proxy.send_message(UiMessage::InitProxy(send));
+        loop {
+            let msg = recv.recv().await.unwrap();
+            proxy.send_message(msg);
+        }
+    }
+
+    impl HomeState {
         pub fn view(&self) -> impl DomView<UiState> + use<> {
-            div((self.settings_button(), self.trove.display()))
+            let games = self
+                .games
+                .iter()
+                .map(|name| {
+                    let name = String::from(&**name);
+                    button(name.clone()).on_click(move |state: &mut UiState, _| {
+                        state.update(UiMessage::HomeMessage(HomeMessage::StartGame(name.clone())));
+                    })
+                })
+                .collect::<Vec<_>>();
+            div((self.settings_button(), div(games)))
         }
 
         fn settings_button(&self) -> impl DomView<UiState> + use<> {
@@ -428,7 +416,7 @@ mod wasm {
         }
     }
 
-    impl super::InGameState {
+    impl InGameState {
         pub fn view(&self) -> impl DomView<UiState> + use<> {
             let image = self.image.clone();
             div((
@@ -441,7 +429,7 @@ mod wasm {
         }
     }
 
-    impl super::SettingsState {
+    impl SettingsState {
         pub fn view(&self) -> impl DomView<UiState> + use<> {
             p("UNDER CONSTRUCTION!!!")
         }
@@ -462,49 +450,5 @@ mod wasm {
         )
         .unwrap();
         ctx.put_image_data(&data, 0.0, 0.0).unwrap();
-    }
-
-    #[derive(Debug)]
-    enum EmuFrameTaskMessage {
-        NewSender(UnboundedSender<Frame>),
-        Frame(Frame),
-    }
-
-    #[derive(Debug)]
-    enum KeyboardTaskMessage {
-        NewSender(UnboundedSender<UiMessage>),
-        Keyboard(UiMessage),
-    }
-
-    async fn emu_frame_task_init(proxy: TaskProxy, _shutdown: ShutdownSignal) {
-        let (send, mut recv) = unbounded_channel();
-        proxy.send_message(EmuFrameTaskMessage::NewSender(send));
-        loop {
-            let frame = recv.recv().await.unwrap();
-            proxy.send_message(EmuFrameTaskMessage::Frame(frame));
-        }
-    }
-
-    fn emu_frame_task_event(state: &mut UiState, msg: EmuFrameTaskMessage) {
-        match msg {
-            EmuFrameTaskMessage::NewSender(send) => state.update_emu_proxy_sender(send),
-            EmuFrameTaskMessage::Frame(frame) => state.process_next_frame(frame),
-        }
-    }
-
-    async fn keyboard_task_init(proxy: TaskProxy, _shutdown: ShutdownSignal) {
-        let (send, mut recv) = unbounded_channel();
-        proxy.send_message(KeyboardTaskMessage::NewSender(send));
-        loop {
-            let msg = recv.recv().await.unwrap();
-            proxy.send_message(KeyboardTaskMessage::Keyboard(msg));
-        }
-    }
-
-    fn keyboard_task_event(state: &mut UiState, msg: KeyboardTaskMessage) {
-        match msg {
-            KeyboardTaskMessage::NewSender(send) => state.update_key_proxy_sender(send),
-            KeyboardTaskMessage::Keyboard(msg) => state.update(msg),
-        }
     }
 }

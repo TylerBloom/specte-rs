@@ -1,3 +1,7 @@
+#[cfg(not(target_family = "wasm"))]
+use std::env::home_dir;
+
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::stream::StreamExt;
@@ -13,6 +17,7 @@ use troupe::joint::JointActor;
 use crate::keys::ButtonInteration;
 use crate::keys::ControlSignal;
 use crate::keys::Keystroke;
+use crate::trove::Trove;
 use crate::utils::screen_to_image_scaled;
 
 /// This is the core of the emulator state. It is interfaced with via the `EmuHandle`. It is
@@ -22,39 +27,37 @@ pub struct EmuCore {
     last_updated: Instant,
     frames: usize,
     emulator: Option<Emulator>,
+    trove: Trove,
 }
 
 impl EmuCore {
-    pub fn new() -> Self {
+    pub fn new(trove: Trove) -> Self {
         Self {
             is_paused: false,
             last_updated: Instant::now(),
             frames: 0,
             emulator: None,
+            trove,
         }
-    }
-}
-
-impl Default for EmuCore {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
 #[derive(Debug, Clone, derive_more::From)]
 pub enum EmuMessage {
-    Start(Vec<u8>),
-    Keystroke(Keystroke),
     NextFrame,
+    Keystroke(Keystroke),
+    LoadGame(String),
+    AddGame,
+    RfdReturn(Option<(String, Vec<u8>)>),
+    TakeSnapShot,
+    SaveState,
+    FetchGameList,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::From)]
 pub enum EmuOutput {
     Frame(Frame),
-    /// A serialized snapshot of the emulator's state.
-    Snapshot(String, Vec<u8>),
-    /// The saved ROM (+ RAM) state.
-    SaveState(String, Vec<u8>),
+    TroveGames(Vec<Arc<str>>),
 }
 
 impl ActorState for EmuCore {
@@ -62,12 +65,6 @@ impl ActorState for EmuCore {
     type Message = EmuMessage;
 
     async fn start_up(&mut self, scheduler: &mut Scheduler<Self>) {
-        loop {
-            if let Some(EmuMessage::Start(rom)) = scheduler.next().await {
-                self.emulator = Some(Emulator::new(rom));
-                break;
-            }
-        }
         scheduler.attach_stream(futures::stream::repeat(EmuMessage::NextFrame).then(|msg| {
             Box::pin(async move {
                 sleep_for(Duration::from_secs(1) / 60).await;
@@ -77,9 +74,38 @@ impl ActorState for EmuCore {
     }
 
     async fn process(&mut self, scheduler: &mut Scheduler<Self>, msg: Self::Message) {
+        if self.emulator.is_some() {
+            self.process_message(scheduler, msg).await
+        } else {
+            self.process_init_message(scheduler, msg).await
+        }
+    }
+}
+
+impl EmuCore {
+    async fn process_init_message(&mut self, scheduler: &mut Scheduler<Self>, msg: EmuMessage) {
+        match msg {
+            EmuMessage::NextFrame => return,
+            EmuMessage::Keystroke(_keystroke) => return,
+            EmuMessage::TakeSnapShot => return,
+            EmuMessage::SaveState => return,
+            EmuMessage::AddGame => self.add_game(scheduler),
+            EmuMessage::LoadGame(name) => self.load_game(&name),
+            EmuMessage::RfdReturn(msg) => self.rfd_return(msg),
+            EmuMessage::FetchGameList => self.send_game_list(scheduler),
+        }
+    }
+
+    async fn process_message(&mut self, scheduler: &mut Scheduler<Self>, msg: EmuMessage) {
         // Start up waits for the ROM, so unwrap won't panic
         let emu = self.emulator.as_mut().unwrap();
         match msg {
+            EmuMessage::AddGame => self.add_game(scheduler),
+            EmuMessage::RfdReturn(msg) => self.rfd_return(msg),
+            EmuMessage::LoadGame(name) => self.load_game(&name),
+            EmuMessage::FetchGameList => self.send_game_list(scheduler),
+            EmuMessage::TakeSnapShot => todo!(),
+            EmuMessage::SaveState => todo!(),
             EmuMessage::NextFrame => {
                 if !self.is_paused {
                     emu.next_frame();
@@ -88,11 +114,6 @@ impl ActorState for EmuCore {
                 } else {
                     return;
                 }
-            }
-            EmuMessage::Start(cart) => {
-                self.frames = 0;
-                self.is_paused = false;
-                *emu = Emulator::new(cart);
             }
             EmuMessage::Keystroke(Keystroke::Control(ControlSignal::Pause)) => {
                 self.is_paused = !self.is_paused;
@@ -122,6 +143,38 @@ impl ActorState for EmuCore {
             },
         }
         self.last_updated = Instant::now()
+    }
+
+    fn add_game(&mut self, scheduler: &mut Scheduler<Self>) {
+        scheduler.await_message(async move {
+            #[cfg(not(target_family = "wasm"))]
+            let dialog = rfd::AsyncFileDialog::new().set_directory(home_dir().unwrap());
+            #[cfg(target_family = "wasm")]
+            let dialog = rfd::AsyncFileDialog::new();
+            let digest = match dialog.pick_file().await {
+                None => None,
+                Some(handle) => Some((handle.file_name(), handle.read().await)),
+            };
+            EmuMessage::RfdReturn(digest)
+        });
+    }
+
+    fn load_game(&mut self, name: &str) {
+        let rom = self.trove.fetch_game(name);
+        self.frames = 0;
+        self.is_paused = false;
+        self.emulator = Some(Emulator::new(rom));
+    }
+
+    fn rfd_return(&mut self, msg: Option<(String, Vec<u8>)>) {
+        match msg {
+            Some((name, rom)) => self.trove.add_game(name, rom),
+            None => return,
+        }
+    }
+
+    fn send_game_list(&self, scheduler: &mut Scheduler<Self>) {
+        scheduler.broadcast(self.trove.game_names());
     }
 }
 

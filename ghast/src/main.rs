@@ -145,13 +145,13 @@ fn main() -> Result<(), EventLoopError> {
         async move {
             let event_loop = EventLoop::with_user_event().build().unwrap();
 
-            let conf = Config::read();
+            let config = Config::read();
 
-            let emu_client = ActorBuilder::new(EmuCore::new()).spawn();
+            let emu_client = ActorBuilder::new(EmuCore::new(config.get_trove())).spawn();
 
             let (key_proxy_send, key_proxy_recv) = unbounded_channel();
 
-            let state = UiState::new(conf, emu_client.clone(), key_proxy_recv);
+            let state = UiState::new(config, emu_client.clone(), key_proxy_recv);
 
             let window_size = winit::dpi::LogicalSize::new(800.0, 800.0);
             let window_options =
