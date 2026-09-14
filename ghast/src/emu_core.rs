@@ -50,7 +50,7 @@ impl EmuCore {
 pub enum EmuMessage {
     NextFrame,
     Keystroke(Keystroke),
-    LoadGame(String),
+    LoadGame(Vec<u8>),
     AddGame,
     RfdReturn(Option<(String, Vec<u8>)>),
     TakeSnapShot,
@@ -94,7 +94,7 @@ impl EmuCore {
             EmuMessage::TakeSnapShot => return,
             EmuMessage::SaveState => return,
             EmuMessage::AddGame => self.add_game(scheduler),
-            EmuMessage::LoadGame(name) => self.load_game(&name),
+            EmuMessage::LoadGame(rom) => self.load_game(rom),
             EmuMessage::RfdReturn(msg) => self.rfd_return(msg),
             EmuMessage::FetchGameList => self.send_game_list(scheduler),
         }
@@ -106,7 +106,7 @@ impl EmuCore {
         match msg {
             EmuMessage::AddGame => self.add_game(scheduler),
             EmuMessage::RfdReturn(msg) => self.rfd_return(msg),
-            EmuMessage::LoadGame(name) => self.load_game(&name),
+            EmuMessage::LoadGame(rom) => self.load_game(rom),
             EmuMessage::FetchGameList => self.send_game_list(scheduler),
             EmuMessage::TakeSnapShot => todo!(),
             EmuMessage::SaveState => todo!(),
@@ -163,8 +163,7 @@ impl EmuCore {
         });
     }
 
-    fn load_game(&mut self, name: &str) {
-        let rom = self.trove.fetch_game(name);
+    fn load_game(&mut self, rom: Vec<u8>) {
         self.frames = 0;
         self.is_paused = false;
         self.emulator = Some(Emulator::new(rom));
@@ -172,13 +171,13 @@ impl EmuCore {
 
     fn rfd_return(&mut self, msg: Option<(String, Vec<u8>)>) {
         match msg {
-            Some((name, rom)) => self.trove.add_game(name, rom),
+            Some((name, rom)) => self.trove.add_game(&name, &rom),
             None => return,
         }
     }
 
     fn send_game_list(&self, scheduler: &mut Scheduler<Self>) {
-        scheduler.send_message(self.trove.game_names());
+        scheduler.send_message(self.trove.list_games());
     }
 }
 

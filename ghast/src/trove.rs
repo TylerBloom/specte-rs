@@ -7,21 +7,28 @@
 //! game. This is to help sidestep many games single save file per cartridge.
 //! Each ROM instance contains a copy of the parent ROM, any snapshots taken, and a file ordering
 //! the times that the snapshots were taken.
-// TODO: Eventually, the game's directory will have a layer of configs for the emulator as well as
-// cheap codes.
 // TODO: When ROM patching is supported, ROM "recipes" will be added so users can create new game
 // directories as new versions of the patch get released.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
+use chrono::Utc;
 use rusqlite::Connection;
-use rusqlite::OptionalExtension;
-use serde::Deserialize;
-use serde::Serialize;
+use uuid::Uuid;
 
-// TODO: To get an MVP working, the trove will just contain a copy of each can. Later, layers like
-// the game sets will be added.
+// Structure of DB:
+// Mirrors UI. Top level table is list of games by name. Each game one or more "variants". A
+// variant represents the current saved cartridge data and all snapshots. Snapshots are just the
+// serialized emulator state.
+//
+//  Games Table:
+//  Game name (ID), ROM Data, last updated
+//
+//  Variants Table:
+//  Variant ID, variant name, Game name, cartiridge data, last updated
+//
+//  Snapshot table:
+//  Snapshot ID, name, Variant ID, serialized emulator state, last updated
 pub struct Trove {
     pub(crate) conn: Connection,
 }
@@ -29,9 +36,34 @@ pub struct Trove {
 impl Trove {
     pub fn new(conn: Connection) -> Self {
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS games (
-            name   STRING PRIMARY KEY,
-            rom BLOB
+            "
+        CREATE TABLE IF NOT EXISTS games (
+            name          STRING PRIMARY KEY,
+            last_updated  DATETIME
+        )",
+            (),
+        )
+        .unwrap();
+        conn.execute(
+            "
+        CREATE TABLE IF NOT EXISTS variants (
+            id            BLOB PRIMARY KEY,
+            name          STRING,
+            game_name     STRING,
+            cartridge     BLOB,
+            last_updated  DATETIME
+        )",
+            (),
+        )
+        .unwrap();
+        conn.execute(
+            "
+        CREATE TABLE IF NOT EXISTS snapshots (
+            id            BLOB PRIMARY KEY,
+            name          STRING,
+            variant_id    BLOB,
+            state         BLOB,
+            last_updated  DATETIME
         )",
             (),
         )
@@ -39,10 +71,119 @@ impl Trove {
         Self { conn }
     }
 
-    pub fn add_game(&mut self, name: String, rom: Vec<u8>) {
-        let _ = self
-            .conn
-            .execute("INSERT INTO games (name, rom) VALUES (?1, ?2)", (name, rom));
+    pub fn add_game(&self, name: &str, rom: &[u8]) {
+        self.conn
+            .execute(
+                "INSERT INTO games (name, last_updated) VALUES (?1, ?2)",
+                (name, Utc::now()),
+            )
+            .unwrap();
+
+        let variant = GameVariant {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            cart: rom.to_owned(),
+        };
+        self.add_variant(variant, name);
+    }
+
+    /// Reads back the sorted list of game names currently stored in the trove.
+    pub(crate) fn list_games(&self) -> Vec<Arc<str>> {
+        self.conn
+            .prepare("SELECT name FROM games ORDER BY last_updated")
+            .unwrap()
+            .query([])
+            .unwrap()
+            .mapped(|row| row.get(0))
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    pub fn add_variant(&self, GameVariant { id, name, cart }: GameVariant, game_name: &str) {
+        self.conn
+            .execute(
+                "INSERT INTO variants (id, name, game_name, cartridge, last_updated) VALUES (?1, ?2, ?3, ?4, ?5)",
+                (id, name, game_name, cart, Utc::now()),
+            ) .unwrap();
+
+        #[cfg(target_family = "wasm")]
+        self.save_db();
+    }
+
+    pub fn list_variants(&self, game_name: &str) -> Vec<GameVariant> {
+        self.conn
+            .prepare("SELECT * FROM variants WHERE game_name = ?1 ORDER BY last_updated")
+            .unwrap()
+            .query((game_name,))
+            .unwrap()
+            .mapped(|row| {
+                Ok(GameVariant {
+                    id: row.get("id")?,
+                    name: row.get("name")?,
+                    cart: row.get("cartridge")?,
+                })
+            })
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    pub fn update_variant_cart(&self, variant_id: Uuid, cart: &[u8]) {
+        self.conn
+            .execute(
+                "UPDATE variants SET cartridge = ?1, last_updated = ?2 WHERE id = ?3",
+                (cart, Utc::now(), variant_id),
+            )
+            .unwrap();
+
+        #[cfg(target_family = "wasm")]
+        self.save_db();
+    }
+
+    pub fn list_snapshots(&self, variant_id: Uuid) -> Vec<GameSnapshot> {
+        self.conn
+            .prepare("SELECT * FROM snapshots WHERE variant_id = ?1 ORDER BY last_updated")
+            .unwrap()
+            .query((variant_id,))
+            .unwrap()
+            .mapped(|row| {
+                Ok(GameSnapshot {
+                    id: row.get("id")?,
+                    name: row.get("name")?,
+                    variant_id: row.get("variant_id")?,
+                    state: row.get("state")?,
+                })
+            })
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    pub fn add_snapshot(
+        &self,
+        GameSnapshot {
+            id,
+            name,
+            variant_id,
+            state,
+        }: GameSnapshot,
+    ) {
+        self.conn
+            .execute(
+                "INSERT INTO snapshots (id, name, variant_id, state, last_updated) VALUES (?1, ?2, ?3, ?4, ?5)",
+                (id, name, variant_id, state, Utc::now()),
+            ) .unwrap();
+
+        #[cfg(target_family = "wasm")]
+        self.save_db();
+    }
+
+    pub fn update_snapshot(&self, snapshot_id: Uuid, state: &[u8]) {
+        self.conn
+            .execute(
+                "UPDATE snapshots SET state = ?1, last_updated = ?2 WHERE id = ?3",
+                (state, Utc::now(), snapshot_id),
+            )
+            .unwrap();
+
         #[cfg(target_family = "wasm")]
         self.save_db();
     }
@@ -58,67 +199,77 @@ impl Trove {
             .set_item(crate::config::wasm::TROVE_KEY, encode.as_str())
             .unwrap();
     }
+}
 
-    /// Given the name of a game in the trove, reads the file and returns the contents
-    pub fn fetch_game(&self, name: &str) -> Vec<u8> {
-        println!("Looking for game: {name:?}");
-        self.conn
-            .query_row("SELECT rom FROM games WHERE name = ?1", (name,), |row| {
-                row.get(0)
-            })
-            .optional()
-            .unwrap()
-            .unwrap()
-    }
+pub struct GameVariant {
+    pub id: Uuid,
+    pub name: Arc<str>,
+    pub cart: Vec<u8>,
+}
 
-    /// Reads back the sorted list of game names currently stored in the trove.
-    pub(crate) fn game_names(&self) -> Vec<Arc<str>> {
-        let mut games = self
-            .conn
-            .prepare("SELECT name FROM games")
-            .unwrap()
-            .query([])
-            .unwrap()
-            .mapped(|row| row.get(0))
-            .collect::<Result<Vec<Arc<str>>, _>>()
-            .unwrap();
-        games.sort();
-        games
+impl GameVariant {
+    pub fn new(name: impl Into<Arc<str>>, cart: Vec<u8>) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            cart,
+        }
     }
 }
 
-/// Contains data about usage, such as the last game played.
-#[derive(Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct TroveData {
-    #[serde(default)]
-    last_game: Option<String>,
+pub struct GameSnapshot {
+    pub id: Uuid,
+    pub name: Arc<str>,
+    pub variant_id: Uuid,
+    pub state: Vec<u8>,
 }
 
-/// Represents a base game and all of its run instances
-#[allow(dead_code)]
-pub(crate) struct GameSet {
-    path: PathBuf,
-}
-
-/// Represents a run of a given game, all of its screenshots, and a bit of metadata
-#[allow(dead_code)]
-pub(crate) struct GameInstance {
-    /// The name of the ROM file.
-    name: String,
-    data: GameInstanceData,
-    path: PathBuf,
-}
-
-#[allow(dead_code)]
-impl GameInstance {
-    pub fn screenshots(&self) -> Vec<PathBuf> {
-        todo!()
+impl GameSnapshot {
+    pub fn new(variant_id: Uuid, name: impl Into<Arc<str>>, state: Vec<u8>) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            variant_id,
+            state,
+        }
     }
 }
 
-/// A bit of a metadata for a given game instance, such as the last screenshot file.
-#[allow(dead_code)]
-pub(crate) struct GameInstanceData {
-    last_screenshot: Option<String>,
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static EMPTY_ROM: &[u8] = &[0; 0xFFusize];
+
+    #[test]
+    fn test_trove() {
+        let trove = Trove::new(Connection::open_in_memory().unwrap());
+
+        trove.add_game("test empty", EMPTY_ROM);
+        assert_eq!(trove.list_games().len(), 1);
+        assert_eq!(trove.list_variants("test empty").len(), 1);
+
+        let variant_id = trove.list_variants("test empty").first().unwrap().id;
+        trove.update_variant_cart(variant_id, EMPTY_ROM);
+        assert_eq!(trove.list_games().len(), 1);
+        assert_eq!(trove.list_variants("test empty").len(), 1);
+        assert_eq!(trove.list_snapshots(variant_id).len(), 0);
+
+        let snapshot_id = Uuid::new_v4();
+        let snapshot = GameSnapshot {
+            id: snapshot_id,
+            name: "first snapshot".into(),
+            variant_id,
+            state: EMPTY_ROM.into(),
+        };
+        trove.add_snapshot(snapshot);
+        assert_eq!(trove.list_games().len(), 1);
+        assert_eq!(trove.list_variants("test empty").len(), 1);
+        assert_eq!(trove.list_snapshots(variant_id).len(), 1);
+
+        trove.update_snapshot(snapshot_id, EMPTY_ROM);
+        assert_eq!(trove.list_games().len(), 1);
+        assert_eq!(trove.list_variants("test empty").len(), 1);
+        assert_eq!(trove.list_snapshots(variant_id).len(), 1);
+    }
 }

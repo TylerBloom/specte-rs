@@ -9,7 +9,7 @@ bytes = "1.12.1"
 derive_more = { workspace = true, features = ["from"] }
 futures = "0.3.34"
 rfd = "0.17.2"
-rusqlite = { version = "0.40.2", features = ["bundled", "serialize"] }
+rusqlite = { version = "0.40.2", features = ["bundled", "chrono", "serialize", "uuid"] }
 serde = { workspace = true, features = ["derive"] }
 spirit = { path = "../spirit" }
 time = { version = "0.3.36", features = ["local-offset"] }
@@ -19,6 +19,8 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 troupe = { workspace = true }
 xilem_core = "0.4.0"
 winit = { workspace = true }
+uuid = { version = "1.26.1", features = ["v4", "serde"] }
+chrono = "0.4.45"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 clap = { version = "4.5.21", features = ["derive"] }

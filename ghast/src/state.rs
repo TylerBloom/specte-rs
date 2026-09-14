@@ -160,8 +160,9 @@ impl HomeState {
                 None
             }
             HomeMessage::StartGame(file) => {
-                send.send(EmuMessage::LoadGame(file));
-                Some(StateCursor::InGame)
+                // send.send(EmuMessage::LoadGame(file));
+                // Some(StateCursor::InGame)
+                todo!()
             }
             HomeMessage::TroveGames(games) => {
                 self.games = games;
