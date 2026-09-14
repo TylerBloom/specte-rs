@@ -1,5 +1,5 @@
 pub mod config;
-pub mod debug;
+// pub mod debug;
 pub mod emu_core;
 pub mod keys;
 pub mod state;

@@ -22,7 +22,7 @@ pub enum BitOpInner {
 }
 
 impl BitOp {
-    pub(crate) fn execute<M: MemoryLikeExt>(self, state: &mut GameboyState<'_, M>) {
+    pub(crate) fn execute<M: MemoryLike>(self, state: &mut GameboyState<'_, M>) {
         let BitOp { bit, reg, op } = self;
         match reg {
             RegOrPointer::Reg(reg) => {

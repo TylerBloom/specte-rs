@@ -40,7 +40,7 @@ enum ClockIndex {
 }
 
 // TODO: How should clocks be handled...
-#[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MBC3 {
     ram_and_reg_enabled: u8,
     rom: Box<[RomBank]>,
@@ -50,6 +50,20 @@ pub struct MBC3 {
     clock_data: [u8; 5],
     latch_state: ClockLatchState,
     last_latch: DateTime<Utc>,
+}
+
+impl std::fmt::Debug for MBC3 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MBC3")
+            .field("rom_banks", &self.rom.len())
+            .field("rom_bank", &self.rom_bank)
+            .field("ram_and_reg_enabled", &self.ram_and_reg_enabled)
+            .field("ram_clock_index", &self.ram_clock_index)
+            .field("clock_data", &self.clock_data)
+            .field("latch_state", &self.latch_state)
+            .field("last_latch", &self.last_latch)
+            .finish_non_exhaustive()
+    }
 }
 
 impl MBC3 {
@@ -91,14 +105,14 @@ impl MBC3 {
     pub(super) fn read_byte(&self, index: u16) -> u8 {
         match index {
             0x0000..0x4000 => self.rom[0][index as usize],
-            index @ 0x4000..0x8000 => {
+            0x4000..0x8000 => {
                 // info!("Reading from ROM BANK {} @ 0x{index:0>4X}", self.rom_bank + 1);
                 self.rom[self.rom_bank as usize][(index - 0x4000) as usize]
             }
             0x8000..0xA000 => unreachable!("How did you get here??"),
-            index @ 0xA000..0xC000 => {
+            0xA000..0xC000 => {
                 if !self.is_ram_accessable() {
-                    return 0;
+                    return 0xFF;
                 }
                 match self.ram_clock_index {
                     RamAndClockIndex::Ram(bank) => {
@@ -154,7 +168,7 @@ impl MBC3 {
             0x8000..0xA000 => unreachable!("How did you get here??"),
             0xA000..0xC000 => {
                 if !self.is_ram_accessable() {
-                    info!("Not enabled...");
+                    tracing::info!("Not enabled...");
                     return;
                 }
                 match self.ram_clock_index {
@@ -198,34 +212,5 @@ impl MBC3 {
         self.clock_data[3] = lo;
         info!("Updated clock data {:?}", self.clock_data);
         // TODO: Handle the high bits...
-    }
-
-    #[track_caller]
-    pub(super) fn update_byte(&mut self, index: u16, update: impl FnOnce(&mut u8)) -> u8 {
-        info!("Updating byte in MBC3 @ 0x{index:0>4X}");
-        match index {
-            0x0000..0x2000 => {
-                update(&mut self.ram_and_reg_enabled);
-                self.ram_and_reg_enabled
-            }
-            _ => 0,
-            index @ 0x4000..0x8000 => self.rom[self.rom_bank as usize][(index - 0x4000) as usize],
-            0x8000..0xA000 => unreachable!("How did you get here??"),
-            index @ 0xA000..0xC000 => {
-                if !self.is_ram_accessable() {
-                    update(&mut 0);
-                    return 0;
-                }
-                let digest = match self.ram_clock_index {
-                    RamAndClockIndex::Ram(bank) => {
-                        &mut self.ram[bank as usize][(index - 0xA000) as usize]
-                    }
-                    RamAndClockIndex::Clock(index) => &mut self.clock_data[index as usize],
-                };
-                update(digest);
-                *digest
-            }
-            0xC000.. => unreachable!("How did you get here??"),
-        }
     }
 }

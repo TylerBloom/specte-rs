@@ -1,162 +1,208 @@
-use std::pin::Pin;
-use std::task::Context;
-use std::task::Poll;
+#[cfg(not(target_family = "wasm"))]
+use std::env::home_dir;
 
-use iced::advanced::image::Handle;
+use std::sync::Arc;
+use std::time::Duration;
+
+use futures::Stream;
 use spirit::Gameboy;
 use spirit::StartUpSequence;
 use spirit::ppu::Pixel;
-use tokio::sync::mpsc::Receiver;
-use tokio::sync::mpsc::Sender;
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::mpsc::channel;
-use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::mpsc::unbounded_channel;
-use tokio_stream::Stream;
-use tokio_stream::wrappers::ReceiverStream;
 
+use futures::stream::StreamExt;
+use instant::Instant;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::UnboundedReceiverStream;
+use troupe::ActorKind;
+use troupe::ActorState;
+use troupe::Scheduler;
+use troupe::compat::sleep_for;
+
+use crate::keys::ButtonInteration;
+use crate::keys::ControlSignal;
+use crate::keys::Keystroke;
+use crate::trove::Trove;
 use crate::utils::screen_to_image_scaled;
-
-pub struct EmuHandle {
-    send: EmuSend,
-    recv: EmuRecv,
-}
-
-pub struct EmuSend(UnboundedSender<EmuMessage>);
-
-pub struct EmuRecv(Receiver<Handle>);
-
-pub struct EmuStream(Pin<Box<ReceiverStream<Handle>>>);
-
-impl EmuHandle {
-    // TODO: This will need a trove handle to pull in setting and configs
-    /// This contructs the Emulator core and launches it into a seperate task, returning the handle
-    /// in order to interface with it.
-    pub fn contruct_and_launch() -> Self {
-        let (msg_send, msg_recv) = unbounded_channel();
-        let (frame_send, frame_recv) = channel(10);
-        let core = EmuCore {
-            recv: msg_recv,
-            send: frame_send,
-        };
-        tokio::task::spawn(core.run());
-        Self {
-            recv: EmuRecv(frame_recv),
-            send: EmuSend(msg_send),
-        }
-    }
-
-    pub fn split(self) -> (EmuSend, EmuRecv) {
-        let Self { send, recv } = self;
-        (send, recv)
-    }
-
-    pub fn pause(&self) {
-        self.send.pause()
-    }
-
-    pub fn resume(&self) {
-        self.send.resume()
-    }
-
-    pub fn start_game(&self, game: Vec<u8>) {
-        self.send.start_game(game)
-    }
-
-    pub async fn next_frame(&mut self) -> Handle {
-        self.recv.next_frame().await
-    }
-}
-
-impl EmuSend {
-    pub fn pause(&self) {
-        self.0.send(EmuMessage::Pause).unwrap()
-    }
-
-    pub fn resume(&self) {
-        self.0.send(EmuMessage::Resume).unwrap()
-    }
-
-    pub fn start_game(&self, game: Vec<u8>) {
-        // self.0.send(EmuMessage::Start(game)).await.unwrap()
-        self.0.send(EmuMessage::Start(game)).unwrap()
-    }
-}
-
-impl EmuRecv {
-    pub async fn next_frame(&mut self) -> Handle {
-        self.0.recv().await.unwrap()
-    }
-
-    pub fn into_stream(self) -> EmuStream {
-        EmuStream(Box::pin(ReceiverStream::new(self.0)))
-    }
-}
-
-impl Stream for EmuStream {
-    type Item = Handle;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::get_mut(self).0.as_mut().poll_next(cx)
-    }
-}
 
 /// This is the core of the emulator state. It is interfaced with via the `EmuHandle`. It is
 /// intended that the core is ran in a seperate thread/task from the main core.
-struct EmuCore {
-    recv: UnboundedReceiver<EmuMessage>,
-    send: Sender<Handle>,
-}
-
-enum EmuMessage {
-    Start(Vec<u8>),
-    Pause,
-    Resume,
+pub struct EmuCore {
+    is_paused: bool,
+    last_updated: Instant,
+    frames: usize,
+    emulator: Option<Emulator>,
+    trove: Trove,
 }
 
 impl EmuCore {
-    async fn run(mut self) {
-        let mut emu = self.wait_for_cart().await;
-        let Self { mut recv, send } = self;
-        let mut is_paused = false;
-        // 1/60 of a second is ~17 msec
-        let mut timer = tokio::time::interval(tokio::time::Duration::from_millis(17));
-        // Initially, this is a very basic cycle. We will always wait 17 ms, check for messages,
-        // then, if not paused, calculate the next frame and send it off to the handle.
-        loop {
-            timer.tick().await;
-            loop {
-                match recv.try_recv() {
-                    Ok(msg) => match msg {
-                        EmuMessage::Start(cart) => {
-                            is_paused = false;
-                            emu = Emulator::new(cart);
-                        }
-                        EmuMessage::Pause => is_paused = true,
-                        EmuMessage::Resume => is_paused = false,
-                    },
-                    Err(TryRecvError::Empty) => break,
-                    // There is nothing to do while the handle has hung up. Data can neither be
-                    // sent or recv-ed.
-                    // TODO: This needs to be a cleaner shutdown to prevent data loss.
-                    Err(TryRecvError::Disconnected) => panic!("Handle hung up"),
-                }
-            }
-            if !is_paused {
-                emu.next_frame();
-                send.send(emu.just_pixels()).await.unwrap();
-            }
+    pub fn new(trove: Trove) -> Self {
+        Self {
+            is_paused: false,
+            last_updated: Instant::now(),
+            frames: 0,
+            emulator: None,
+            trove,
+        }
+    }
+}
+
+#[derive(Debug, Clone, derive_more::From)]
+pub enum EmuMessage {
+    NextFrame,
+    Keystroke(Keystroke),
+    LoadGame(Vec<u8>),
+    AddGame,
+    RfdReturn(Option<(String, Vec<u8>)>),
+    TakeSnapShot,
+    SaveState,
+    FetchGameList,
+}
+
+#[derive(Debug, Clone, derive_more::From)]
+pub enum EmuOutput {
+    Frame(Frame),
+    TroveGames(Vec<Arc<str>>),
+}
+
+impl ActorState for EmuCore {
+    type ActorKind = SinkSendActor<EmuOutput>;
+    type Message = EmuMessage;
+
+    async fn start_up(&mut self, scheduler: &mut Scheduler<Self>) {
+        scheduler.attach_stream(futures::stream::repeat(EmuMessage::NextFrame).then(|msg| {
+            Box::pin(async move {
+                sleep_for(Duration::from_secs(1) / 60).await;
+                msg
+            })
+        }));
+    }
+
+    async fn process(&mut self, scheduler: &mut Scheduler<Self>, msg: Self::Message) {
+        if self.emulator.is_some() {
+            self.process_message(scheduler, msg).await
+        } else {
+            self.process_init_message(scheduler, msg).await
+        }
+    }
+}
+
+impl EmuCore {
+    async fn process_init_message(&mut self, scheduler: &mut Scheduler<Self>, msg: EmuMessage) {
+        match msg {
+            EmuMessage::NextFrame => return,
+            EmuMessage::Keystroke(_keystroke) => return,
+            EmuMessage::TakeSnapShot => return,
+            EmuMessage::SaveState => return,
+            EmuMessage::AddGame => self.add_game(scheduler),
+            EmuMessage::LoadGame(rom) => self.load_game(rom),
+            EmuMessage::RfdReturn(msg) => self.rfd_return(msg),
+            EmuMessage::FetchGameList => self.send_game_list(scheduler),
         }
     }
 
-    async fn wait_for_cart(&mut self) -> Emulator {
-        let cart = loop {
-            if let EmuMessage::Start(cart) = self.recv.recv().await.unwrap() {
-                break cart;
+    async fn process_message(&mut self, scheduler: &mut Scheduler<Self>, msg: EmuMessage) {
+        // Start up waits for the ROM, so unwrap won't panic
+        let emu = self.emulator.as_mut().unwrap();
+        match msg {
+            EmuMessage::AddGame => self.add_game(scheduler),
+            EmuMessage::RfdReturn(msg) => self.rfd_return(msg),
+            EmuMessage::LoadGame(rom) => self.load_game(rom),
+            EmuMessage::FetchGameList => self.send_game_list(scheduler),
+            EmuMessage::TakeSnapShot => todo!(),
+            EmuMessage::SaveState => todo!(),
+            EmuMessage::NextFrame => {
+                if !self.is_paused {
+                    emu.next_frame();
+                    self.frames += 1;
+                    scheduler.send_message(EmuOutput::Frame((emu.just_pixels(), self.frames)));
+                } else {
+                    return;
+                }
             }
-        };
-        Emulator::new(cart)
+            EmuMessage::Keystroke(Keystroke::Control(ControlSignal::Pause)) => {
+                self.is_paused = !self.is_paused;
+                return;
+            }
+            EmuMessage::Keystroke(Keystroke::Control(ControlSignal::NextFrame)) => {
+                self.is_paused = true;
+                emu.next_frame();
+                self.frames += 1;
+                scheduler.send_message(EmuOutput::Frame((emu.just_pixels(), self.frames)));
+            }
+            EmuMessage::Keystroke(Keystroke::Button(button)) => match button {
+                ButtonInteration::ButtonPress(button) => {
+                    let now = Instant::now();
+                    step_duration(emu.gb_mut(), now - self.last_updated);
+                    emu.gb_mut().button_press(button);
+                    self.last_updated = now;
+                    return;
+                }
+                ButtonInteration::ButtonRelease(button) => {
+                    let now = Instant::now();
+                    step_duration(emu.gb_mut(), now - self.last_updated);
+                    emu.gb_mut().button_release(button);
+                    self.last_updated = now;
+                    return;
+                }
+            },
+        }
+        self.last_updated = Instant::now()
+    }
+
+    fn add_game(&mut self, scheduler: &mut Scheduler<Self>) {
+        scheduler.await_message(async move {
+            #[cfg(not(target_family = "wasm"))]
+            let dialog = rfd::AsyncFileDialog::new().set_directory(home_dir().unwrap());
+            #[cfg(target_family = "wasm")]
+            let dialog = rfd::AsyncFileDialog::new();
+            let digest = match dialog.pick_file().await {
+                None => None,
+                Some(handle) => Some((handle.file_name(), handle.read().await)),
+            };
+            EmuMessage::RfdReturn(digest)
+        });
+    }
+
+    fn load_game(&mut self, rom: Vec<u8>) {
+        self.frames = 0;
+        self.is_paused = false;
+        self.emulator = Some(Emulator::new(rom));
+    }
+
+    fn rfd_return(&mut self, msg: Option<(String, Vec<u8>)>) {
+        match msg {
+            Some((name, rom)) => self.trove.add_game(&name, &rom),
+            None => return,
+        }
+    }
+
+    fn send_game_list(&self, scheduler: &mut Scheduler<Self>) {
+        scheduler.send_message(self.trove.list_games());
+    }
+}
+
+pub type Frame = (Image, usize);
+
+#[derive(Debug, Clone)]
+pub struct Image {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<u8>,
+}
+
+impl Image {
+    pub fn new(screen: &[Vec<Pixel>]) -> Self {
+        const SCALE: usize = 4;
+        let (width, height, pixels) = screen_to_image_scaled(screen, SCALE);
+        Image {
+            width,
+            height,
+            pixels,
+        }
+    }
+
+    pub fn blank() -> Self {
+        Self::new(&vec![vec![Pixel::WHITE; 160]; 144])
     }
 }
 
@@ -164,8 +210,34 @@ pub struct Emulator {
     gb: EmulatorInner,
 }
 
-#[allow(dead_code)]
+impl Emulator {
+    pub fn new(cart: Vec<u8>) -> Self {
+        let gb = Gameboy::load_cartridge(cart);
+        Self {
+            gb: EmulatorInner::Ready(gb.complete()),
+            // gb: EmulatorInner::StartUp(Some(gb)),
+        }
+    }
+
+    pub fn just_pixels(&self) -> Image {
+        Image::new(&self.gb.gb().ppu.screen)
+    }
+
+    pub fn gb(&self) -> &Gameboy {
+        self.gb.gb()
+    }
+
+    pub fn gb_mut(&mut self) -> &mut Gameboy {
+        self.gb.gb_mut()
+    }
+
+    pub fn next_frame(&mut self) {
+        self.gb.next_frame()
+    }
+}
+
 enum EmulatorInner {
+    #[allow(dead_code)]
     StartUp(Option<StartUpSequence>),
     Ready(Gameboy),
 }
@@ -205,36 +277,81 @@ impl EmulatorInner {
     }
 }
 
-#[allow(clippy::ptr_arg)]
-pub fn create_image(screen: &Vec<Vec<Pixel>>) -> Handle {
-    const SCALE: usize = 4;
-    let (width, height, image) = screen_to_image_scaled(screen, SCALE);
-    assert_eq!(width * height * 4, image.len() as u32);
-    Handle::from_rgba(width, height, image)
+fn step_duration(gb: &mut Gameboy, dur: Duration) {
+    // We need to know how many instructions to step through. For this, we calculate the number of
+    // "dots" (clock cycles) that span the given duration.
+    //
+    // There are 70224 dots per frame. Calculate the percentage of a frame the duration is and find
+    // the number of dots for the duration
+    let mut dots = ((70224 * dur.as_micros()) / 17_000) as usize;
+    while dots > 0 {
+        dots = dots.saturating_sub(gb.step());
+    }
 }
 
-impl Emulator {
-    pub fn new(cart: Vec<u8>) -> Self {
-        let gb = Gameboy::load_cartridge(cart);
-        Self {
-            gb: EmulatorInner::Ready(gb.complete()),
-            // gb: EmulatorInner::StartUp(Some(gb)),
+/// An actor that has an MPSC channel as an input stream and an MPSC as output; however, since the
+/// client holds the receiver, the output effectively becomes an SPSC.
+pub struct SinkSendActor<T> {
+    sender: mpsc::UnboundedSender<T>,
+}
+
+impl<A: ActorState, T: 'static + Send> ActorKind<A> for SinkSendActor<T> {
+    type Client = SinkSendClient<A::Message, T>;
+    type Config = ();
+
+    fn construct(
+        (): Self::Config,
+    ) -> (Self, Self::Client, impl 'static + FnOnce(&mut Scheduler<A>)) {
+        let (send_to_client, recv_at_client) = mpsc::unbounded_channel();
+        let (send_to_actor, recv_from_client) = mpsc::unbounded_channel();
+
+        let this = Self {
+            sender: send_to_client,
+        };
+
+        let client = SinkSendClient {
+            send: send_to_actor,
+            recv: recv_at_client,
+        };
+
+        let init_fn = move |scheduler: &mut Scheduler<A>| {
+            scheduler.attach_stream(UnboundedReceiverStream::new(recv_from_client).fuse());
+        };
+        (this, client, init_fn)
+    }
+}
+
+impl<T> SinkSendActor<T> {
+    pub fn send_message(&self, msg: impl Into<T>) {
+        let _ = self.sender.send(msg.into());
+    }
+}
+
+pub struct SinkSendClient<S, R> {
+    send: mpsc::UnboundedSender<S>,
+    recv: mpsc::UnboundedReceiver<R>,
+}
+
+impl<S, R> SinkSendClient<S, R> {
+    pub fn sink_client(&self) -> SinkClient<S> {
+        SinkClient {
+            send: self.send.clone(),
         }
     }
 
-    pub fn just_pixels(&self) -> Handle {
-        create_image(&self.gb.gb().ppu.screen)
+    pub fn split(self) -> (SinkClient<S>, impl Stream<Item = R>) {
+        let Self { send, recv } = self;
+        let send = SinkClient { send };
+        (send, UnboundedReceiverStream::new(recv))
     }
+}
 
-    pub fn gb(&self) -> &Gameboy {
-        self.gb.gb()
-    }
+pub struct SinkClient<T> {
+    send: mpsc::UnboundedSender<T>,
+}
 
-    pub fn gb_mut(&mut self) -> &mut Gameboy {
-        self.gb.gb_mut()
-    }
-
-    pub fn next_frame(&mut self) {
-        self.gb.next_frame()
+impl<T> SinkClient<T> {
+    pub fn send(&self, msg: impl Into<T>) {
+        let _ = self.send.send(msg.into());
     }
 }

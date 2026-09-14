@@ -1,8 +1,8 @@
 macro_rules! blarg_test {
-    ($file:literal) => {
+    ($file:literal, $frames:literal) => {
         let rom = include_bytes!(concat!("roms/blarg/cpu_instrs/", $file, ".gb"));
         let mut gb = spirit::Gameboy::load_cartridge(rom.into()).complete();
-        (0..10).for_each(|_| gb.next_frame());
+        (0..$frames).for_each(|_| gb.next_frame());
         let screen: Vec<u8> = gb
             .ppu
             .screen
@@ -16,55 +16,55 @@ macro_rules! blarg_test {
 
 #[test]
 fn blarg_special_instr_test() {
-    blarg_test!("01-special");
+    blarg_test!("01-special", 150);
 }
 
 #[test]
 fn blarg_interrupt_instr_test() {
-    blarg_test!("02-interrupts");
+    blarg_test!("02-interrupts", 40);
 }
 
 #[test]
 fn blarg_sp_hl_instr_test() {
-    blarg_test!("03-op_sp,hl");
+    blarg_test!("03-op_sp,hl", 100);
 }
 
 #[test]
 fn blarg_r_imm_instr_test() {
-    blarg_test!("04-op_r,imm");
+    blarg_test!("04-op_r,imm", 110);
 }
 
 #[test]
 fn blarg_rp_instr_test() {
-    blarg_test!("05-op_rp");
+    blarg_test!("05-op_rp", 150);
 }
 
 #[test]
 fn blarg_ld_r_r_instr_test() {
-    blarg_test!("06-ld_r,r");
+    blarg_test!("06-ld_r,r", 50);
 }
 
 #[test]
 fn blarg_jr_jp_call_ret_rst_instr_test() {
-    blarg_test!("07-jr,jp,call,ret,rst");
+    blarg_test!("07-jr,jp,call,ret,rst", 50);
 }
 
 #[test]
 fn blarg_misc_instr_test() {
-    blarg_test!("08-misc_instrs");
+    blarg_test!("08-misc_instrs", 40);
 }
 
 #[test]
 fn blarg_r_r_instr_test() {
-    blarg_test!("09-op_r,r");
+    blarg_test!("09-op_r,r", 300);
 }
 
 #[test]
 fn blarg_bit_ops_instr_test() {
-    blarg_test!("10-bit_ops");
+    blarg_test!("10-bit_ops", 430);
 }
 
 #[test]
 fn blarg_a_hl_instr_test() {
-    blarg_test!("11-op_a,(hl)");
+    blarg_test!("11-op_a,(hl)", 570);
 }
