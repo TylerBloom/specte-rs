@@ -1,6 +1,8 @@
 /target
 /Cargo.lock
+/wisp/dist/
 roms/*
 /ghast/trove/*
+/ghast/trove.db3
 !/ghast/trove/README.md
 /tombstone/config.cbor
