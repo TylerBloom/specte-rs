@@ -33,7 +33,7 @@ instant = "0.1"
 
 [target.wasm32-unknown-unknown.dependencies]
 base64 = "0.23.1"
-tokio = { workspace = true, default-features = false, features = ["sync", "rt", "time", "macros"] }
+tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
 instant = { version = "0.1", features = ["wasm-bindgen"] }
 wasm-bindgen-futures = "0.4.54"
 web-sys = { version = "0.3.104", features = ["Window", "Storage", "CanvasRenderingContext2d", "ImageData", "CssStyleDeclaration", "Document", "Element", "EventTarget", "HtmlCanvasElement", "HtmlElement"] }
