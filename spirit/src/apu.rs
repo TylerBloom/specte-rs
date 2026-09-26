@@ -1,7 +1,32 @@
 #![allow(unused)]
 // FIXME: Unused code is being allowed here only because this is *very* much under construction.
 
-pub struct Apu {}
+use crate::mem::io::apu::AudioRegisters;
+
+pub struct Apu {
+    mixer: AudioMixer,
+    amp: AudioAmplifier,
+}
+
+impl Apu {
+    pub(crate) fn new() -> Self {
+        todo!()
+    }
+
+    pub(crate) fn tick(&mut self, reg: &AudioRegisters) {
+        todo!()
+    }
+}
+
+impl Default for Apu {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+struct AudioMixer {}
+
+struct AudioAmplifier {}
 
 pub struct Envelope {}
 
