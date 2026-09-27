@@ -211,17 +211,6 @@ impl Index<ObjPaletteIndex> for MemoryMap {
     }
 }
 
-// FF40 -> LCD control register
-// FF41 -> LCD status register
-// FF42 & FF43 -> Background viewport position (SCY, SCX)
-// FF44 -> LCD Y coordinate (read only) (this is held in the PPU)
-// FF45 -> LY compare (controls the STAT iterrupt) (LCD Y is in the PPU, so this should be put
-// there too)
-// FF46 -> OAM DMA source address and start
-// FF47 -> Monochrome BG palette data
-// FF48 & FF49 -> Monochrome OBJ palette data
-// FF4A & FF4B -> Window position (Y, X + 7)
-
 impl IoRegisters {
     pub(super) fn tick(&mut self, speed: SpeedMode) {
         if self.tac.tick(speed) {

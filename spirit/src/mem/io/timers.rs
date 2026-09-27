@@ -12,7 +12,7 @@ use crate::utils::Wrapping;
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimerRegisters {
     /// ADDR FF04
-    divider_reg: Wrapping<u8>,
+    pub(crate) divider_reg: Wrapping<u8>,
     /// The divider reg is incremented every 256 ticks. This tracks those ticks. When the divider
     /// is reset, this counter is reset.
     divider_counter: Wrapping<u8>,
