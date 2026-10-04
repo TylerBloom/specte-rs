@@ -1,6 +1,8 @@
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::cpu::check_bit_const;
+
 #[derive(Debug, Default, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AudioRegisters {
     /// The volume control for the amplifier
@@ -221,5 +223,89 @@ impl AudioRegisters {
     /// and outputs the next byte in the channel's wave form.
     pub fn read_channel_one(&self) -> u8 {
         todo!()
+    }
+}
+
+struct ChannelTwo {
+    /// The values held in the FF11 register
+    length_duty: u8,
+    /// Tracks if the channel is on and passing data to the channel's DAC
+    triggered: bool,
+    /// Tracks the distance into the wave form. The ensures there is no initial offset into the
+    /// wave when triggered.
+    ticks: u8,
+
+    volume: u8,
+    period_low: u8,
+    period_high_and_control: u8,
+}
+
+impl ChannelTwo {
+    /// When AND-ed with `length_duty`, returns the length of the waveform
+    const LENGTH_MASK: u8 = 0b0011_1111;
+
+    fn new() -> Self {
+        Self {
+            triggered: false,
+            ticks: 0,
+            volume: 0,
+            length_duty: 0,
+            period_high_and_control: 0,
+        }
+    }
+
+    #[inline(always)]
+    fn read_byte(&self, addr: u16) -> u8 {
+        match addr {
+            0xFF16 => self.length_duty & Self::LENGTH_MASK,
+            0xFF17 => self.volume & 0b1111_0000,
+            0xFF18 => 0,
+            0xFF19 => self.period_high_and_control & 0b0100_0000,
+            _ => unreachable!(),
+        }
+    }
+
+    #[inline(always)]
+    fn write_byte(&mut self, addr: u16, val: u8) {
+        match addr {
+            0xFF16 => self.length_duty = val,
+            0xFF17 => self.volume = val & 0b1111_0000,
+            0xFF18 => {
+                self.period_low = val;
+                todo!()
+            }
+            0xFF19 => {
+                if check_bit_const::<7>(val) {
+                    self.triggered = true;
+                }
+                self.period_high_and_control = val & 0b1100_0111;
+                todo!()
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn tick(&mut self) {
+        self.ticks += 1;
+        let mut length = self.length_duty & Self::LENGTH_MASK;
+        length += 1;
+        if check_bit_const::<6>(length) {
+            length = 0;
+            self.ticks = 0;
+            self.triggered = false;
+        }
+        self.length_duty &= Self::LENGTH_MASK;
+        self.length_duty |= length;
+    }
+
+    pub fn read_waveform(&self) -> Option<u8> {
+        self.triggered
+            .then(|| match self.length_duty & (!Self::LENGTH_MASK) {
+                0b0000_0000 => make_some_noise(),
+                0b0100_0000 => todo!(),
+                0b1000_0000 => todo!(),
+                0b1100_0000 => todo!(),
+                _ => unreachable!(),
+            })
     }
 }
