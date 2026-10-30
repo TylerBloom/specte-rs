@@ -173,7 +173,9 @@ impl InnerAppState {
                 std::process::exit(0)
             }
             Command::Step { count } => {
-                (0..count).for_each(|_| self.gb.gb_mut().step());
+                (0..count).for_each(|_| {
+                    self.gb.gb_mut().step();
+                });
             }
             Command::Info => todo!(),
             Command::Index(options) => match options {

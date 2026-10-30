@@ -9,9 +9,8 @@ use crate::mem::RomBank;
 use crate::mem::mbc::RAM_BANK_SIZE;
 use crate::mem::mbc::ROM_BANK_SIZE;
 
-#[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MBC1 {
-    kind: MBC1Kind,
     rom: Box<[RomBank]>,
     ram: Box<[RamBank]>,
     bank_index_one: u8,
@@ -39,10 +38,24 @@ pub struct MBC1 {
     ram_index_mask: u8,
 }
 
+impl std::fmt::Debug for MBC1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MBC1")
+            .field("rom_banks", &self.rom.len())
+            .field("ram_banks", &self.ram.len())
+            .field("bank_index_one", &self.bank_index_one)
+            .field("bank_index_two", &self.bank_index_two)
+            .field("ram_enabled", &self.ram_enabled)
+            .field("banking_mode", &self.banking_mode)
+            .field("rom_index_mask", &self.rom_index_mask)
+            .field("ram_index_mask", &self.ram_index_mask)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Display for MBC1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self {
-            kind,
             rom: _,
             ram: _,
             bank_index_one,
@@ -62,12 +75,6 @@ impl Display for MBC1 {
         writeln!(f, "  rom_bank: 0x{:0>2X}", self.rom_bank())?;
         writeln!(f, "}}")
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum MBC1Kind {
-    Standard,
-    Rewired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, derive_more::Display)]
@@ -99,15 +106,12 @@ impl MBC1 {
             ram_size / RAM_BANK_SIZE,
             ram_size,
         );
-        // All MBC1 cartridges with 1 MiB of ROM or more use this alternate wiring
-        let kind = if rom_size > 1024 * 1024 {
-            // TODO: This should be Advanced, but it would require reworking the indexing logic at
-            // bit more...
-            MBC1Kind::Standard
-        } else {
-            MBC1Kind::Standard
-        };
-
+        // MBC1 comes in two wirings: the default (<= 512 KiB ROM, up to 32 KiB RAM) and an
+        // alternate "rewired" mode (>= 1 MiB ROM, fixed 8 KiB RAM), used by all carts with 1 MiB of
+        // ROM or more, where the 2-bit banking register extends the ROM bank number instead of
+        // selecting a RAM bank. We don't track which wiring is used explicitly: the
+        // `rom_index_mask`/`ram_index_mask` below are derived from the ROM/RAM sizes and reproduce
+        // the behavior of both wirings automatically.
         let rom_bank_count = rom_size / ROM_BANK_SIZE;
         let rom_index_mask = (rom_bank_count - 1) as u8;
         // I.e. bank_count is a multiple of two.
@@ -132,7 +136,6 @@ impl MBC1 {
             .collect();
         let ram = vec![RamBank::new(); std::cmp::max(ram_size / RAM_BANK_SIZE, 1)].into();
         Self {
-            kind,
             rom,
             bank_index_one: 1,
             ram,
@@ -232,12 +235,6 @@ impl MBC1 {
     }
 }
 
-// TODO:
-// Write testing for this sections of the Pandocs:
-// https://gbdev.io/pandocs/MBC1.html#20003fff--rom-bank-number-write-only
-//
-// Also, add tests for reads and writes from smaller carts.
-
 #[cfg(test)]
 mod tests {
     use crate::mem::RomBank;
@@ -245,14 +242,12 @@ mod tests {
     use crate::mem::mbc::ROM_BANK_SIZE;
 
     use super::MBC1;
-    use super::MBC1Kind;
 
     // This test comes from the complete technical reference
     #[test]
     fn rom_bank_example_one() {
         let rom = (0..128).map(|i| std::iter::repeat(i).collect()).collect();
         let mut mbc = MBC1 {
-            kind: MBC1Kind::Standard,
             rom,
             ram: Vec::new().into(),
             bank_index_one: 0x12,
@@ -294,7 +289,6 @@ mod tests {
             .map(|i| RomBank::from_iter(std::iter::repeat(i)))
             .collect();
         let mut mbc = MBC1 {
-            kind: MBC1Kind::Standard,
             rom,
             ram: Vec::new().into(),
             bank_index_one: 0x12,

@@ -226,6 +226,7 @@ impl CpuTest {
             // occurs, we break
             while cpu.pc != end.pc && ops < 100 {
                 ops += 1;
+                let mut cycles = 0;
                 let op = cpu.read_op();
                 // println!("Running instruction: {op}");
                 // println!("Init CPU: {cpu}");
@@ -233,7 +234,7 @@ impl CpuTest {
                     mem: &mut mem,
                     ppu: &mut ppu,
                     cpu: &mut cpu,
-                    cycle_count: 0,
+                    cycles: &mut cycles,
                 };
                 op.execute(state);
                 // println!("Post CPU: {cpu}\n");

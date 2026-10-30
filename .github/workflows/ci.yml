@@ -2,9 +2,9 @@ name: Specte-rs CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, mvp ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, mvp ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,11 +19,15 @@ jobs:
         with:
           rust-version: nightly
           components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
       - uses: actions/checkout@v7
       - run: cargo fmt --check
-      - run: cargo clippy --all
+      - run: cargo clippy --package=spirit
+      - run: cargo clippy --package=ghast
+      - run: cargo clippy --lib --package=ghast --target=wasm32-unknown-unknown
+      - run: cargo clippy --package=wisp --target=wasm32-unknown-unknown
   tests:
     needs: code_cleaniness_checks
     runs-on: ubuntu-latest
@@ -41,5 +45,50 @@ jobs:
           version: 'latest'
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
-      - run: cargo build
-      - run: cargo test
+      - name: Check spirit
+        run: cargo test --package=spirit
+      - name: Check ghast
+        run: cargo check --package=ghast
+      - name: Check wisp
+        working-directory: wisp
+        run: trunk build
+  deploy_pages:
+    name: Deploy wisp to GitHub Pages
+    needs: tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/mvp'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Setup Rust
+        uses: hecrj/setup-rust-action@v2
+        with:
+          rust-version: stable
+          targets: wasm32-unknown-unknown
+      - uses: actions/checkout@v6
+      - name: Fetch Trunk
+        uses: jetli/trunk-action@v0.5.1
+        with:
+          version: 'latest'
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Build wisp
+        working-directory: wisp
+        # `--public-url ./` emits relative asset paths so the same build works both at the
+        # custom domain root (https://specte.rs/) and at the project page subpath
+        # (https://tylerbloom.github.io/specte-rs/).
+        run: trunk build --release --public-url ./
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: wisp/dist
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
