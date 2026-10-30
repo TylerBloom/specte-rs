@@ -52,6 +52,7 @@ pub enum EmuMessage {
     Keystroke(Keystroke),
     LoadGame(Vec<u8>),
     AddGame,
+    StartGame(Arc<str>),
     RfdReturn(Option<(String, Vec<u8>)>),
     TakeSnapShot,
     SaveState,
@@ -97,6 +98,7 @@ impl EmuCore {
             EmuMessage::LoadGame(rom) => self.load_game(rom),
             EmuMessage::RfdReturn(msg) => self.rfd_return(msg),
             EmuMessage::FetchGameList => self.send_game_list(scheduler),
+            EmuMessage::StartGame(name) => self.start_game(&name),
         }
     }
 
@@ -145,6 +147,9 @@ impl EmuCore {
                     return;
                 }
             },
+            EmuMessage::StartGame(name) => {
+                self.start_game(&name)
+            }
         }
         self.last_updated = Instant::now()
     }
@@ -161,6 +166,12 @@ impl EmuCore {
             };
             EmuMessage::RfdReturn(digest)
         });
+    }
+
+    fn start_game(&mut self, name: &str) {
+        let rom = self.trove.get_game(name);
+        let emu = Emulator::new(rom);
+        self.emulator = Some(emu);
     }
 
     fn load_game(&mut self, rom: Vec<u8>) {

@@ -87,6 +87,22 @@ impl Trove {
         self.add_variant(variant, name);
     }
 
+    pub fn get_game(&self, name: &str) -> Vec<u8> {
+        self.conn
+            .query_one(
+                "
+                SELECT cartridge
+                FROM variants
+                WHERE name = ?1
+                ORDER BY last_updated
+                LIMIT 1
+            ",
+                (name,),
+                |row| row.get(0)
+            )
+            .unwrap()
+    }
+
     /// Reads back the sorted list of game names currently stored in the trove.
     pub(crate) fn list_games(&self) -> Vec<Arc<str>> {
         self.conn

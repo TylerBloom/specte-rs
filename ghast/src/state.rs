@@ -70,7 +70,7 @@ impl From<EmuOutput> for UiMessage {
 #[derive(Debug, Clone, PartialEq)]
 pub enum HomeMessage {
     AddGame,
-    StartGame(String),
+    StartGame(Arc<str>),
     TroveGames(Vec<Arc<str>>),
 }
 
@@ -160,9 +160,8 @@ impl HomeState {
                 None
             }
             HomeMessage::StartGame(file) => {
-                // send.send(EmuMessage::LoadGame(file));
-                // Some(StateCursor::InGame)
-                todo!()
+                send.send(EmuMessage::StartGame(file));
+                Some(StateCursor::InGame)
             }
             HomeMessage::TroveGames(games) => {
                 self.games = games;
@@ -328,9 +327,7 @@ mod native {
                 .map(|name| {
                     let name = name.clone();
                     text_button(name.clone(), move |state: &mut UiState| {
-                        state.update(UiMessage::HomeMessage(HomeMessage::StartGame(
-                            (&*name).to_owned(),
-                        )));
+                        state.update(UiMessage::HomeMessage(HomeMessage::StartGame(name.clone())));
                     })
                 })
                 .collect::<Vec<_>>();
